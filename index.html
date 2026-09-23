@@ -8,6 +8,39 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 <script src="https://accounts.google.com/gsi/client" async defer></script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
+  import { getFirestore, doc, getDoc, setDoc } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBjf7oN8bZMc7MHnX9C3LGICbE040K1IQU",
+    authDomain: "tutor-cabinet.firebaseapp.com",
+    projectId: "tutor-cabinet",
+    storageBucket: "tutor-cabinet.firebasestorage.app",
+    messagingSenderId: "580713659609",
+    appId: "1:580713659609:web:94eae49a4e74eb679052c8",
+  };
+
+  // Секретный "путь учителя" в Firestore. Правила доступа (firestore.rules)
+  // пускают читать/писать только того, кто знает эту точную строку — она
+  // играет роль ключа, как и access-key для родителей/учеников в плане
+  // платформы. Никому не показывать отдельно от этого файла.
+  const TEACHER_ID = "2Vv0fLQi3MXbEgqpwlmWk5E1KnVRz9-q";
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const stateRef = doc(db, "teacherSpaces", TEACHER_ID, "state", "main");
+
+  window.TutorFB = {
+    async loadState() {
+      const snap = await getDoc(stateRef);
+      return snap.exists() ? snap.data() : null;
+    },
+    async saveState(obj) {
+      await setDoc(stateRef, obj);
+    },
+  };
+</script>
 <style>
   :root {
     --bg: #faf6f0;
@@ -508,7 +541,7 @@
           <div>Прогноз на весь период (по расписанию): <b id="forecastCount">0</b> зан.</div>
           <div class="mini-big" id="forecastSum">0 ₽</div>
         </div>
-        <div class="hint">В сумму «Заработано» идут только отмеченные «Провёл». Прогноз — это сколько выйдет, если пройдут все занятия периода по текущим ставкам (включая уже отмеченные). Если ставка не найдена — впиши сумму вручную, тогда занятие можно отметить. Цена фиксируется в момент отметки — если позже поднимешь ставку, старые занятия не пересчитаются. Отметки хранятся в этом браузере (localStorage) — на другом устройстве или после очистки данных сайта они не видны.</div>
+        <div class="hint">В сумму «Заработано» идут только отмеченные «Провёл». Прогноз — это сколько выйдет, если пройдут все занятия периода по текущим ставкам (включая уже отмеченные). Если ставка не найдена — впиши сумму вручную, тогда занятие можно отметить. Цена фиксируется в момент отметки — если позже поднимешь ставку, старые занятия не пересчитаются. Отметки хранятся в облаке (Firestore) — видны с любого устройства, где входишь под своим Google-аккаунтом.</div>
       </div>
     </div>
 
@@ -718,6 +751,7 @@
 
   async function afterAuth() {
     showApp();
+    await bootstrapRemoteState();
     await loadRatesFromCache();
     renderRatesMeta();
     if (!rates.length) await refreshRates();
@@ -928,22 +962,75 @@
     $("ratesMeta").textContent = `${n} ставок · обновлено: ${t}`;
   }
 
-  // ---------- ОТМЕТКИ (localStorage) ----------
+  // ---------- ОТМЕТКИ И ПАКЕТЫ (Firestore, teacherSpaces/{TEACHER_ID}/state/main) ----------
+  // Раньше жили в localStorage этого браузера — теперь общие для всех
+  // устройств тьютора. При первом заходе на новом Firebase-проекте всё,
+  // что уже накопилось в localStorage, переносится в Firestore один раз.
+
+  function readLocalMarksAll() {
+    const out = {};
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.indexOf("mark_") === 0) {
+          try { out[k.slice(5)] = JSON.parse(localStorage.getItem(k)); } catch (e) { /* skip */ }
+        }
+      }
+    } catch (e) { /* ignore */ }
+    return out;
+  }
+
+  function readLocalPkgOverridesRaw() {
+    try {
+      const raw = localStorage.getItem("pkg_overrides");
+      return raw ? JSON.parse(raw) : {};
+    } catch (e) { return {}; }
+  }
+
+  let remoteStateReady = false;
+
+  async function persistRemoteState() {
+    if (!window.TutorFB) return;
+    try {
+      await window.TutorFB.saveState({ pkgOverrides: packageOverrides, marks });
+    } catch (e) {
+      console.error("Не удалось сохранить в Firestore, данные остались только в этой вкладке до перезагрузки", e);
+    }
+  }
+
+  async function bootstrapRemoteState() {
+    if (remoteStateReady) return;
+    if (!window.TutorFB) { // модуль ещё не успел выполниться — редкий случай, подождём немного
+      await new Promise(r => setTimeout(r, 300));
+    }
+    try {
+      const remote = window.TutorFB ? await window.TutorFB.loadState() : null;
+      if (remote) {
+        packageOverrides = remote.pkgOverrides || {};
+        marks = remote.marks || {};
+      } else {
+        // первый запуск на этом Firebase-проекте — переносим то, что накопилось локально
+        packageOverrides = readLocalPkgOverridesRaw();
+        marks = readLocalMarksAll();
+        await persistRemoteState();
+      }
+    } catch (e) {
+      console.error("Firestore недоступен, работаем локально в этой вкладке", e);
+      packageOverrides = readLocalPkgOverridesRaw();
+      marks = readLocalMarksAll();
+    }
+    remoteStateReady = true;
+  }
 
   function loadMarksFor(ids) {
     ids.forEach(id => {
-      try {
-        const raw = localStorage.getItem("mark_" + id);
-        marks[id] = raw ? JSON.parse(raw) : (marks[id] || { marked: false, overrideAmount: null, lockedRate: null });
-      } catch (e) {
-        marks[id] = marks[id] || { marked: false, overrideAmount: null, lockedRate: null };
-      }
+      if (!marks[id]) marks[id] = { marked: false, overrideAmount: null, lockedRate: null };
     });
   }
 
   function saveMark(id, state) {
     marks[id] = state;
-    try { localStorage.setItem("mark_" + id, JSON.stringify(state)); } catch (e) { /* ignore */ }
+    persistRemoteState();
   }
 
   async function toggleMark(ev, currentMark) {
@@ -1359,16 +1446,27 @@
 
   // ---------- УЧЕНИКИ ----------
 
-  // Ручные правки пакетов (localStorage): { [studentKey]: { doneOverride, totalOverride, hidden, manual } }
+  // Ручные правки пакетов: { [studentKey]: { doneOverride, totalOverride, hidden, manual } }
+  // Хранятся в Firestore вместе с отметками — см. bootstrapRemoteState/persistRemoteState выше.
   let packageOverrides = {};
-  function loadPackageOverrides() {
+  async function loadPackageOverrides() {
+    // Состояние уже загружено при входе (afterAuth → bootstrapRemoteState).
+    // Здесь просто на всякий случай подтягиваем свежую версию — если открыт
+    // дашборд на двух устройствах сразу, при заходе на вкладку "Ученики"
+    // увидим последние изменения, а не устаревший кэш из памяти вкладки.
+    if (!window.TutorFB) return;
     try {
-      const raw = localStorage.getItem("pkg_overrides");
-      packageOverrides = raw ? JSON.parse(raw) : {};
-    } catch (e) { packageOverrides = {}; }
+      const remote = await window.TutorFB.loadState();
+      if (remote) {
+        packageOverrides = remote.pkgOverrides || {};
+        marks = Object.assign({}, marks, remote.marks || {});
+      }
+    } catch (e) {
+      console.error("Не удалось обновить пакеты из Firestore, показываю то, что в памяти", e);
+    }
   }
   function savePackageOverrides() {
-    try { localStorage.setItem("pkg_overrides", JSON.stringify(packageOverrides)); } catch (e) { /* ignore */ }
+    persistRemoteState();
   }
 
   // Разбираем занятия с суффиксом "N/M" в названии, группируем по ученику,
@@ -1525,7 +1623,7 @@
 
   async function loadPackages() {
     $("packagesList").innerHTML = '<div class="empty">Загрузка…</div>';
-    loadPackageOverrides();
+    await loadPackageOverrides();
     const now = new Date();
     const start = new Date(now); start.setDate(start.getDate() - 21);
     const end = new Date(now); end.setDate(end.getDate() + 240);

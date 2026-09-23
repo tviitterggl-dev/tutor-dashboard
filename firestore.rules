@@ -1,0 +1,27 @@
+rules_version = '2';
+
+// Модель доступа: без Firebase Authentication. Доступ разграничен
+// секретным путём в документе — кто знает точный TEACHER_ID (или, в
+// будущем, ключ родителя/ученика), тот может читать и писать. Листинг
+// коллекций специально НЕ разрешён (allow list: if false) — иначе можно
+// было бы перебором получить список всех teacherId/ключей. Разрешён
+// только точечный доступ (get/write) по полному известному пути.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Личный кабинет тьютора: teacherSpaces/{TEACHER_ID}/state/main
+    match /teacherSpaces/{teacherId}/state/{stateDoc} {
+      allow get, write: if true;
+      allow list: if false;
+    }
+
+    // Место для будущих кабинетов родителя/ученика:
+    // match /parentAccess/{key}/{document=**} { allow get, write: if true; allow list: if false; }
+    // match /studentAccess/{key}/{document=**} { allow get, write: if true; allow list: if false; }
+
+    // Всё остальное — запрещено по умолчанию.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
