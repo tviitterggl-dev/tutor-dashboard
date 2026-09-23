@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   :root {
     --bg: #faf6f0;
@@ -79,6 +80,9 @@
     margin-bottom: 14px;
     box-shadow: var(--shadow);
   }
+
+  .login-card { text-align: center; padding: 34px 18px; }
+  .login-card p { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
 
   .tabs, .subtabs {
     display: flex;
@@ -393,6 +397,11 @@
     font-size: 13px;
   }
 
+  .chart-title { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 13px; margin-bottom: 10px; color: var(--text); }
+  #trendChart svg rect { fill: var(--accent); }
+  #trendChart svg text { fill: var(--muted); font-family: "Inter", sans-serif; }
+  #trendChart svg text.val { fill: var(--accent-2); font-family: "Space Grotesk", sans-serif; font-weight: 600; }
+
   .sched-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   table.sched {
     border-collapse: collapse;
@@ -424,164 +433,197 @@
   table.sched td.free { background: var(--done-bg); color: var(--done-text); }
   table.sched.compact th, table.sched.compact td { padding: 4px 2px; font-size: 10px; }
   table.sched.compact thead th { padding: 6px 2px; }
+
+  .logout-link {
+    display: inline-block;
+    margin-left: 8px;
+    font-size: 11px;
+    color: var(--muted);
+    text-decoration: underline;
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Учёт занятий и заработка</h1>
-  <div class="sub">Живой список из Google Calendar · отмечай проведённые — сумма считается сама</div>
+  <div class="sub">Прямая связь с Google Calendar и Google Таблицами · отмечай проведённые — сумма считается сама</div>
 
-  <div class="card">
-    <div class="status-row" id="statusRow">
-      <span class="badge" id="calBadge">Календарь: …</span>
-      <span class="badge" id="ratesBadge">Ставки: …</span>
-    </div>
-    <div class="rates-row">
-      <div class="meta" id="ratesMeta">Ставки не загружены</div>
-      <button class="btn secondary" id="refreshRatesBtn">Обновить цены</button>
-    </div>
+  <!-- ВХОД -->
+  <div class="card login-card" id="loginCard">
+    <p>Нужно войти в свой Google-аккаунт, чтобы дашборд увидел календарь и таблицу ставок.</p>
+    <button class="btn" id="loginBtn" disabled>Войти через Google</button>
   </div>
 
-  <div class="tabs">
-    <div class="tab" data-tab="lessons">Занятия</div>
-    <div class="tab" data-tab="summary">Итоги</div>
-    <div class="tab" data-tab="students">Ученики</div>
-    <div class="tab" data-tab="schedule">Расписание</div>
-  </div>
-
-  <!-- ЗАНЯТИЯ -->
-  <div class="tabview" id="view-lessons">
+  <div id="appRoot" style="display:none">
     <div class="card">
-      <div class="subtabs">
-        <div class="subtab" data-lessonmode="day">День</div>
-        <div class="subtab" data-lessonmode="week">Неделя</div>
+      <div class="status-row" id="statusRow">
+        <span class="badge" id="calBadge">Календарь: …</span>
+        <span class="badge" id="ratesBadge">Ставки: …</span>
+        <button class="logout-link" id="logoutBtn">выйти</button>
       </div>
-
-      <div id="dayWeekNav" class="week-nav">
-        <button id="prevBtn">‹</button>
-        <div class="week-label" id="weekLabel">—</div>
-        <button id="nextBtn">›</button>
+      <div class="rates-row">
+        <div class="meta" id="ratesMeta">Ставки не загружены</div>
+        <button class="btn secondary" id="refreshRatesBtn">Обновить цены</button>
       </div>
-
-      <div class="btn-row">
-        <button class="btn secondary" id="markPastBtn">Отметить все прошедшие</button>
-      </div>
-
-      <div id="lessonsList"><div class="empty">Загрузка…</div></div>
     </div>
 
-    <div class="card">
-      <div class="totals">
-        <div>Проведено занятий: <b id="doneCount">0</b></div>
-        <div>Заработано: <span class="big" id="doneSum">0 ₽</span></div>
-      </div>
-      <div class="totals sub">
-        <div>Прогноз на весь период (по расписанию): <b id="forecastCount">0</b> зан.</div>
-        <div class="mini-big" id="forecastSum">0 ₽</div>
-      </div>
-      <div class="hint">В сумму «Заработано» идут только отмеченные «Провёл». Прогноз — это сколько выйдет, если пройдут все занятия периода по текущим ставкам (включая уже отмеченные). Если ставка не найдена — впиши сумму вручную, тогда занятие можно отметить. Цена фиксируется в момент отметки — если позже поднимешь ставку, старые занятия не пересчитаются.</div>
+    <div class="tabs">
+      <div class="tab" data-tab="lessons">Занятия</div>
+      <div class="tab" data-tab="summary">Итоги</div>
+      <div class="tab" data-tab="students">Ученики</div>
+      <div class="tab" data-tab="schedule">Расписание</div>
     </div>
-  </div>
 
-  <!-- ИТОГИ -->
-  <div class="tabview" id="view-summary" style="display:none">
-    <div class="card">
-      <div class="subtabs">
-        <div class="subtab" data-summode="week">Неделя</div>
-        <div class="subtab" data-summode="month">Месяц</div>
-        <div class="subtab" data-summode="range">Период</div>
-      </div>
-
-      <div id="summaryNav" class="week-nav">
-        <button id="summaryPrevBtn">‹</button>
-        <div class="week-label" id="summaryLabel">—</div>
-        <button id="summaryNextBtn">›</button>
-      </div>
-
-      <div id="summaryRangeNav" class="range-row" style="display:none">
-        <input type="date" id="summaryRangeStart">
-        <span class="dash">—</span>
-        <input type="date" id="summaryRangeEnd">
-        <button class="btn" id="summaryRangeGoBtn">Показать</button>
-      </div>
-
-      <div class="stat-row">
-        <div class="stat-tile"><span class="num" id="statCount">0</span><span class="lbl">занятий</span></div>
-        <div class="stat-tile"><span class="num" id="statHours">0</span><span class="lbl">часов</span></div>
-        <div class="stat-tile"><span class="num" id="statSum">0 ₽</span><span class="lbl">заработано</span></div>
-      </div>
-      <div class="totals sub">
-        <div>Прогноз на весь период (по расписанию): <b id="sumForecastCount">0</b> зан.</div>
-        <div class="mini-big" id="sumForecastSum">0 ₽</div>
-      </div>
-      <div class="compare-row" id="compareRow"></div>
-
-      <div class="btn-row">
-        <button class="btn secondary block" id="copySummaryBtn">Скопировать итоги</button>
-      </div>
-
-      <div id="studentsSummaryList"><div class="empty">Загрузка…</div></div>
-      <div class="hint">Только отмеченные «Провёл». Нажми на ученика, чтобы посмотреть занятия.</div>
-    </div>
-  </div>
-
-  <!-- УЧЕНИКИ -->
-  <div class="tabview" id="view-students" style="display:none">
-    <div class="card">
-      <div class="sub" style="margin-bottom:10px">Пакеты (предоплата)</div>
-      <div id="packagesList"><div class="empty">Загрузка…</div></div>
-      <div class="btn-row" style="margin-top:8px">
-        <button class="btn secondary block" id="pkgAddBtn" type="button">+ Добавить пакет вручную</button>
-      </div>
-      <div id="pkgAddForm" style="display:none; margin-top:8px;">
-        <div style="display:flex; gap:6px; margin-bottom:6px;">
-          <input type="text" class="pkg-input" id="pkgAddName" placeholder="Имя" style="flex:2">
-          <input type="number" class="pkg-input" id="pkgAddCls" placeholder="Класс" style="flex:1">
+    <!-- ЗАНЯТИЯ -->
+    <div class="tabview" id="view-lessons">
+      <div class="card">
+        <div class="subtabs">
+          <div class="subtab" data-lessonmode="day">День</div>
+          <div class="subtab" data-lessonmode="week">Неделя</div>
         </div>
-        <div style="display:flex; gap:6px; margin-bottom:6px;">
-          <input type="number" class="pkg-input" id="pkgAddTotal" placeholder="Всего занятий" value="8">
-          <input type="number" class="pkg-input" id="pkgAddDone" placeholder="Уже проведено" value="0">
+
+        <div id="dayWeekNav" class="week-nav">
+          <button id="prevBtn">‹</button>
+          <div class="week-label" id="weekLabel">—</div>
+          <button id="nextBtn">›</button>
         </div>
+
         <div class="btn-row">
-          <button class="btn block" id="pkgAddSaveBtn" type="button">Добавить</button>
-          <button class="btn secondary block" id="pkgAddCancelBtn" type="button">Отмена</button>
+          <button class="btn secondary" id="markPastBtn">Отметить все прошедшие</button>
         </div>
-      </div>
-      <div class="hint">Считается по занятиям с номером пакета в названии («N/M» в конце). «Отработано» — по отметкам «Провёл» в Занятиях, остальное — ещё не отработанная предоплата по текущей ставке. Если авто-подсчёт ошибся — жми «Исправить» на карточке.</div>
-    </div>
-    <div class="card">
-      <div id="studentsRosterList"><div class="empty">Загрузка…</div></div>
-      <div class="hint">Список и ставки из таблицы «Ставки учеников». Обновляется кнопкой «Обновить цены» сверху.</div>
-    </div>
-  </div>
 
-  <!-- РАСПИСАНИЕ -->
-  <div class="tabview" id="view-schedule" style="display:none">
-    <div class="card">
-      <div id="schedNav" class="week-nav">
-        <button id="schedPrevBtn">‹</button>
-        <div class="week-label" id="schedLabel">—</div>
-        <button id="schedNextBtn">›</button>
+        <div id="lessonsList"><div class="empty">Загрузка…</div></div>
       </div>
-      <div class="sched-wrap">
-        <table class="sched compact" id="schedTable"></table>
+
+      <div class="card">
+        <div class="totals">
+          <div>Проведено занятий: <b id="doneCount">0</b></div>
+          <div>Заработано: <span class="big" id="doneSum">0 ₽</span></div>
+        </div>
+        <div class="totals sub">
+          <div>Прогноз на весь период (по расписанию): <b id="forecastCount">0</b> зан.</div>
+          <div class="mini-big" id="forecastSum">0 ₽</div>
+        </div>
+        <div class="hint">В сумму «Заработано» идут только отмеченные «Провёл». Прогноз — это сколько выйдет, если пройдут все занятия периода по текущим ставкам (включая уже отмеченные). Если ставка не найдена — впиши сумму вручную, тогда занятие можно отметить. Цена фиксируется в момент отметки — если позже поднимешь ставку, старые занятия не пересчитаются. Отметки хранятся в этом браузере (localStorage) — на другом устройстве или после очистки данных сайта они не видны.</div>
       </div>
-      <div class="btn-row" style="margin-top:10px">
-        <button class="btn secondary block" id="schedExportBtn">Сохранить как картинку (PNG)</button>
+    </div>
+
+    <!-- ИТОГИ -->
+    <div class="tabview" id="view-summary" style="display:none">
+      <div class="card">
+        <div class="subtabs">
+          <div class="subtab" data-summode="week">Неделя</div>
+          <div class="subtab" data-summode="month">Месяц</div>
+          <div class="subtab" data-summode="range">Период</div>
+        </div>
+
+        <div id="summaryNav" class="week-nav">
+          <button id="summaryPrevBtn">‹</button>
+          <div class="week-label" id="summaryLabel">—</div>
+          <button id="summaryNextBtn">›</button>
+        </div>
+
+        <div id="summaryRangeNav" class="range-row" style="display:none">
+          <input type="date" id="summaryRangeStart">
+          <span class="dash">—</span>
+          <input type="date" id="summaryRangeEnd">
+          <button class="btn" id="summaryRangeGoBtn">Показать</button>
+        </div>
+
+        <div class="stat-row">
+          <div class="stat-tile"><span class="num" id="statCount">0</span><span class="lbl">занятий</span></div>
+          <div class="stat-tile"><span class="num" id="statHours">0</span><span class="lbl">часов</span></div>
+          <div class="stat-tile"><span class="num" id="statSum">0 ₽</span><span class="lbl">заработано</span></div>
+        </div>
+        <div class="totals sub">
+          <div>Прогноз на весь период (по расписанию): <b id="sumForecastCount">0</b> зан.</div>
+          <div class="mini-big" id="sumForecastSum">0 ₽</div>
+        </div>
+        <div class="compare-row" id="compareRow"></div>
+
+        <div class="btn-row">
+          <button class="btn secondary block" id="copySummaryBtn">Скопировать итоги</button>
+        </div>
+
+        <div id="studentsSummaryList"><div class="empty">Загрузка…</div></div>
+        <div class="hint">Только отмеченные «Провёл». Нажми на ученика, чтобы посмотреть занятия.</div>
       </div>
-      <div class="hint">Учтены занятия из календаря «Занятия» и личные события из основного календаря — жёлтое занято, зелёное свободно. Картинку удобно скинуть клиенту, чтобы он выбрал окно.</div>
+
+      <div class="card">
+        <div class="chart-title">Динамика дохода</div>
+        <div class="subtabs" style="margin-bottom:10px">
+          <div class="subtab" data-trendmode="week">12 недель</div>
+          <div class="subtab" data-trendmode="month">6 месяцев</div>
+        </div>
+        <div id="trendChart"><div class="empty">Загрузка…</div></div>
+        <div class="hint">Только отмеченные «Провёл» занятия, по периоду проведения.</div>
+      </div>
+    </div>
+
+    <!-- УЧЕНИКИ -->
+    <div class="tabview" id="view-students" style="display:none">
+      <div class="card">
+        <div class="sub" style="margin-bottom:10px">Пакеты (предоплата)</div>
+        <div id="packagesList"><div class="empty">Загрузка…</div></div>
+        <div class="btn-row" style="margin-top:8px">
+          <button class="btn secondary block" id="pkgAddBtn" type="button">+ Добавить пакет вручную</button>
+        </div>
+        <div id="pkgAddForm" style="display:none; margin-top:8px;">
+          <div style="display:flex; gap:6px; margin-bottom:6px;">
+            <input type="text" class="pkg-input" id="pkgAddName" placeholder="Имя" style="flex:2">
+            <input type="number" class="pkg-input" id="pkgAddCls" placeholder="Класс" style="flex:1">
+          </div>
+          <div style="display:flex; gap:6px; margin-bottom:6px;">
+            <input type="number" class="pkg-input" id="pkgAddTotal" placeholder="Всего занятий" value="8">
+            <input type="number" class="pkg-input" id="pkgAddDone" placeholder="Уже проведено" value="0">
+          </div>
+          <div class="btn-row">
+            <button class="btn block" id="pkgAddSaveBtn" type="button">Добавить</button>
+            <button class="btn secondary block" id="pkgAddCancelBtn" type="button">Отмена</button>
+          </div>
+        </div>
+        <div class="hint">Считается по занятиям с номером пакета в названии («N/M» в конце). «Отработано» — по отметкам «Провёл», остальное — ещё не отработанная предоплата по текущей ставке. Если авто-подсчёт ошибся — жми «Исправить» на карточке.</div>
+      </div>
+      <div class="card">
+        <div id="studentsRosterList"><div class="empty">Загрузка…</div></div>
+        <div class="hint">Список и ставки из таблицы «Ставки учеников». Обновляется кнопкой «Обновить цены» сверху.</div>
+      </div>
+    </div>
+
+    <!-- РАСПИСАНИЕ -->
+    <div class="tabview" id="view-schedule" style="display:none">
+      <div class="card">
+        <div id="schedNav" class="week-nav">
+          <button id="schedPrevBtn">‹</button>
+          <div class="week-label" id="schedLabel">—</div>
+          <button id="schedNextBtn">›</button>
+        </div>
+        <div class="sched-wrap">
+          <table class="sched compact" id="schedTable"></table>
+        </div>
+        <div class="btn-row" style="margin-top:10px">
+          <button class="btn secondary block" id="schedExportBtn">Сохранить как картинку (PNG)</button>
+        </div>
+        <div class="hint">Учтены занятия из календаря «Занятия» и личные события из основного календаря — жёлтое занято, зелёное свободно. Картинку удобно скинуть клиенту, чтобы он выбрал окно.</div>
+      </div>
     </div>
   </div>
 </div>
 
 <script>
 (function () {
+  const CLIENT_ID = "1089841743767-dp27f56bhf78o0tsp2qvscjpgl1jmvmn.apps.googleusercontent.com";
+  const SCOPES = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/spreadsheets.readonly";
   const RATES_FILE_ID = "1j0COVy9NUDOIumoGfJfTUYnV84c7jJ_rzFp1M3obORs";
   const LESSONS_CALENDAR_ID = "676742127252c358d9ad3f9bd85e2965176875b1aeb2d7fa65cd4341361d4397@group.calendar.google.com";
-  const CAL_SERVER = "Google Calendar";
-  const DRIVE_SERVER = "Google Drive";
 
-  let mcp = null, db = null, downloads = null;
+  let tokenClient = null;
+  let accessToken = null;
+
   let activeTab = "lessons"; // lessons | summary | students | schedule
 
   let rates = [];
@@ -593,7 +635,7 @@
   let weekOffset = 0;
   let events = [];
   let marks = {};
-  let calUnsub = null;
+  let pollTimer = null;
 
   // Итоги
   let summaryMode = "week"; // week | month | range
@@ -605,10 +647,84 @@
   // Расписание
   let schedWeekOffset = 0;
 
-  // Пакеты (Ученики)
-  let lastPackageEvents = [];
-
   const $ = (id) => document.getElementById(id);
+
+  // ---------- АВТОРИЗАЦИЯ ----------
+
+  function saveToken(resp) {
+    accessToken = resp.access_token;
+    const expiresAt = Date.now() + (Number(resp.expires_in || 3600) * 1000) - 60000;
+    try { localStorage.setItem("gtoken", JSON.stringify({ token: accessToken, expiresAt })); } catch (e) { /* ignore */ }
+  }
+  function loadStoredToken() {
+    try {
+      const raw = localStorage.getItem("gtoken");
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      if (data.expiresAt > Date.now()) return data.token;
+    } catch (e) { /* ignore */ }
+    return null;
+  }
+  function clearToken() {
+    accessToken = null;
+    try { localStorage.removeItem("gtoken"); } catch (e) { /* ignore */ }
+  }
+
+  function showLoginScreen() {
+    $("loginCard").style.display = "block";
+    $("appRoot").style.display = "none";
+  }
+  function showApp() {
+    $("loginCard").style.display = "none";
+    $("appRoot").style.display = "block";
+  }
+
+  function handleAuthExpired() {
+    clearToken();
+    stopPoll();
+    showLoginScreen();
+  }
+
+  function initGis() {
+    if (typeof google === "undefined" || !google.accounts) {
+      setTimeout(initGis, 200);
+      return;
+    }
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: CLIENT_ID,
+      scope: SCOPES,
+      callback: (resp) => {
+        if (resp.error) {
+          $("loginBtn").textContent = "Не удалось войти, попробуй ещё раз";
+          return;
+        }
+        saveToken(resp);
+        afterAuth();
+      },
+    });
+    $("loginBtn").disabled = false;
+    $("loginBtn").textContent = "Войти через Google";
+  }
+
+  $("loginBtn").addEventListener("click", () => {
+    if (!tokenClient) return;
+    tokenClient.requestAccessToken();
+  });
+  $("logoutBtn").addEventListener("click", () => {
+    stopPoll();
+    clearToken();
+    showLoginScreen();
+  });
+
+  async function afterAuth() {
+    showApp();
+    await loadRatesFromCache();
+    renderRatesMeta();
+    if (!rates.length) await refreshRates();
+    showTab("lessons");
+  }
+
+  // ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДАТ ----------
 
   function mondayOf(date) {
     const d = new Date(date);
@@ -641,6 +757,7 @@
   }
 
   const MONTHS_RU = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
+  const MONTHS_SHORT_RU = ["янв","фев","мар","апр","май","июн","июл","авг","сен","окт","ноя","дек"];
 
   function getLessonRange() {
     if (lessonMode === "day") {
@@ -722,10 +839,9 @@
     return { current, total };
   }
 
-  // Единая логика суммы: overrideAmount всегда побеждает; иначе, если занятие
-  // уже отмечено — используется ставка, зафиксированная в момент отметки
-  // (lockedRate), чтобы будущее изменение цены не переписывало прошлое;
-  // если ещё не отмечено — показываем текущую ставку как подсказку.
+  // overrideAmount всегда побеждает; иначе, если занятие уже отмечено —
+  // используется ставка, зафиксированная в момент отметки (lockedRate),
+  // чтобы будущее изменение цены не переписывало прошлое.
   function effectiveAmountFor(ev, mark) {
     const m = mark || {};
     if (m.overrideAmount != null) return m.overrideAmount;
@@ -734,68 +850,71 @@
     return parsed ? findRate(parsed.name, parsed.cls) : null;
   }
 
-  function b64ToUtf8(b64) {
-    const bin = atob(b64);
-    const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
-    return new TextDecoder("utf-8").decode(bytes);
-  }
-  function parseRatesCsv(text) {
-    const lines = text.split(/\r\n|\n/).filter(l => l.trim().length);
-    lines.shift();
-    return lines.map(line => {
-      const [name, surname, cls, rate] = line.split(",");
-      return {
-        name: (name || "").trim(),
-        surname: (surname || "").trim(),
-        cls: parseInt(cls, 10),
-        rate: parseFloat(rate),
-      };
-    }).filter(r => r.name && !Number.isNaN(r.cls) && !Number.isNaN(r.rate));
-  }
-
   function setBadge(el, text, cls) {
     el.textContent = text;
     el.className = "badge" + (cls ? " " + cls : "");
   }
 
-  async function loadRatesFromDb() {
-    if (!db) return;
+  // ---------- ЗАПРОСЫ К GOOGLE API ----------
+
+  async function apiFetch(url) {
+    const res = await fetch(url, { headers: { Authorization: "Bearer " + accessToken } });
+    if (res.status === 401) {
+      handleAuthExpired();
+      throw new Error("auth");
+    }
+    if (!res.ok) throw new Error("http " + res.status);
+    return res.json();
+  }
+
+  async function calendarFetch(calendarId, startISO, endISO) {
+    const url = "https://www.googleapis.com/calendar/v3/calendars/" + encodeURIComponent(calendarId) +
+      "/events?timeMin=" + encodeURIComponent(startISO) +
+      "&timeMax=" + encodeURIComponent(endISO) +
+      "&singleEvents=true&orderBy=startTime&timeZone=Europe%2FMoscow&maxResults=250";
+    const data = await apiFetch(url);
+    return (data.items || []).filter(e => e.start && (e.start.dateTime || e.start.date));
+  }
+
+  async function fetchRatesFromSheet() {
+    const url = "https://sheets.googleapis.com/v4/spreadsheets/" + RATES_FILE_ID + "/values/A:D";
+    const data = await apiFetch(url);
+    const rows = (data.values || []).slice();
+    rows.shift(); // заголовок
+    return rows.map(r => ({
+      name: (r[0] || "").toString().trim(),
+      surname: (r[1] || "").toString().trim(),
+      cls: parseInt(r[2], 10),
+      rate: parseFloat((r[3] || "").toString().replace(",", ".")),
+    })).filter(r => r.name && !Number.isNaN(r.cls) && !Number.isNaN(r.rate));
+  }
+
+  // ---------- СТАВКИ ----------
+
+  async function loadRatesFromCache() {
     try {
-      const snap = await db.doc("rates/current").get();
-      if (snap.exists) {
-        const data = snap.data();
+      const raw = localStorage.getItem("rates_cache");
+      if (raw) {
+        const data = JSON.parse(raw);
         rates = data.rows || [];
         ratesMeta = { updatedAt: data.updatedAt };
-        renderRatesMeta();
       }
     } catch (e) { /* ignore */ }
   }
 
-  async function refreshRates(auto) {
-    if (!mcp) { setBadge($("ratesBadge"), "Ставки: нет MCP", "err"); return; }
+  async function refreshRates() {
     $("refreshRatesBtn").disabled = true;
     setBadge($("ratesBadge"), "Ставки: обновляю…", "warn");
     try {
-      const res = await mcp.callTool(DRIVE_SERVER, "download_file_content", {
-        fileId: RATES_FILE_ID,
-        exportMimeType: "text/csv",
-      }, { cache: false });
-      const payload = res.payload || {};
-      const text = b64ToUtf8(payload.content);
-      rates = parseRatesCsv(text);
+      rates = await fetchRatesFromSheet();
       ratesMeta = { updatedAt: Date.now() };
       setBadge($("ratesBadge"), "Ставки: обновлены", "ok");
+      try { localStorage.setItem("rates_cache", JSON.stringify({ rows: rates, updatedAt: ratesMeta.updatedAt })); } catch (e) { /* ignore */ }
       renderRatesMeta();
-      if (db) db.doc("rates/current").set({ rows: rates, updatedAt: ratesMeta.updatedAt }).catch(() => {});
       renderLessons();
       renderStudentsRoster();
     } catch (e) {
-      const code = e && e.code;
-      let msg = "Ставки: ошибка";
-      if (code === "server_not_connected") msg = "Ставки: нет Google Drive";
-      else if (code === "needs_reauth") msg = "Ставки: переподключи Drive";
-      else if (code === "consent_required" || code === "not_in_manifest") msg = "Ставки: нет доступа";
-      setBadge($("ratesBadge"), msg, "err");
+      if (e.message !== "auth") setBadge($("ratesBadge"), "Ставки: ошибка", "err");
     } finally {
       $("refreshRatesBtn").disabled = false;
     }
@@ -809,31 +928,30 @@
     $("ratesMeta").textContent = `${n} ставок · обновлено: ${t}`;
   }
 
-  async function loadMarksFor(ids) {
-    if (!db || !ids.length) return;
-    const results = await Promise.all(ids.map(id =>
-      db.doc("lessons/" + id).get().then(snap => ({ id, snap })).catch(() => ({ id, snap: null }))
-    ));
-    results.forEach(({ id, snap }) => {
-      if (snap && snap.exists) {
-        const data = snap.data();
-        marks[id] = {
-          marked: !!data.marked,
-          overrideAmount: data.overrideAmount ?? null,
-          lockedRate: data.lockedRate ?? null,
-        };
+  // ---------- ОТМЕТКИ (localStorage) ----------
+
+  function loadMarksFor(ids) {
+    ids.forEach(id => {
+      try {
+        const raw = localStorage.getItem("mark_" + id);
+        marks[id] = raw ? JSON.parse(raw) : (marks[id] || { marked: false, overrideAmount: null, lockedRate: null });
+      } catch (e) {
+        marks[id] = marks[id] || { marked: false, overrideAmount: null, lockedRate: null };
       }
     });
   }
 
+  function saveMark(id, state) {
+    marks[id] = state;
+    try { localStorage.setItem("mark_" + id, JSON.stringify(state)); } catch (e) { /* ignore */ }
+  }
+
   async function toggleMark(ev, currentMark) {
-    if (!db) return;
     const wasMarked = !!(currentMark && currentMark.marked);
     const overrideAmount = currentMark ? currentMark.overrideAmount : null;
     let lockedRate = currentMark ? currentMark.lockedRate : null;
 
     if (!wasMarked) {
-      // переходим в "отмечено" — фиксируем текущую ставку, если нет ручной суммы
       if (overrideAmount == null) {
         const parsed = parseLesson(ev.summary || "");
         lockedRate = parsed ? findRate(parsed.name, parsed.cls) : null;
@@ -841,12 +959,11 @@
     }
 
     const newState = { marked: !wasMarked, overrideAmount, lockedRate, updatedAt: Date.now() };
-    marks[ev.id] = newState;
+    saveMark(ev.id, newState);
     renderLessons();
-    try { await db.doc("lessons/" + ev.id).set(newState); } catch (e) { /* keep optimistic */ }
   }
 
-  async function setOverride(ev, value) {
+  function setOverride(ev, value) {
     const amount = value === "" ? null : parseFloat(value);
     const prev = marks[ev.id] || { marked: false, overrideAmount: null, lockedRate: null };
     const newState = {
@@ -855,10 +972,7 @@
       lockedRate: prev.lockedRate,
       updatedAt: Date.now(),
     };
-    marks[ev.id] = newState;
-    if (db) {
-      try { await db.doc("lessons/" + ev.id).set(newState); } catch (e) { /* ignore */ }
-    }
+    saveMark(ev.id, newState);
     renderLessons();
   }
 
@@ -877,10 +991,12 @@
     btn.disabled = true;
     const origText = btn.textContent;
     btn.textContent = `Отмечаю ${toMark.length}…`;
-    await Promise.all(toMark.map(ev => toggleMark(ev, marks[ev.id])));
+    toMark.forEach(ev => toggleMark(ev, marks[ev.id]));
     btn.textContent = origText;
     btn.disabled = false;
   }
+
+  // ---------- ЗАНЯТИЯ ----------
 
   function renderLessons() {
     const range = getLessonRange();
@@ -972,59 +1088,35 @@
     $("forecastSum").textContent = forecast.sum.toLocaleString("ru-RU") + " ₽";
   }
 
-  function stopWatch() {
-    if (calUnsub) { calUnsub(); calUnsub = null; }
+  function stopPoll() {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   }
 
   async function loadLessonEvents() {
-    stopWatch();
+    stopPoll();
     const range = getLessonRange();
     setBadge($("calBadge"), "Календарь: загрузка…", "warn");
     $("lessonsList").innerHTML = '<div class="empty">Загрузка…</div>';
 
-    const input = {
-      calendarId: LESSONS_CALENDAR_ID,
-      startTime: fmtISO(range.start),
-      endTime: fmtISO(range.end),
-      orderBy: "startTime",
-      timeZone: "Europe/Moscow",
-    };
-
-    calUnsub = mcp.watchTool(CAL_SERVER, "list_events", input, async (ev) => {
-      if (ev.type === "data") {
-        const payload = ev.result.payload || {};
-        events = (payload.events || []).filter(e => e.start && (e.start.dateTime || e.start.date));
+    async function doFetch() {
+      try {
+        events = await calendarFetch(LESSONS_CALENDAR_ID, fmtISO(range.start), fmtISO(range.end));
         setBadge($("calBadge"), "Календарь: подключен", "ok");
-        await loadMarksFor(events.map(e => e.id));
+        loadMarksFor(events.map(e => e.id));
         renderLessons();
-      } else {
-        handleCalError(ev.error);
+      } catch (e) {
+        if (e.message !== "auth") setBadge($("calBadge"), "Календарь: ошибка", "err");
       }
-    }, { refetchInterval: 5 * 60 * 1000 });
-  }
-
-  function handleCalError(error) {
-    const code = error && error.code;
-    let msg = "Календарь: ошибка";
-    if (code === "server_not_connected") msg = "Календарь: не подключен";
-    else if (code === "needs_reauth") msg = "Календарь: переподключи";
-    else if (code === "consent_required" || code === "not_in_manifest") msg = "Календарь: нет доступа";
-    setBadge($("calBadge"), msg, "err");
+    }
+    await doFetch();
+    pollTimer = setInterval(doFetch, 5 * 60 * 1000);
   }
 
   // ---------- ИТОГИ ----------
 
   async function fetchRangeEvents(range) {
-    const res = await mcp.callTool(CAL_SERVER, "list_events", {
-      calendarId: LESSONS_CALENDAR_ID,
-      startTime: fmtISO(range.start),
-      endTime: fmtISO(range.end),
-      orderBy: "startTime",
-      timeZone: "Europe/Moscow",
-    }, { cache: false });
-    const payload = res.payload || {};
-    const evs = (payload.events || []).filter(e => e.start && (e.start.dateTime || e.start.date));
-    await loadMarksFor(evs.map(e => e.id));
+    const evs = await calendarFetch(LESSONS_CALENDAR_ID, fmtISO(range.start), fmtISO(range.end));
+    loadMarksFor(evs.map(e => e.id));
     return evs;
   }
 
@@ -1053,7 +1145,6 @@
   }
 
   async function loadSummary() {
-    if (!mcp) return;
     const range = getSummaryRange(summaryWeekOffset, summaryMonthOffset);
     $("summaryLabel").textContent = range ? range.label : "—";
     if (!range) {
@@ -1076,10 +1167,9 @@
       const prevEvents = await fetchRangeEvents(prevRange);
       const prevStats = computeStats(prevEvents);
       renderCompare(stats, prevStats);
-      // возвращаем marks к текущему периоду
-      await loadMarksFor(summaryEvents.map(e => e.id));
+      loadMarksFor(summaryEvents.map(e => e.id));
     } catch (e) {
-      $("studentsSummaryList").innerHTML = '<div class="empty">Не удалось загрузить</div>';
+      if (e.message !== "auth") $("studentsSummaryList").innerHTML = '<div class="empty">Не удалось загрузить</div>';
     }
   }
 
@@ -1188,22 +1278,97 @@
     loadSummary();
   }
 
+  // ---------- ДИНАМИКА ДОХОДА (график: недели/месяцы) ----------
+
+  let trendMode = "month"; // week | month
+
+  function buildTrendBuckets() {
+    const now = new Date();
+    const p = (n) => String(n).padStart(2, "0");
+    if (trendMode === "week") {
+      const thisMonday = mondayOf(now);
+      const buckets = [];
+      for (let i = 11; i >= 0; i--) {
+        const mon = new Date(thisMonday);
+        mon.setDate(mon.getDate() - i * 7);
+        buckets.push({ key: mon.getTime(), label: `${p(mon.getDate())}.${p(mon.getMonth() + 1)}`, sum: 0 });
+      }
+      return { buckets, rangeStart: new Date(buckets[0].key) };
+    }
+    const buckets = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      buckets.push({ key: d.getFullYear() + "-" + d.getMonth(), label: MONTHS_SHORT_RU[d.getMonth()], sum: 0 });
+    }
+    const first = new Date(now.getFullYear(), now.getMonth() - 5, 1);
+    return { buckets, rangeStart: first };
+  }
+
+  function bucketKeyFor(date) {
+    if (trendMode === "week") return mondayOf(date).getTime();
+    return date.getFullYear() + "-" + date.getMonth();
+  }
+
+  async function loadTrend() {
+    const el = $("trendChart");
+    el.innerHTML = '<div class="empty">Загрузка…</div>';
+
+    const { buckets, rangeStart } = buildTrendBuckets();
+    const rangeEnd = new Date();
+    rangeEnd.setDate(rangeEnd.getDate() + 1);
+
+    try {
+      const evs = await calendarFetch(LESSONS_CALENDAR_ID, fmtISO(rangeStart), fmtISO(rangeEnd));
+      loadMarksFor(evs.map(e => e.id));
+      const byKey = {};
+      buckets.forEach(b => { byKey[b.key] = b; });
+      evs.forEach(ev => {
+        const mark = marks[ev.id];
+        if (!mark || !mark.marked) return;
+        const start = new Date(ev.start.dateTime || ev.start.date);
+        const amount = effectiveAmountFor(ev, mark);
+        if (amount == null || Number.isNaN(amount)) return;
+        const bucket = byKey[bucketKeyFor(start)];
+        if (bucket) bucket.sum += amount;
+      });
+      renderTrendChart(buckets);
+    } catch (e) {
+      if (e.message !== "auth") el.innerHTML = '<div class="empty">Не удалось загрузить</div>';
+    }
+  }
+
+  function renderTrendChart(buckets) {
+    const el = $("trendChart");
+    const max = Math.max(1, ...buckets.map(m => m.sum));
+    const w = Math.max(320, buckets.length * 30), h = 150, padTop = 20, padBottom = 26, gap = 8;
+    const barW = (w - gap * (buckets.length + 1)) / buckets.length;
+
+    let svg = "";
+    buckets.forEach((m, i) => {
+      const barH = m.sum > 0 ? Math.max(2, (m.sum / max) * (h - padTop - padBottom)) : 0;
+      const x = gap + i * (barW + gap);
+      const y = h - padBottom - barH;
+      const valLabel = m.sum > 0 ? (m.sum >= 1000 ? Math.round(m.sum / 100) / 10 + "k" : String(Math.round(m.sum))) : "";
+      svg += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" rx="4"></rect>`;
+      svg += `<text class="val" x="${(x + barW / 2).toFixed(1)}" y="${(y - 5).toFixed(1)}" text-anchor="middle" font-size="9">${valLabel}</text>`;
+      svg += `<text x="${(x + barW / 2).toFixed(1)}" y="${h - 8}" text-anchor="middle" font-size="8.5">${m.label}</text>`;
+    });
+
+    el.innerHTML = `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto;display:block;">${svg}</svg>`;
+  }
+
   // ---------- УЧЕНИКИ ----------
 
-  // Ручные правки пакетов: { [studentKey]: { doneOverride, totalOverride, hidden, manual } }
-  // Хранится одним документом, чтобы не завязываться на список ключей заранее.
+  // Ручные правки пакетов (localStorage): { [studentKey]: { doneOverride, totalOverride, hidden, manual } }
   let packageOverrides = {};
-
-  async function loadPackageOverrides() {
-    if (!db) return;
+  function loadPackageOverrides() {
     try {
-      const snap = await db.doc("packages/overrides").get();
-      packageOverrides = snap.exists ? (snap.data().map || {}) : {};
+      const raw = localStorage.getItem("pkg_overrides");
+      packageOverrides = raw ? JSON.parse(raw) : {};
     } catch (e) { packageOverrides = {}; }
   }
-  async function savePackageOverrides() {
-    if (!db) return;
-    try { await db.doc("packages/overrides").set({ map: packageOverrides, updatedAt: Date.now() }); } catch (e) { /* ignore */ }
+  function savePackageOverrides() {
+    try { localStorage.setItem("pkg_overrides", JSON.stringify(packageOverrides)); } catch (e) { /* ignore */ }
   }
 
   // Разбираем занятия с суффиксом "N/M" в названии, группируем по ученику,
@@ -1263,8 +1428,7 @@
   }
 
   // Накладывает ручные правки на авто-найденные пакеты: скрытие, ручная
-  // подмена "всего"/"проведено", и полностью вручную добавленные пакеты
-  // (для учеников, чьи занятия в календаре не размечены "N/M").
+  // подмена "всего"/"проведено", и полностью вручную добавленные пакеты.
   function buildPackages(evs) {
     const auto = computePackages(evs);
     const autoByKey = {};
@@ -1357,26 +1521,20 @@
     return packageOverrides[key] || { doneOverride: null, totalOverride: null, hidden: false, manual: false };
   }
 
+  let lastPackageEvents = [];
+
   async function loadPackages() {
-    if (!mcp) return;
     $("packagesList").innerHTML = '<div class="empty">Загрузка…</div>';
-    await loadPackageOverrides();
+    loadPackageOverrides();
     const now = new Date();
     const start = new Date(now); start.setDate(start.getDate() - 21);
     const end = new Date(now); end.setDate(end.getDate() + 240);
     try {
-      const res = await mcp.callTool(CAL_SERVER, "list_events", {
-        calendarId: LESSONS_CALENDAR_ID,
-        startTime: fmtISO(start),
-        endTime: fmtISO(end),
-        orderBy: "startTime",
-        timeZone: "Europe/Moscow",
-      }, { cache: false });
-      lastPackageEvents = ((res.payload || {}).events || []).filter(e => e.start && (e.start.dateTime || e.start.date));
-      await loadMarksFor(lastPackageEvents.map(e => e.id));
+      lastPackageEvents = await calendarFetch(LESSONS_CALENDAR_ID, fmtISO(start), fmtISO(end));
+      loadMarksFor(lastPackageEvents.map(e => e.id));
       renderPackages(buildPackages(lastPackageEvents));
     } catch (e) {
-      $("packagesList").innerHTML = '<div class="empty">Не удалось загрузить пакеты</div>';
+      if (e.message !== "auth") $("packagesList").innerHTML = '<div class="empty">Не удалось загрузить пакеты</div>';
     }
   }
 
@@ -1384,16 +1542,14 @@
     renderPackages(buildPackages(lastPackageEvents));
   }
 
-  // Делегирование кликов внутри карточек пакетов: раскрыть форму правки,
-  // сохранить/сбросить правку, скрыть/вернуть пакет целиком.
-  $("packagesList").addEventListener("click", async (e) => {
+  $("packagesList").addEventListener("click", (e) => {
     const unhideBtn = e.target.closest(".pkg-unhide-btn");
     if (unhideBtn) {
       const key = unhideBtn.dataset.key;
       const ov = getPackageOverride(key);
       ov.hidden = false;
       packageOverrides[key] = ov;
-      await savePackageOverrides();
+      savePackageOverrides();
       rerenderPackages();
       return;
     }
@@ -1413,7 +1569,7 @@
       ov.totalOverride = Number.isNaN(total) ? null : total;
       ov.doneOverride = Number.isNaN(done) ? null : done;
       packageOverrides[key] = ov;
-      await savePackageOverrides();
+      savePackageOverrides();
       rerenderPackages();
       return;
     }
@@ -1422,7 +1578,7 @@
       ov.totalOverride = null;
       ov.doneOverride = null;
       if (!ov.manual) delete packageOverrides[key]; else packageOverrides[key] = ov;
-      await savePackageOverrides();
+      savePackageOverrides();
       rerenderPackages();
       return;
     }
@@ -1430,7 +1586,7 @@
       const ov = getPackageOverride(key);
       ov.hidden = true;
       packageOverrides[key] = ov;
-      await savePackageOverrides();
+      savePackageOverrides();
       rerenderPackages();
       return;
     }
@@ -1441,7 +1597,7 @@
     form.style.display = form.style.display === "none" ? "block" : "none";
   });
   $("pkgAddCancelBtn").addEventListener("click", () => { $("pkgAddForm").style.display = "none"; });
-  $("pkgAddSaveBtn").addEventListener("click", async () => {
+  $("pkgAddSaveBtn").addEventListener("click", () => {
     const name = $("pkgAddName").value.trim();
     const cls = parseInt($("pkgAddCls").value, 10);
     const total = parseInt($("pkgAddTotal").value, 10) || 8;
@@ -1449,7 +1605,7 @@
     if (!name || Number.isNaN(cls)) { alert("Укажи имя и класс"); return; }
     const key = `${name}, ${cls} класс`;
     packageOverrides[key] = { manual: true, totalOverride: total, doneOverride: done, hidden: false };
-    await savePackageOverrides();
+    savePackageOverrides();
     $("pkgAddName").value = ""; $("pkgAddCls").value = ""; $("pkgAddTotal").value = "8"; $("pkgAddDone").value = "0";
     $("pkgAddForm").style.display = "none";
     rerenderPackages();
@@ -1494,34 +1650,23 @@
   const SCHED_END_HOUR = 22;
 
   async function loadSchedule() {
-    if (!mcp) return;
     const week = getSchedWeek();
     $("schedLabel").textContent = `${fmtShort(week.mon)} – ${fmtShort(week.days[6])}`;
     $("schedTable").innerHTML = '<tr><td class="empty">Загрузка…</td></tr>';
 
-    const commonInput = {
-      startTime: fmtISO(week.mon),
-      endTime: fmtISO(week.nextMon),
-      orderBy: "startTime",
-      timeZone: "Europe/Moscow",
-    };
-
     try {
-      const [lessonsRes, personalRes] = await Promise.all([
-        mcp.callTool(CAL_SERVER, "list_events", { ...commonInput, calendarId: LESSONS_CALENDAR_ID }, { cache: false }),
-        mcp.callTool(CAL_SERVER, "list_events", { ...commonInput }, { cache: false }),
+      const [lessonsEvs, personalEvs] = await Promise.all([
+        calendarFetch(LESSONS_CALENDAR_ID, fmtISO(week.mon), fmtISO(week.nextMon)),
+        calendarFetch("primary", fmtISO(week.mon), fmtISO(week.nextMon)),
       ]);
-      const lessonsEvs = ((lessonsRes.payload || {}).events || []);
-      const personalEvs = ((personalRes.payload || {}).events || []);
       const allEvs = [...lessonsEvs, ...personalEvs].filter(e => e.start && e.start.dateTime && e.end && e.end.dateTime);
       renderSchedule(week, allEvs);
     } catch (e) {
-      $("schedTable").innerHTML = '<tr><td class="empty">Не удалось загрузить</td></tr>';
+      if (e.message !== "auth") $("schedTable").innerHTML = '<tr><td class="empty">Не удалось загрузить</td></tr>';
     }
   }
 
   function renderSchedule(week, evs) {
-    // busy[dayIndex] = Set часов (SCHED_START_HOUR..SCHED_END_HOUR-1), занятых хотя бы частично
     const busy = week.days.map(() => new Set());
 
     evs.forEach(ev => {
@@ -1610,14 +1755,28 @@
       const canvas = await html2canvas(wrap, { backgroundColor: cardBg, scale: 2 });
       document.body.removeChild(wrap);
 
-      if (!downloads) { alert("Сохранение файлов недоступно в этом просмотре"); return; }
-      const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
-      if (!blob) throw new Error("no blob");
-      await downloads.save({ filename: "raspisanie.png", data: blob });
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+      const blobUrl = URL.createObjectURL(blob);
+
+      const isIOS = /iP(hone|od|ad)/.test(navigator.userAgent) ||
+        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+      if (isIOS) {
+        // iOS Safari игнорирует атрибут download для data:/blob: ссылок и вместо
+        // сохранения картинки может скачать невнятный файл. Поэтому открываем
+        // картинку в новой вкладке — там можно зажать палец и «Добавить в Фото».
+        window.open(blobUrl, "_blank");
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+        alert("Открыл картинку в новой вкладке — зажми на ней палец и выбери «Добавить в Фото» (или «Сохранить в Файлы»).");
+      } else {
+        const link = document.createElement("a");
+        link.download = "raspisanie.png";
+        link.href = blobUrl;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+      }
     } catch (e) {
-      const code = e && e.code;
-      if (code === "declined") { /* пользователь отменил — ничего не делаем */ }
-      else alert("Не удалось сохранить картинку, попробуй ещё раз");
+      alert("Не удалось сохранить картинку, попробуй ещё раз");
     } finally {
       btn.disabled = false;
       btn.textContent = orig;
@@ -1632,11 +1791,10 @@
     ["lessons", "summary", "students", "schedule"].forEach(t => {
       $("view-" + t).style.display = t === tab ? "block" : "none";
     });
-    if (!mcp) return;
-    if (tab === "lessons") { stopWatch(); loadLessonEvents(); }
-    else if (tab === "summary") { stopWatch(); refreshSummary(); }
-    else if (tab === "students") { stopWatch(); renderStudentsRoster(); loadPackages(); }
-    else if (tab === "schedule") { stopWatch(); loadSchedule(); }
+    if (tab === "lessons") { stopPoll(); loadLessonEvents(); }
+    else if (tab === "summary") { stopPoll(); refreshSummary(); loadTrend(); }
+    else if (tab === "students") { stopPoll(); renderStudentsRoster(); loadPackages(); }
+    else if (tab === "schedule") { stopPoll(); loadSchedule(); }
   }
 
   document.querySelectorAll(".tab").forEach(tab => {
@@ -1660,6 +1818,15 @@
     });
   });
   document.querySelector('.subtab[data-summode="week"]').classList.add("active");
+
+  document.querySelectorAll('.subtab[data-trendmode]').forEach(tab => {
+    tab.addEventListener("click", () => {
+      trendMode = tab.dataset.trendmode;
+      document.querySelectorAll('.subtab[data-trendmode]').forEach(t => t.classList.toggle("active", t === tab));
+      loadTrend();
+    });
+  });
+  document.querySelector('.subtab[data-trendmode="month"]').classList.add("active");
 
   $("prevBtn").addEventListener("click", () => {
     if (lessonMode === "day") dayOffset--; else weekOffset--;
@@ -1686,7 +1853,7 @@
   $("schedNextBtn").addEventListener("click", () => { schedWeekOffset++; loadSchedule(); });
   $("schedExportBtn").addEventListener("click", exportScheduleImage);
 
-  $("refreshRatesBtn").addEventListener("click", () => refreshRates(false));
+  $("refreshRatesBtn").addEventListener("click", refreshRates);
 
   (function initRangeInputs() {
     const today = new Date();
@@ -1695,26 +1862,14 @@
     $("summaryRangeEnd").value = toDateInputValue(today);
   })();
 
-  (async function init() {
-    if (!window.claude || !window.claude.use) {
-      setBadge($("calBadge"), "Календарь: нет платформы", "err");
-      setBadge($("ratesBadge"), "Ставки: нет платформы", "err");
-      return;
-    }
-    db = await window.claude.use("db");
-    mcp = await window.claude.use("mcp");
-    downloads = await window.claude.use("downloads");
-    if (!downloads) $("schedExportBtn").style.display = "none";
-    if (!mcp) {
-      setBadge($("calBadge"), "Календарь: недоступен", "err");
-      setBadge($("ratesBadge"), "Ставки: недоступны", "err");
-      return;
-    }
-    await loadRatesFromDb();
-    renderRatesMeta();
-    if (!rates.length) await refreshRates(true);
-    showTab("lessons");
-  })();
+  initGis();
+  const stored = loadStoredToken();
+  if (stored) {
+    accessToken = stored;
+    afterAuth();
+  } else {
+    showLoginScreen();
+  }
 })();
 </script>
 </body>
