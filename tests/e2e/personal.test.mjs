@@ -183,6 +183,8 @@ test("смена класса: занятия, профиль, пакет, до�
   // ставка находится для нового класса
   await page.click('.tab[data-tab="lessons"]');
   await page.waitForSelector("#lessonsList .lesson");
+  await page.click('.subtab[data-lessonmode="week"]'); // у Теста занятий сегодня нет — смотрим неделю
+  await page.waitForSelector("#lessonsList .lesson");
   const row = page.locator(".lesson", { hasText: "Тест, 8 класс" }).first();
   assert.equal(await row.locator("input").getAttribute("placeholder"), "2000");
   assert.equal(/Тест, 7 класс/.test(await page.textContent("#lessonsList")), false);
@@ -208,6 +210,27 @@ test("смена класса: если такой ученик уже есть 
   const db = await app.db();
   assert.equal(db[L("anna1")].title, "Анна 6 класс");
   assert.equal(db[statePath].studentProfiles["Анна, 6 класс"].rate, 1500);
+  await app.close();
+});
+
+test("вкладка «Занятия» открывается на «Дне» (сегодня), «Неделя» — по кнопке", async () => {
+  const app = await openApp();
+  const { page } = app;
+  await page.waitForSelector("#lessonsList .lesson");
+  assert.equal(await page.getAttribute('.tab.active', "data-tab"), "lessons");
+  assert.equal(await page.getAttribute('.subtab.active[data-lessonmode]', "data-lessonmode"), "day");
+  // сегодня (чт 24.09) у учителя только Борис в 18:00
+  const today = await page.locator("#lessonsList .lesson").allInnerTexts();
+  assert.equal(today.length, 1);
+  assert.match(today[0], /Борис/);
+  await page.click('.subtab[data-lessonmode="week"]');
+  await page.waitForFunction(() => document.querySelectorAll("#lessonsList .lesson").length > 1);
+  assert.match(await page.innerText("#lessonsList"), /Анна/);
+  // после перезагрузки снова «День»
+  await page.reload();
+  await page.waitForSelector("#lessonsList .lesson");
+  assert.equal(await page.getAttribute('.subtab.active[data-lessonmode]', "data-lessonmode"), "day");
+  assert.deepEqual(app.errors, []);
   await app.close();
 });
 

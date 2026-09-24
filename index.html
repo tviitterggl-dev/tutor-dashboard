@@ -1018,7 +1018,7 @@
   let activeTab = "lessons"; // lessons | calendar | requests | summary | students | schedule
 
   // Занятия (день/неделя)
-  let lessonMode = "week"; // day | week
+  let lessonMode = "day"; // day | week — по умолчанию «День»
   let dayOffset = 0;
   let weekOffset = 0;
   let events = [];
@@ -4090,7 +4090,7 @@
       loadLessonEvents();
     });
   });
-  document.querySelector('.subtab[data-lessonmode="week"]').classList.add("active");
+  document.querySelector('.subtab[data-lessonmode="day"]').classList.add("active");
 
   document.querySelectorAll('.subtab[data-summode]').forEach(tab => {
     tab.addEventListener("click", () => {

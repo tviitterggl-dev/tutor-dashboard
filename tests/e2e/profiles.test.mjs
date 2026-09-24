@@ -43,6 +43,8 @@ test("профиль ученика: сохранить ссылки и заме
   // Во вкладке «Занятия» — быстрая ссылка «созвон»
   await page.click('.tab[data-tab="lessons"]');
   await page.waitForSelector("#lessonsList .lesson");
+  await page.click('.subtab[data-lessonmode="week"]'); // у Теста занятий сегодня нет — смотрим неделю
+  await page.waitForSelector("#lessonsList .lesson");
   const quick = page.locator(".lesson", { hasText: "Тест, 7 класс" }).first().locator('a.edit-link');
   assert.equal(await quick.getAttribute("href"), "https://telemost.yandex.ru/j/111");
 
