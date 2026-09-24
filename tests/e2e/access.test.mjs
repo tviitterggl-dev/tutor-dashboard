@@ -33,7 +33,7 @@ test("в коде сайта нет ключа учителя (ни старог
 test("выдача ключа родителю → кабинет → отзыв", async () => {
   const app = await openApp();
   const { page } = app;
-  await waitFor(async () => (await app.db())[statePath].lessonsSource === "firestore", "импорт");
+  await app.page.waitForSelector("#appRoot", { state: "visible" });
 
   // Отчёт и домашка у занятия Теста, чтобы увидеть их в кабинете
   await page.evaluate((T) => {
@@ -71,7 +71,6 @@ test("выдача ключа родителю → кабинет → отзыв
   const serialized = JSON.stringify(view);
   for (const other of ["Анна", "Борис", "Пробное"]) assert.equal(serialized.includes(other), false, `в витрине нет имени «${other}»`);
   assert.ok(view.busy.length > 0, "чужие занятия есть как «занято»");
-  assert.ok(view.busy.some((b) => b.s === Date.parse("2026-09-25T13:00:00+03:00")), "личное событие из основного календаря тоже «занято»");
 
   // Открываем кабинет в той же «базе» (тот же origin → тот же localStorage)
   const cab = await app.context.newPage();
@@ -120,7 +119,7 @@ test("выдача ключа родителю → кабинет → отзыв
 test("кабинет ученика без пакета; изменения учителя попадают в кабинет", async () => {
   const app = await openApp();
   const { page } = app;
-  await waitFor(async () => (await app.db())[statePath].lessonsSource === "firestore", "импорт");
+  await app.page.waitForSelector("#appRoot", { state: "visible" });
   await page.click('.tab[data-tab="students"]');
   await page.waitForSelector("#akIssue");
   await page.selectOption("#akStudent", "Борис, 8 класс");
@@ -179,7 +178,7 @@ test("iPhone: PNG расписания показывается в окне с �
 test("телефон: календарь открывается в виде «день», вкладки помещаются", async () => {
   const app = await openApp({ viewport: { width: 375, height: 740 }, isMobile: true, hasTouch: true });
   const { page } = app;
-  await waitFor(async () => (await app.db())[statePath].lessonsSource === "firestore", "импорт");
+  await app.page.waitForSelector("#appRoot", { state: "visible" });
   await page.click('.tab[data-tab="calendar"]');
   await page.waitForSelector("#fcRoot .fc-timeGridDay-view");
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

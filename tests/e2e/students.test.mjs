@@ -14,7 +14,7 @@ async function waitFor(fn, what, timeout = 8000) {
 }
 async function openImported(opts = {}) {
   const app = await openApp(opts);
-  await waitFor(async () => (await app.db())[statePath].lessonsSource === "firestore", "импорт");
+  await app.page.waitForSelector("#appRoot", { state: "visible" });
   return app;
 }
 
@@ -33,9 +33,8 @@ test("добавить ученика вручную: появляется в с
   await page.click("#stAddSave");
   await page.waitForSelector('.student-card[data-student="Маша, 7 класс"]');
   const prof = (await app.db())[statePath].studentProfiles["Маша, 7 класс"];
-  assert.equal(prof.manual, true);
   assert.equal(prof.rate, 1700);
-  assert.match(await page.textContent('.student-card[data-student="Маша, 7 класс"]'), /добавлен вручную/);
+  assert.equal(prof.name, "Маша");
   assert.match(await page.textContent('.student-card[data-student="Маша, 7 класс"]'), /1\s700 ₽/);
   // дубль не создаётся
   await page.click("#stAddToggle");
@@ -52,8 +51,8 @@ test("добавить ученика вручную: появляется в с
   await card.locator("[data-pf-save]").click();
   await page.waitForFunction(() => /Сохранено/.test(document.querySelector('.student-card[data-student="Маша, 7 класс"] .pf-msg').textContent));
   const prof2 = (await app.db())[statePath].studentProfiles["Маша, 7 класс"];
-  assert.equal(prof2.manual, true);
   assert.equal(prof2.rate, 1700);
+  assert.equal(prof2.cls, 7);
   assert.equal(prof2.notes, "Новенькая");
 
   // Занятие для нового ученика: есть в списке, ставка подставляется
@@ -72,11 +71,11 @@ test("добавить ученика вручную: появляется в с
   await app.close();
 });
 
-test("удалить ученика из таблицы: будущие занятия и доступы убраны, прошлые — остаются; можно вернуть", async () => {
+test("удалить ученика: будущие занятия и доступы убраны, прошлые — остаются; можно добавить заново", async () => {
   const PK = "parent_key_anna_student_0000000003";
   const seed = defaultSeed();
   seed[`teacherSpaces/${T}/accessKeys/${PK}`] = { role: "parent", studentId: "Анна, 6 класс", createdAt: 1, active: true };
-  seed[statePath].studentProfiles = { "Анна, 6 класс": { callUrl: "https://t.me/x", notes: "n" } };
+  Object.assign(seed[statePath].studentProfiles["Анна, 6 класс"], { callUrl: "https://t.me/x", notes: "n" });
   const app = await openImported({ seed });
   const { page } = app;
   await waitFor(async () => (await app.db())[`parentAccess/${PK}`]?.channel, "витрина");
@@ -88,7 +87,7 @@ test("удалить ученика из таблицы: будущие заня
   assert.match(warn, /будущие занятия: 2/);
   assert.match(warn, /доступы родителей\/учеников: 1/);
   assert.match(warn, /прошедшие занятия \(4\)/);
-  assert.match(warn, /строку в самой таблице удали вручную/);
+  assert.match(warn, /ставка, ссылки и заметки/);
   await page.click("#delConfirm");
   await page.waitForSelector("#modalBack", { state: "hidden" });
   const db = await app.db();
@@ -99,8 +98,7 @@ test("удалить ученика из таблицы: будущие заня
   assert.equal(db[`parentAccess/${PK}`], undefined, "кабинет родителя закрыт");
   assert.equal(db[`teacherSpaces/${T}/accessKeys/${PK}`].active, false);
   assert.equal(db[statePath].studentChannels["Анна, 6 класс"], undefined);
-  assert.deepEqual(db[statePath].studentProfiles["Анна, 6 класс"].hidden, true);
-  assert.equal(db[statePath].studentProfiles["Анна, 6 класс"].notes, undefined, "заметки удалены");
+  assert.equal(db[statePath].studentProfiles["Анна, 6 класс"], undefined, "профиль (ставка, ссылки, заметки) удалён");
   assert.equal(await page.$('.student-card[data-student="Анна, 6 класс"]'), null, "нет в списке");
   assert.equal((await page.$$eval("#akStudent option", (o) => o.map((x) => x.value))).includes("Анна, 6 класс"), false);
   // Вернуть
@@ -110,8 +108,8 @@ test("удалить ученика из таблицы: будущие заня
   await page.click("#stAddSave");
   await page.waitForSelector('.student-card[data-student="Анна, 6 класс"]');
   const back = (await app.db())[statePath].studentProfiles["Анна, 6 класс"];
-  assert.equal(back.hidden, false);
-  assert.equal(back.manual, false, "снова из таблицы ставок");
+  assert.equal(back.name, "Анна");
+  assert.equal(back.notes, undefined, "добавлен заново — без старых заметок");
   assert.deepEqual(app.errors, []);
   await app.close();
 });
@@ -194,5 +192,24 @@ test("Итоги → Оплата: кто оплатил и кто нет", asyn
   await page.waitForFunction(() => /1 зан\. · 2\s000 ₽/.test(document.querySelector("#payUnpaid")?.textContent || ""));
   assert.match(await page.textContent("#payPaid"), /Тест, 7 класс/);
   assert.deepEqual(app.errors, []);
+  await app.close();
+});
+
+test("ставка меняется в карточке ученика и сразу используется в занятиях", async () => {
+  const app = await openImported();
+  const { page } = app;
+  await page.click('.tab[data-tab="students"]');
+  const card = page.locator('.student-card[data-student="Борис, 8 класс"]');
+  await card.locator(".student-head").click();
+  assert.equal(await card.locator(".pf-rate").inputValue(), "1800");
+  await card.locator(".pf-rate").fill("2100");
+  await card.locator("[data-pf-save]").click();
+  await page.waitForFunction(() => /Сохранено/.test(document.querySelector('.student-card[data-student="Борис, 8 класс"] .pf-msg').textContent));
+  assert.equal((await app.db())[statePath].studentProfiles["Борис, 8 класс"].rate, 2100);
+  assert.match(await card.locator(".student-head").textContent(), /2\s100 ₽/);
+  await page.click('.tab[data-tab="lessons"]');
+  await page.waitForSelector("#lessonsList .lesson");
+  const input = page.locator(".lesson", { hasText: "Борис, 8 класс" }).first().locator("input");
+  assert.equal(await input.getAttribute("placeholder"), "2100");
   await app.close();
 });

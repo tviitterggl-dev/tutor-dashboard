@@ -1,5 +1,6 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { openApp, shutdown, T } from "./harness.mjs";
 
 after(shutdown);
@@ -20,7 +21,7 @@ async function waitFor(fn, what, timeout = 6000) {
 
 async function openImported(opts = {}) {
   const app = await openApp(opts);
-  await waitFor(async () => (await app.db())[statePath].lessonsSource === "firestore", "импорт");
+  await app.page.waitForSelector("#appRoot", { state: "visible" });
   await app.page.click('.tab[data-tab="calendar"]');
   await app.page.waitForSelector("#fcRoot .fc-event");
   return app;
@@ -152,7 +153,7 @@ test("перетаскивание в календаре = перенос (по�
   await app.close();
 });
 
-test("отметка «Провёл» из карточки занятия, отчёт, домашка через Cloudinary, экспорт в Google", async () => {
+test("отметка «Провёл» из карточки занятия, отчёт, домашка через Cloudinary, .ics для календаря", async () => {
   const app = await openImported();
   const { page, calls } = app;
   await page.locator("#fcRoot .fc-event", { hasText: "Тест 7 класс 5/8" }).click();
@@ -181,20 +182,25 @@ test("отметка «Провёл» из карточки занятия, от
   assert.equal(await page.$$eval("#modal .file-list a", (a) => a.length), 2);
   assert.equal(await page.$$eval("#modal b", (b) => b.filter((x) => x.textContent === "не html").length), 0, "отчёт не исполняется как HTML");
 
-  await page.click("#mExport");
-  await page.waitForFunction(() => /есть в твоём Google Календаре/.test(document.querySelector("#mMsg").textContent));
-  assert.equal(calls.calendarWrites.length, 1);
-  assert.equal(calls.calendarWrites[0].method, "POST");
-  assert.equal(calls.calendarWrites[0].calId, "primary");
-  assert.equal(calls.calendarWrites[0].auth, "Bearer write-token");
-  assert.equal(calls.calendarWrites[0].body.summary, "Тест 7 класс 5/8");
-  assert.equal(calls.calendarWrites[0].body.start.dateTime, "2026-09-23T10:00:00+03:00");
-  db = await app.db();
-  assert.ok(db[`teacherSpaces/${T}/lessons/serA_20260923T070000Z`].exportedEventId);
-  // Повторный экспорт — обновление того же события, а не дубликат
-  await page.click("#mExport");
-  await waitFor(async () => calls.calendarWrites.length === 2, "второй экспорт");
-  assert.equal(calls.calendarWrites[1].method, "PATCH");
+  // «Добавить в календарь» — скачивается .ics (без входа в Google)
+  const [dl] = await Promise.all([page.waitForEvent("download"), page.click("#mExport")]);
+  assert.match(dl.suggestedFilename(), /^zanyatie-2026-09-23\.ics$/);
+  const ics = fs.readFileSync(await dl.path(), "utf8");
+  assert.match(ics, /^BEGIN:VCALENDAR\r\n/);
+  assert.match(ics, /\r\nDTSTART:20260923T070000Z\r\n/, "10:00 МСК = 07:00 UTC");
+  assert.match(ics, /\r\nDTEND:20260923T080000Z\r\n/);
+  assert.match(ics, /\r\nSUMMARY:Тест 7 класс 5\/8\r\n/);
+  assert.match(ics, /DESCRIPTION:Отчёт: Прошли дроби\. <b>не html<\/b>/);
+  assert.match(ics, /TRIGGER:-PT30M/);
+  assert.match(ics, /END:VCALENDAR\r\n$/);
+  assert.ok(ics.split("\r\n").every((line) => Buffer.byteLength(line) <= 75), "строки не длиннее 75 байт");
+  await page.waitForFunction(() => /Файл события скачан/.test(document.querySelector("#mMsg").textContent));
+  const uid1 = ics.match(/UID:(.*)/)[1];
+  const [dl2] = await Promise.all([page.waitForEvent("download"), page.click("#mExport")]);
+  const uid2 = fs.readFileSync(await dl2.path(), "utf8").match(/UID:(.*)/)[1];
+  assert.notEqual(uid1, uid2, "повторное нажатие — новое событие");
+  const db2 = await app.db();
+  assert.equal(db2[`teacherSpaces/${T}/lessons/serA_20260923T070000Z`].exportedEventId, undefined);
 
   // Убрать файл
   await page.waitForSelector("[data-hw-remove]");

@@ -11,12 +11,22 @@ function load() {
 function save(db) { localStorage.setItem(STORE_KEY, JSON.stringify(db)); }
 function clone(v) { return v === undefined ? undefined : JSON.parse(JSON.stringify(v)); }
 
+// Упрощённые правила: teacherSpaces/{uid}/… — только вошедшему с этим uid
+// (как firestore.rules). window.__FAKE_RULES = "old" — старые правила,
+// когда туда пускали по секретному ключу в пути (нужно для теста переноса).
 function checkDeny(path) {
-  const deny = window.__FAKE_DENY || [];
-  if (deny.some((s) => path.includes(s))) {
+  const denied = () => {
     const err = new Error("Missing or insufficient permissions.");
     err.code = "permission-denied";
     throw err;
+  };
+  const deny = window.__FAKE_DENY || [];
+  if (deny.some((s) => path.includes(s))) denied();
+  const seg = path.split("/");
+  if (seg[0] === "teacherSpaces" && window.__FAKE_RULES !== "old") {
+    let user = null;
+    try { user = JSON.parse(localStorage.getItem("__fakeAuthUser") || "null"); } catch (e) { /* нет */ }
+    if (!user || user.uid !== seg[1]) denied();
   }
 }
 

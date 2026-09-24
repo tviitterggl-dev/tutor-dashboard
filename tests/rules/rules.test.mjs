@@ -5,8 +5,9 @@ import assert from "node:assert/strict";
 
 const HOST = process.env.FIRESTORE_EMULATOR_HOST || "127.0.0.1:8080";
 const BASE = `http://${HOST}/v1/projects/demo-tutor/databases/(default)/documents`;
-const T = "teacher_key_for_tests_0123456789";
-const OLD_T = "2Vv0fLQi3MXbEgqpwlmWk5E1KnVRz9-q";
+const T = "teacherUid0123456789abcdef";   // uid учителя (как выдаёт Firebase Auth)
+const OTHER = "strangerUid0123456789abcd";   // другой зарегистрированный пользователь
+const OLD_T = "79ZneRF_O8s1kMgoq5PwzlGvlc3r8U9I"; // формат старого секретного ключа
 const PKEY = "parent_key_for_tests_0123456789";
 
 function enc(v) {
@@ -17,10 +18,22 @@ function enc(v) {
   if (typeof v === "boolean") return { booleanValue: v };
   return { mapValue: { fields: Object.fromEntries(Object.entries(v).map(([k, x]) => [k, enc(x)])) } };
 }
+// Эмулятор принимает неподписанный JWT («alg: none») как вход пользователя.
+function tokenFor(uid) {
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const now = Math.floor(Date.now() / 1000);
+  return b64({ alg: "none", typ: "JWT" }) + "." + b64({
+    iss: "https://securetoken.google.com/demo-tutor", aud: "demo-tutor", auth_time: now, iat: now, exp: now + 3600,
+    sub: uid, user_id: uid, email: uid + "@example.org", firebase: { sign_in_provider: "password", identities: {} },
+  }) + ".";
+}
+let actingAs = null; // uid вошедшего пользователя или null (без входа)
+async function as(uid, fn) { const prev = actingAs; actingAs = uid; try { return await fn(); } finally { actingAs = prev; } }
+
 async function call(method, path, body) {
   const res = await fetch(`${BASE}/${path}`, {
     method,
-    headers: { "Content-Type": "application/json" },
+    headers: Object.assign({ "Content-Type": "application/json" }, actingAs ? { Authorization: "Bearer " + tokenFor(actingAs) } : {}),
     body: body ? JSON.stringify({ fields: enc(body).mapValue.fields }) : undefined,
   });
   return res.status;
@@ -32,7 +45,7 @@ const del = (path) => call("DELETE", path);
 const lesson = { title: "Тест 7 класс", startMs: 1790000000000, endMs: 1790003600000, status: "planned" };
 const view = { v: 1, role: "parent", studentId: "Тест, 7 класс", lessons: [], busy: [] };
 
-test("учитель: state и lessons по своему ключу", async () => {
+test("учитель после входа: state, lessons, ключи доступа", async () => as(T, async () => {
   assert.equal(await put(`teacherSpaces/${T}/state/main`, { marks: {} }), 200);
   assert.equal(await get(`teacherSpaces/${T}/state/main`), 200);
   assert.equal(await put(`teacherSpaces/${T}/lessons/l1`, lesson), 200);
@@ -41,28 +54,44 @@ test("учитель: state и lessons по своему ключу", async () =
   assert.equal(await del(`teacherSpaces/${T}/lessons/l1`), 200);
   assert.equal(await put(`teacherSpaces/${T}/accessKeys/${PKEY}`, { role: "parent" }), 200);
   assert.equal(await get(`teacherSpaces/${T}/accessKeys`), 200);
+}));
+
+test("без входа и под чужим аккаунтом к данным учителя не попасть", async () => {
+  await as(T, () => put(`teacherSpaces/${T}/state/main`, { marks: {} }));
+  for (const who of [null, OTHER]) {
+    await as(who, async () => {
+      assert.equal(await get(`teacherSpaces/${T}/state/main`), 403, String(who));
+      assert.equal(await put(`teacherSpaces/${T}/state/main`, { marks: {} }), 403);
+      assert.equal(await get(`teacherSpaces/${T}/lessons`), 403);
+      assert.equal(await get(`teacherSpaces/${T}/accessKeys`), 403);
+      assert.equal(await get(`teacherSpaces/${T}/requests`), 403);
+    });
+  }
+  // чужой пользователь может завести только СВОЮ пустую папку
+  await as(OTHER, async () => assert.equal(await put(`teacherSpaces/${OTHER}/state/main`, { marks: {} }), 200));
 });
 
-test("занятие с неверными полями не записывается", async () => {
+test("занятие с неверными полями не записывается", async () => as(T, async () => {
   assert.equal(await put(`teacherSpaces/${T}/lessons/bad1`, { ...lesson, status: "whatever" }), 403);
   assert.equal(await put(`teacherSpaces/${T}/lessons/bad2`, { ...lesson, endMs: lesson.startMs }), 403);
   assert.equal(await put(`teacherSpaces/${T}/lessons/bad3`, { title: "x" }), 403);
-});
+}));
 
-test("старый засвеченный ключ учителя закрыт", async () => {
-  assert.equal(await get(`teacherSpaces/${OLD_T}/state/main`), 403);
-  assert.equal(await put(`teacherSpaces/${OLD_T}/state/main`, { marks: {} }), 403);
-});
-
-test("короткий ключ учителя не принимается", async () => {
-  assert.equal(await put(`teacherSpaces/short/state/main`, { marks: {} }), 403);
+test("старые пути с секретным ключом закрыты для всех", async () => {
+  for (const who of [null, OTHER, T]) {
+    await as(who, async () => {
+      assert.equal(await get(`teacherSpaces/${OLD_T}/state/main`), 403);
+      assert.equal(await put(`teacherSpaces/${OLD_T}/state/main`, { marks: {} }), 403);
+      assert.equal(await get(`teacherSpaces/${OLD_T}/lessons`), 403);
+    });
+  }
 });
 
 test("перебор запрещён: листинг верхних коллекций", async () => {
   assert.equal(await get(`teacherSpaces`), 403);
   assert.equal(await get(`parentAccess`), 403);
   assert.equal(await get(`studentAccess`), 403);
-  assert.equal(await get(`teacherSpaces/${T}/state`), 403, "state перечислять нельзя");
+  assert.equal(await as(T, () => get(`teacherSpaces/${T}/state`)), 403, "state перечислять нельзя");
 });
 
 test("витрина родителя: точечное чтение, валидация, удаление", async () => {
@@ -103,10 +132,12 @@ test("канал: валидация сообщений", async () => {
   assert.equal(await put(`channels/${CK}/items/c1`, { type: "cancel", lessonId: "l1", by: "student", createdAt: 1 }), 200);
 });
 
-test("журнал решений по заявкам — только по ключу учителя", async () => {
-  assert.equal(await put(`teacherSpaces/${T}/requests/r1`, { status: "approved" }), 200);
-  assert.equal(await get(`teacherSpaces/${T}/requests`), 200);
-  assert.equal(await get(`teacherSpaces/${OLD_T}/requests`), 403);
+test("журнал решений по заявкам — только учителю", async () => {
+  await as(T, async () => {
+    assert.equal(await put(`teacherSpaces/${T}/requests/r1`, { status: "approved" }), 200);
+    assert.equal(await get(`teacherSpaces/${T}/requests`), 200);
+  });
+  assert.equal(await get(`teacherSpaces/${T}/requests`), 403);
 });
 
 test("прочие коллекции закрыты", async () => {

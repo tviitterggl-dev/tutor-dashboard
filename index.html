@@ -7,9 +7,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
-<script src="https://accounts.google.com/gsi/client" async defer></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
+  import {
+    getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+    sendPasswordResetEmail, signOut,
+  } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
   import {
     getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where,
     orderBy, getDocs, writeBatch, FieldPath, deleteField, onSnapshot,
@@ -24,25 +27,27 @@
     appId: "1:580713659609:web:94eae49a4e74eb679052c8",
   };
 
-  // Ключ учителя (секретный путь teacherSpaces/{ключ}) НЕ хранится в коде:
-  // сайт публичный, исходник страницы видит любой. Ключ попадает в браузер
-  // один раз — через ссылку .../#t=КЛЮЧ или ввод на экране входа — и живёт
-  // в localStorage этого устройства.
-  const KEY_STORAGE = "teacherKey";
-  const KEY_RE = /^[A-Za-z0-9_-]{24,64}$/;
-
-  function readTeacherKey() {
+  // Вход учителя — Firebase Authentication (email + пароль). Данные лежат
+  // в teacherSpaces/{uid}; правила пускают туда только этого пользователя.
+  //
+  // Старый способ — секретный ключ в пути teacherSpaces/{ключ} (ссылка
+  // .../#t=КЛЮЧ, ключ в localStorage). Он нужен только один раз: чтобы при
+  // первом входе перенести данные со старого пути на новый.
+  const LEGACY_KEY_STORAGE = "teacherKey";
+  const LEGACY_KEY_RE = /^[A-Za-z0-9_-]{24,64}$/;
+  function readLegacyKey() {
     const m = location.hash.match(/(?:^#|&)t=([A-Za-z0-9_-]{24,64})/);
     if (m) {
-      try { localStorage.setItem(KEY_STORAGE, m[1]); } catch (e) { /* приватный режим */ }
+      try { localStorage.setItem(LEGACY_KEY_STORAGE, m[1]); } catch (e) { /* приватный режим */ }
       history.replaceState(null, "", location.pathname + location.search);
       return m[1];
     }
-    try { return localStorage.getItem(KEY_STORAGE); } catch (e) { return null; }
+    try { return localStorage.getItem(LEGACY_KEY_STORAGE); } catch (e) { return null; }
   }
 
   const app = initializeApp(firebaseConfig);
   const db = getFirestore(app);
+  const auth = getAuth(app);
 
   const chunk = (arr, n) => Array.from({ length: Math.ceil(arr.length / n) }, (_, i) => arr.slice(i * n, i * n + n));
 
@@ -162,19 +167,62 @@
     };
   }
 
-  const TEACHER_ID = readTeacherKey();
-  window.TutorFB = TEACHER_ID && KEY_RE.test(TEACHER_ID) ? teacherApi(TEACHER_ID) : null;
-  window.TutorKey = {
-    has: !!window.TutorFB,
-    isValidFormat: (k) => KEY_RE.test(k),
-    async exists(k) {
-      const snap = await getDoc(doc(db, "teacherSpaces", k, "state", "main"));
+  // Разовый перенос: всё из teacherSpaces/{старый ключ} в teacherSpaces/{uid}.
+  // Работает, пока на сервере старые правила (они пускали по ключу) —
+  // поэтому сначала вход на сайте, потом деплой новых правил.
+  async function migrateFromLegacy(oldKey, uid) {
+    const from = (...p) => ["teacherSpaces", oldKey, ...p];
+    const to = (...p) => ["teacherSpaces", uid, ...p];
+    const stateSnap = await getDoc(doc(db, ...from("state", "main")));
+    if (!stateSnap.exists()) {
+      const err = new Error("По старому ключу данных нет");
+      err.code = "legacy-empty";
+      throw err;
+    }
+    const counts = {};
+    for (const col of ["lessons", "accessKeys", "requests"]) {
+      const snap = await getDocs(query(collection(db, ...from(col))));
+      counts[col] = snap.docs.length;
+      for (const part of chunk(snap.docs, 400)) {
+        const b = writeBatch(db);
+        part.forEach((d) => b.set(doc(db, ...to(col, d.id)), d.data()));
+        await b.commit();
+      }
+    }
+    // state/main — последним: пока его нет, перенос считается незавершённым.
+    await setDoc(doc(db, ...to("state", "main")), Object.assign({}, stateSnap.data(), { migratedAt: Date.now() }));
+    const check = await getDocs(query(collection(db, ...to("lessons"))));
+    if (check.docs.length < counts.lessons) throw new Error(`Перенесено занятий ${check.docs.length} из ${counts.lessons}`);
+    try { localStorage.removeItem(LEGACY_KEY_STORAGE); } catch (e) { /* ничего */ }
+    return counts;
+  }
+
+  const legacyKey = readLegacyKey();
+  window.TutorFB = null;
+  window.TutorAuth = {
+    user: null,
+    ready: false,
+    legacyKey: legacyKey && LEGACY_KEY_RE.test(legacyKey) ? legacyKey : null,
+    isLegacyKey: (k) => LEGACY_KEY_RE.test(k),
+    signIn: (email, pw) => signInWithEmailAndPassword(auth, email, pw),
+    signUp: (email, pw) => createUserWithEmailAndPassword(auth, email, pw),
+    resetPassword: (email) => sendPasswordResetEmail(auth, email),
+    signOut: () => signOut(auth),
+    async hasSpace(uid) {
+      const snap = await getDoc(doc(db, "teacherSpaces", uid, "state", "main"));
       return snap.exists();
     },
-    save(k) { localStorage.setItem(KEY_STORAGE, k); },
-    forget() { localStorage.removeItem(KEY_STORAGE); },
+    async createEmptySpace(uid) {
+      await setDoc(doc(db, "teacherSpaces", uid, "state", "main"), { marks: {}, pkgOverrides: {}, createdAt: Date.now() });
+    },
+    migrate: (oldKey, uid) => migrateFromLegacy(oldKey, uid),
   };
-  window.dispatchEvent(new Event("tutorfb-ready"));
+  onAuthStateChanged(auth, (user) => {
+    window.TutorAuth.user = user;
+    window.TutorAuth.ready = true;
+    window.TutorFB = user ? teacherApi(user.uid) : null;
+    window.dispatchEvent(new CustomEvent("tutor-auth", { detail: { user } }));
+  });
 </script>
 <style>
   :root {
@@ -341,14 +389,6 @@
   .badge.warn { color: var(--pending-text); border-color: var(--pending-border); background: var(--pending-bg); }
   .badge.err { color: var(--danger); border-color: var(--danger-border); background: var(--danger-bg); }
 
-  .rates-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-  .rates-row .meta { font-size: 12px; color: var(--muted); }
   .btn {
     border: none;
     background: var(--accent);
@@ -662,7 +702,6 @@
   #fcRoot .st-done { background: var(--done-text); border-color: var(--done-text); }
   #fcRoot .st-cancelled, #fcRoot .st-rescheduled { background: transparent; border: 1px dashed var(--muted); opacity: 0.75; }
   #fcRoot .st-cancelled .fc-event-main, #fcRoot .st-rescheduled .fc-event-main { color: var(--muted); text-decoration: line-through; }
-  #fcRoot .st-gcal { background: var(--accent-2); border-color: var(--accent-2); }
   #fcRoot .fc-list-event.st-cancelled td, #fcRoot .fc-list-event.st-rescheduled td { text-decoration: line-through; color: var(--muted); }
 
   table.keys { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
@@ -690,6 +729,10 @@
   .req .warn { color: var(--danger); font-size: 12px; margin: 4px 0; }
   .req .btn-row { margin: 8px 0 0; }
   .paid-tag { display: inline-block; font-size: 11px; font-weight: 600; color: var(--done-text); background: var(--done-bg); border: 1px solid var(--done-border); border-radius: 999px; padding: 1px 7px; margin-left: 6px; vertical-align: 1px; }
+  .auth-form { display: flex; flex-direction: column; gap: 8px; max-width: 340px; margin: 0 auto; }
+  .auth-form .pkg-input { font-size: 15px; padding: 10px; }
+  .auth-links { display: flex; flex-direction: column; gap: 8px; align-items: center; margin-top: 12px; }
+  #authMsg { text-align: center; }
   .logout-link {
     display: inline-block;
     margin-left: 8px;
@@ -706,37 +749,55 @@
 <body>
 <div class="wrap">
   <h1>Учёт занятий и заработка</h1>
-  <div class="sub">Прямая связь с Google Calendar и Google Таблицами · отмечай проведённые — сумма считается сама</div>
+  <div class="sub">Занятия, заработок, ученики и кабинеты родителей · отмечай проведённые — сумма считается сама</div>
 
-  <!-- КЛЮЧ УЧИТЕЛЯ (один раз на устройстве) -->
-  <div class="card login-card" id="keyCard" style="display:none">
-    <p id="keyCardText">Это устройство ещё не знает ключ учителя. Проще всего открыть свою секретную ссылку вида <b>…/tutor-dashboard/#t=КЛЮЧ</b> — тогда ничего вводить не нужно. Или вставь ключ сюда:</p>
-    <div style="display:flex; gap:8px; max-width:420px; margin:0 auto;">
-      <input type="text" class="pkg-input" id="teacherKeyInput" placeholder="Ключ учителя" autocomplete="off" autocapitalize="off" spellcheck="false">
-      <button class="btn" id="teacherKeySaveBtn" type="button">Сохранить</button>
+  <!-- ВХОД УЧИТЕЛЯ (Firebase Authentication: email + пароль) -->
+  <div class="card login-card" id="authCard" style="display:none">
+    <div id="authSignIn">
+      <p>Вход для учителя</p>
+      <form class="auth-form" id="authSignInForm" autocomplete="on">
+        <input type="email" class="pkg-input" id="authEmail" placeholder="Email" autocomplete="username" required>
+        <input type="password" class="pkg-input" id="authPass" placeholder="Пароль" autocomplete="current-password" required>
+        <button class="btn" id="authSignInBtn" type="submit">Войти</button>
+      </form>
+      <div class="auth-links">
+        <button class="link-btn" type="button" id="authForgot">Забыли пароль?</button>
+        <button class="link-btn" type="button" id="authShowSignUp">Первый вход — создать учётную запись</button>
+      </div>
     </div>
-    <div class="hint" id="teacherKeyMsg"></div>
-  </div>
-
-  <!-- ВХОД -->
-  <div class="card login-card" id="loginCard" style="display:none">
-    <p>Нужно войти в свой Google-аккаунт, чтобы дашборд увидел календарь и таблицу ставок.</p>
-    <button class="btn" id="loginBtn" disabled>Войти через Google</button>
+    <div id="authSignUp" style="display:none">
+      <p>Первый вход: придумай email и пароль для входа в дашборд. Их будешь вводить на любом устройстве; пароль можно восстановить по почте.</p>
+      <form class="auth-form" id="authSignUpForm" autocomplete="on">
+        <input type="email" class="pkg-input" id="suEmail" placeholder="Email" autocomplete="username" required>
+        <input type="password" class="pkg-input" id="suPass" placeholder="Пароль (не короче 8 символов)" autocomplete="new-password" required>
+        <input type="password" class="pkg-input" id="suPass2" placeholder="Пароль ещё раз" autocomplete="new-password" required>
+        <button class="btn" id="authSignUpBtn" type="submit">Создать и войти</button>
+      </form>
+      <div class="auth-links"><button class="link-btn" type="button" id="authShowSignIn">У меня уже есть учётная запись — войти</button></div>
+    </div>
+    <div id="authMigrate" style="display:none">
+      <p id="authMigrateText">Вход выполнен, но данных в этой учётной записи пока нет. Чтобы перенести их, вставь свою старую секретную ссылку (вида …/tutor-dashboard/#t=КЛЮЧ):</p>
+      <form class="auth-form" id="authMigrateForm">
+        <input type="text" class="pkg-input" id="migrateKey" placeholder="Старая ссылка или ключ" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <button class="btn" type="submit">Перенести данные</button>
+      </form>
+      <div class="auth-links">
+        <button class="link-btn" type="button" id="authStartEmpty">Начать с пустого дашборда</button>
+        <button class="link-btn" type="button" id="authMigrateSignOut">Выйти</button>
+      </div>
+    </div>
+    <div class="msg" id="authMsg"></div>
   </div>
 
   <div id="appRoot" style="display:none">
     <div class="card">
       <div class="status-row" id="statusRow">
-        <span class="badge" id="calBadge">Календарь: …</span>
-        <span class="badge" id="ratesBadge">Ставки: …</span>
+        <span class="badge" id="calBadge">Занятия: …</span>
+        <span class="badge" id="userBadge"></span>
         <button class="logout-link" id="logoutBtn">выйти</button>
       </div>
       <button class="req-alert" id="reqAlert" type="button" style="display:none"></button>
       <button class="req-alert pkg-alert" id="pkgAlert" type="button" style="display:none"></button>
-      <div class="rates-row">
-        <div class="meta" id="ratesMeta">Ставки не загружены</div>
-        <button class="btn secondary" id="refreshRatesBtn">Обновить цены</button>
-      </div>
     </div>
 
     <div class="tabs">
@@ -778,13 +839,12 @@
           <div>Прогноз на весь период (по расписанию): <b id="forecastCount">0</b> зан.</div>
           <div class="mini-big" id="forecastSum">0 ₽</div>
         </div>
-        <div class="hint">В сумму «Заработано» идут только отмеченные «Провёл». Прогноз — это сколько выйдет, если пройдут все занятия периода по текущим ставкам (включая уже отмеченные). Если ставка не найдена — впиши сумму вручную, тогда занятие можно отметить. Цена фиксируется в момент отметки — если позже поднимешь ставку, старые занятия не пересчитаются. Отметки хранятся в облаке (Firestore) — видны с любого устройства, где сохранён твой ключ учителя.</div>
+        <div class="hint">В сумму «Заработано» идут только отмеченные «Провёл». Прогноз — это сколько выйдет, если пройдут все занятия периода по текущим ставкам (включая уже отмеченные). Если ставка не найдена — впиши сумму вручную, тогда занятие можно отметить. Цена фиксируется в момент отметки — если позже поднимешь ставку, старые занятия не пересчитаются. Отметки хранятся в облаке (Firestore) — видны на любом устройстве, где ты вошла под своим email.</div>
       </div>
     </div>
 
     <!-- КАЛЕНДАРЬ (редактор занятий) -->
     <div class="tabview" id="view-calendar" style="display:none">
-      <div class="card" id="sourceCard"></div>
       <div class="card">
         <div class="btn-row">
           <button class="btn" id="fcAddBtn" type="button">+ Занятие</button>
@@ -870,7 +930,7 @@
       <div class="card">
         <div class="chart-title">Ученики</div>
         <div id="studentsRosterList"><div class="empty">Загрузка…</div></div>
-        <div class="hint">Нажми на ученика — там постоянная ссылка на созвон, ссылка на материалы/доступ и заметки. Ссылка на созвон сама подставляется в каждое занятие ученика (для одного занятия её можно заменить в карточке занятия) и видна родителю и ученику в их кабинетах. Заметки и ссылку на материалы видишь только ты. Список и ставки — из таблицы «Ставки учеников», обновляются кнопкой «Обновить цены».</div>
+        <div class="hint">Нажми на ученика — там постоянная ссылка на созвон, ссылка на материалы/доступ и заметки. Ссылка на созвон сама подставляется в каждое занятие ученика (для одного занятия её можно заменить в карточке занятия) и видна родителю и ученику в их кабинетах. Заметки и ссылку на материалы видишь только ты.</div>
       </div>
       <div class="card">
         <div class="sub" style="margin-bottom:10px">Пакеты (предоплата)</div>
@@ -899,11 +959,12 @@
         <div id="accessBody"><div class="empty">Загрузка…</div></div>
       </div>
       <div class="card">
-        <div class="chart-title">Это устройство</div>
-        <div class="btn-row" style="margin-bottom:0">
-          <button class="btn secondary" id="forgetKeyBtn" type="button">Забыть ключ учителя на этом устройстве</button>
+        <div class="chart-title">Аккаунт</div>
+        <div class="hint" style="margin-top:0" id="accountInfo"></div>
+        <div class="btn-row" style="margin:8px 0 0">
+          <button class="btn secondary" id="accountResetBtn" type="button">Сменить пароль (письмо на почту)</button>
+          <button class="btn secondary" id="accountSignOutBtn" type="button">Выйти на этом устройстве</button>
         </div>
-        <div class="hint">Ключ хранится только в этом браузере. Забыть — если это чужой или общий компьютер.</div>
       </div>
     </div>
 
@@ -921,7 +982,7 @@
         <div class="btn-row" style="margin-top:10px">
           <button class="btn secondary block" id="schedExportBtn">Сохранить как картинку (PNG)</button>
         </div>
-        <div class="hint">Учтены занятия и личные события из основного календаря — жёлтое занято, зелёное свободно. Картинку удобно скинуть клиенту, чтобы он выбрал окно.</div>
+        <div class="hint">Учтены занятия из дашборда — жёлтое занято, зелёное свободно. Картинку удобно скинуть клиенту, чтобы он выбрал окно.</div>
       </div>
     </div>
   </div>
@@ -933,18 +994,7 @@
 
 <script>
 (function () {
-  const CLIENT_ID = "1089841743767-dp27f56bhf78o0tsp2qvscjpgl1jmvmn.apps.googleusercontent.com";
-  const SCOPES = "https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/spreadsheets.readonly";
-  const RATES_FILE_ID = "1j0COVy9NUDOIumoGfJfTUYnV84c7jJ_rzFp1M3obORs";
-  const LESSONS_CALENDAR_ID = "676742127252c358d9ad3f9bd85e2965176875b1aeb2d7fa65cd4341361d4397@group.calendar.google.com";
-
-  let tokenClient = null;
-  let accessToken = null;
-
-  let activeTab = "lessons"; // lessons | summary | students | schedule
-
-  let rates = [];
-  let ratesMeta = null;
+  let activeTab = "lessons"; // lessons | calendar | requests | summary | students | schedule
 
   // Занятия (день/неделя)
   let lessonMode = "week"; // day | week
@@ -966,123 +1016,171 @@
 
   const $ = (id) => document.getElementById(id);
 
-  // ---------- АВТОРИЗАЦИЯ ----------
+  // ---------- ВХОД (Firebase Authentication) ----------
 
-  function saveToken(resp) {
-    accessToken = resp.access_token;
-    const expiresAt = Date.now() + (Number(resp.expires_in || 3600) * 1000) - 60000;
-    try { localStorage.setItem("gtoken", JSON.stringify({ token: accessToken, expiresAt })); } catch (e) { /* ignore */ }
-  }
-  function loadStoredToken() {
-    try {
-      const raw = localStorage.getItem("gtoken");
-      if (!raw) return null;
-      const data = JSON.parse(raw);
-      if (data.expiresAt > Date.now()) return data.token;
-    } catch (e) { /* ignore */ }
-    return null;
-  }
-  function clearToken() {
-    accessToken = null;
-    try { localStorage.removeItem("gtoken"); } catch (e) { /* ignore */ }
-  }
-
-  function showKeyScreen(text) {
-    if (text) $("keyCardText").textContent = text;
-    $("keyCard").style.display = "block";
-    $("loginCard").style.display = "none";
+  function authPanel(which) {
+    $("authCard").style.display = "block";
     $("appRoot").style.display = "none";
+    ["authSignIn", "authSignUp", "authMigrate"].forEach(id => { $(id).style.display = id === which ? "block" : "none"; });
   }
-  function showLoginScreen() {
-    $("keyCard").style.display = "none";
-    $("loginCard").style.display = "block";
-    $("appRoot").style.display = "none";
+  function authMsg(text, kind) {
+    $("authMsg").textContent = text || "";
+    $("authMsg").className = "msg" + (kind ? " " + kind : "");
   }
   function showApp() {
-    $("keyCard").style.display = "none";
-    $("loginCard").style.display = "none";
+    $("authCard").style.display = "none";
     $("appRoot").style.display = "block";
   }
 
-  // Модуль Firestore (type="module") выполняется ПОСЛЕ этого скрипта —
-  // ждём его сигнала. Если Firebase не загрузился вовсе (нет сети), не
-  // висим вечно.
-  function fbReady() {
-    if (window.TutorKey) return Promise.resolve();
+  const AUTH_ERRORS = {
+    "auth/invalid-email": "Похоже, в email опечатка.",
+    "auth/invalid-credential": "Неверный email или пароль.",
+    "auth/wrong-password": "Неверный email или пароль.",
+    "auth/user-not-found": "Неверный email или пароль.",
+    "auth/email-already-in-use": "Учётная запись с этим email уже есть — просто войди.",
+    "auth/weak-password": "Слишком простой пароль (нужно хотя бы 8 символов).",
+    "auth/too-many-requests": "Слишком много попыток. Подожди немного или восстанови пароль.",
+    "auth/network-request-failed": "Нет связи с сервером — проверь интернет.",
+    "auth/operation-not-allowed": "Вход по email ещё не включён в Firebase (Authentication → Sign-in method → Email/Password).",
+    "auth/configuration-not-found": "Вход по email ещё не включён в Firebase (Authentication → Get started → Email/Password).",
+  };
+  const authErrorText = (e) => AUTH_ERRORS[e && e.code] || "Не получилось: " + ((e && (e.code || e.message)) || "ошибка");
+
+  function authReady() {
+    if (window.TutorAuth && window.TutorAuth.ready) return Promise.resolve(true);
     return new Promise((resolve) => {
-      window.addEventListener("tutorfb-ready", resolve, { once: true });
-      setTimeout(resolve, 10000);
+      window.addEventListener("tutor-auth", () => resolve(true), { once: true });
+      setTimeout(() => resolve(false), 15000);
     });
   }
 
-  $("teacherKeySaveBtn").addEventListener("click", async () => {
-    const msg = $("teacherKeyMsg");
-    const k = $("teacherKeyInput").value.trim().replace(/^.*[#&]t=/, "");
-    if (!window.TutorKey) { msg.textContent = "База данных не загрузилась — обнови страницу."; return; }
-    if (!window.TutorKey.isValidFormat(k)) { msg.textContent = "Это не похоже на ключ: нужно 24–64 символа (латиница, цифры, «-» и «_»)."; return; }
-    msg.textContent = "Проверяю…";
+  $("authSignInForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    authMsg("Вхожу…");
     try {
-      if (!(await window.TutorKey.exists(k))) { msg.textContent = "По этому ключу ничего не найдено. Проверь, что он скопирован целиком."; return; }
-    } catch (e) {
-      msg.textContent = "Не удалось проверить ключ (нет доступа к базе). Попробуй ещё раз.";
+      await window.TutorAuth.signIn($("authEmail").value.trim(), $("authPass").value);
+      authMsg("");
+    } catch (err) {
+      authMsg(authErrorText(err), "err");
+    }
+  });
+  $("authSignUpForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const email = $("suEmail").value.trim();
+    const pw = $("suPass").value;
+    if (pw.length < 8) { authMsg("Пароль — не короче 8 символов.", "err"); return; }
+    if (pw !== $("suPass2").value) { authMsg("Пароли не совпадают.", "err"); return; }
+    authMsg("Создаю учётную запись…");
+    try {
+      await window.TutorAuth.signUp(email, pw);
+      authMsg("");
+    } catch (err) {
+      authMsg(authErrorText(err), "err");
+    }
+  });
+  $("authForgot").addEventListener("click", async () => {
+    const email = $("authEmail").value.trim();
+    if (!email) { authMsg("Впиши email в поле выше — пришлём на него ссылку для нового пароля.", "err"); return; }
+    try {
+      await window.TutorAuth.resetPassword(email);
+      authMsg("Письмо со ссылкой для нового пароля отправлено на " + email + " (проверь и «Спам»).", "ok");
+    } catch (err) {
+      authMsg(authErrorText(err), "err");
+    }
+  });
+  $("authShowSignUp").addEventListener("click", () => { authMsg(""); authPanel("authSignUp"); });
+  $("authShowSignIn").addEventListener("click", () => { authMsg(""); authPanel("authSignIn"); });
+
+  // Вошли, а данных в учётной записи ещё нет → перенос со старого ключа.
+  async function runMigration(oldKey) {
+    const uid = window.TutorAuth.user.uid;
+    authPanel("authMigrate");
+    authMsg("Переношу данные… не закрывай страницу.");
+    try {
+      const c = await window.TutorAuth.migrate(oldKey, uid);
+      authMsg(`Готово: перенесено занятий — ${c.lessons}, доступов — ${c.accessKeys}, заявок — ${c.requests}.`, "ok");
+      setTimeout(() => startApp(), 800);
+    } catch (err) {
+      console.error("Перенос не удался", err);
+      authMsg(err.code === "legacy-empty"
+        ? "По этой ссылке данных нет — проверь, что она скопирована целиком."
+        : isPermissionDenied(err)
+          ? "Старые данные уже закрыты новыми правилами базы, из браузера их не перенести. Напиши Claude Code — перенесёт вручную."
+          : "Перенос не удался (нет интернета?). Попробуй ещё раз.", "err");
+    }
+  }
+  $("authMigrateForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const k = $("migrateKey").value.trim().replace(/^.*[#&]t=/, "");
+    if (!window.TutorAuth.isLegacyKey(k)) { authMsg("Это не похоже на старую ссылку/ключ.", "err"); return; }
+    runMigration(k);
+  });
+  $("authStartEmpty").addEventListener("click", async () => {
+    if (!confirm("Начать с пустого дашборда? Старые данные останутся нетронутыми, но в этой учётной записи их не будет.")) return;
+    try {
+      await window.TutorAuth.createEmptySpace(window.TutorAuth.user.uid);
+      startApp();
+    } catch (err) {
+      authMsg("Не получилось (нет интернета?)", "err");
+    }
+  });
+  async function doSignOut() {
+    stopPoll();
+    await window.TutorAuth.signOut();
+    location.reload();
+  }
+  $("authMigrateSignOut").addEventListener("click", doSignOut);
+  $("logoutBtn").addEventListener("click", doSignOut);
+  $("accountSignOutBtn").addEventListener("click", () => { if (confirm("Выйти из дашборда на этом устройстве?")) doSignOut(); });
+  $("accountResetBtn").addEventListener("click", async () => {
+    const email = window.TutorAuth.user && window.TutorAuth.user.email;
+    try {
+      await window.TutorAuth.resetPassword(email);
+      alert("Письмо со ссылкой для нового пароля отправлено на " + email + ".");
+    } catch (err) {
+      alert(authErrorText(err));
+    }
+  });
+
+  let appStarted = false;
+  let appStarting = false;
+  async function startApp() {
+    if (appStarting) return;
+    appStarting = true;
+    try { await startAppInner(); } finally { appStarting = false; }
+  }
+  async function startAppInner() {
+    const user = window.TutorAuth.user;
+    if (!user) { authPanel("authSignIn"); return; }
+    let has;
+    try {
+      has = await window.TutorAuth.hasSpace(user.uid);
+    } catch (err) {
+      authPanel("authSignIn");
+      authMsg(isPermissionDenied(err)
+        ? "База пока не пускает по входу — нужно обновить правила (firebase deploy, см. DEVLOG.md)."
+        : "Нет связи с базой — проверь интернет и обнови страницу.", "err");
       return;
     }
-    window.TutorKey.save(k);
-    location.reload();
-  });
-
-  $("forgetKeyBtn").addEventListener("click", () => {
-    if (!confirm("Забыть ключ учителя на этом устройстве? Чтобы снова войти, понадобится секретная ссылка или ключ.")) return;
-    if (window.TutorKey) window.TutorKey.forget();
-    clearToken();
-    location.reload();
-  });
-
-  function handleAuthExpired() {
-    clearToken();
-    stopPoll();
-    showLoginScreen();
-  }
-
-  function initGis() {
-    if (typeof google === "undefined" || !google.accounts) {
-      setTimeout(initGis, 200);
+    if (!has) {
+      if (window.TutorAuth.legacyKey) { setTimeout(() => runMigration(window.TutorAuth.legacyKey), 0); return; }
+      authPanel("authMigrate");
+      authMsg("");
       return;
     }
-    tokenClient = google.accounts.oauth2.initTokenClient({
-      client_id: CLIENT_ID,
-      scope: SCOPES,
-      callback: (resp) => {
-        if (resp.error) {
-          $("loginBtn").textContent = "Не удалось войти, попробуй ещё раз";
-          return;
-        }
-        saveToken(resp);
-        afterAuth();
-      },
-    });
-    $("loginBtn").disabled = false;
-    $("loginBtn").textContent = "Войти через Google";
+    if (appStarted) return;
+    appStarted = true;
+    $("userBadge").textContent = user.email || "";
+    $("accountInfo").textContent = "Вход выполнен: " + (user.email || "");
+    afterAuth();
   }
-
-  $("loginBtn").addEventListener("click", () => {
-    if (!tokenClient) return;
-    tokenClient.requestAccessToken();
-  });
-  $("logoutBtn").addEventListener("click", () => {
-    stopPoll();
-    clearToken();
-    showLoginScreen();
-  });
 
   async function afterAuth() {
     showApp();
     if (!(await bootstrapRemoteState())) return;
-    await loadRatesFromCache();
-    renderRatesMeta();
-    if (!rates.length) await refreshRates();
     showTab("lessons");
-    await maybeAutoImport();
+    await startChannelWatch();
+    publishViewsSoon(); // раз в заход освежаем «занято» в кабинетах родителей
     refreshPackageAlertsSoon();
   }
 
@@ -1182,13 +1280,13 @@
     if (!m) return null;
     return { name: m[1], cls: parseInt(m[2], 10) };
   }
+  // Ставка — из профиля ученика (вкладка «Ученики»). Имя сравниваем без
+  // учёта регистра: в названиях занятий бывает «сева 7 класс».
   function findRate(name, cls) {
+    const profs = remoteState.studentProfiles || {};
     const nlow = name.toLowerCase();
-    const row = rates.find(r => r.name.toLowerCase() === nlow && r.cls === cls);
-    if (row) return row.rate;
-    // ученик, добавленный вручную во вкладке «Ученики», со своей ставкой
-    const prof = (remoteState.studentProfiles || {})[`${name}, ${cls} класс`];
-    return prof && prof.manual && !prof.hidden && typeof prof.rate === "number" ? prof.rate : null;
+    const p = Object.values(profs).find(x => x && x.name && !x.hidden && x.name.toLowerCase() === nlow && Number(x.cls) === cls);
+    return p && typeof p.rate === "number" ? p.rate : null;
   }
   function studentKey(ev) {
     const parsed = parseLesson(ev.summary || "");
@@ -1220,39 +1318,10 @@
     el.className = "badge" + (cls ? " " + cls : "");
   }
 
-  // ---------- ЗАПРОСЫ К GOOGLE API ----------
-
-  async function apiFetch(url) {
-    const res = await fetch(url, { headers: { Authorization: "Bearer " + accessToken } });
-    if (res.status === 401) {
-      handleAuthExpired();
-      throw new Error("auth");
-    }
-    if (!res.ok) throw new Error("http " + res.status);
-    return res.json();
-  }
-
-  async function calendarFetch(calendarId, startISO, endISO) {
-    const base = "https://www.googleapis.com/calendar/v3/calendars/" + encodeURIComponent(calendarId) +
-      "/events?timeMin=" + encodeURIComponent(startISO) +
-      "&timeMax=" + encodeURIComponent(endISO) +
-      "&singleEvents=true&orderBy=startTime&timeZone=Europe%2FMoscow&maxResults=250";
-    const items = [];
-    let pageToken = null;
-    do {
-      const data = await apiFetch(base + (pageToken ? "&pageToken=" + encodeURIComponent(pageToken) : ""));
-      items.push(...(data.items || []));
-      pageToken = data.nextPageToken || null;
-    } while (pageToken);
-    return items.filter(e => e.start && (e.start.dateTime || e.start.date) && e.status !== "cancelled");
-  }
-
-  // ---------- ИСТОЧНИК ЗАНЯТИЙ: Google Календарь → Firestore ----------
-  // До импорта занятия читаются из календаря «Занятия» (как раньше).
-  // После импорта источник правды — коллекция lessons в Firestore, а
-  // Google Календарь больше не читается для занятий.
-  let lessonsSource = "calendar"; // calendar | firestore
-  let lessonsDenied = false;       // правила Firestore ещё не пускают к lessons
+  // ---------- ЗАНЯТИЯ (Firestore) ----------
+  // Источник правды — коллекция lessons. Занятия отдаются в «календарном»
+  // формате ({id, summary, start.dateTime, end.dateTime, _lesson}) — на нём
+  // исторически построены итоги, пакеты и ставки.
 
   const isActiveStatus = (s) => s === "planned" || s === "done";
 
@@ -1264,25 +1333,11 @@
     return e && (e.code === "permission-denied" || /insufficient permissions/i.test(e.message || ""));
   }
 
-  // Возвращает занятия в формате событий Google Календаря ({id, summary,
-  // start.dateTime, end.dateTime}), чтобы весь остальной код (итоги,
-  // пакеты, ставки) работал одинаково для обоих источников.
   async function fetchLessons(start, end, opts = {}) {
-    if (lessonsSource === "firestore" && !lessonsDenied) {
-      try {
-        const list = await window.TutorFB.listLessons(start.getTime(), end.getTime());
-        setBadge($("calBadge"), "Занятия: в дашборде", "ok");
-        return list.filter(l => opts.includeInactive || isActiveStatus(l.status)).map(lessonToEv);
-      } catch (e) {
-        if (!isPermissionDenied(e)) throw e;
-        // Правила базы откатились/не задеплоены — не оставляем пустой экран.
-        lessonsDenied = true;
-        setBadge($("calBadge"), "Занятия: база закрыта, показываю Google Календарь", "warn");
-      }
-    }
-    return calendarFetch(LESSONS_CALENDAR_ID, fmtISO(start), fmtISO(end));
+    const list = await window.TutorFB.listLessons(start.getTime(), end.getTime());
+    setBadge($("calBadge"), "Занятия: в дашборде", "ok");
+    return list.filter(l => opts.includeInactive || isActiveStatus(l.status)).map(lessonToEv);
   }
-  const usingFirestoreLessons = () => lessonsSource === "firestore" && !lessonsDenied;
 
   // ---- время в Москве (все занятия ведутся по Москве, UTC+3 без перехода) ----
   const MSK_OFFSET_MS = 3 * 3600000;
@@ -1322,235 +1377,14 @@
     return prefix + "_" + Array.from(b, x => x.toString(16).padStart(2, "0")).join("");
   }
 
-  // ---- разовый импорт из Google Календаря ----
-  // Берём всё, что есть в календаре «Занятия» до конца октября 2026.
-  // id документа = id события → уже поставленные отметки «Провёл»
-  // продолжают работать без переноса. Повторный запуск добавляет только
-  // новые события и не трогает уже импортированные.
-  const IMPORT_FROM = new Date("2025-01-01T00:00:00+03:00");
-  const IMPORT_TO = new Date("2026-11-01T00:00:00+03:00");
-
-  function buildImportedLessons(evs) {
-    const timed = evs.filter(e => e.start && e.start.dateTime && e.end && e.end.dateTime);
-    // Пакеты: та же логика циклов «N/M», что и во вкладке «Ученики».
-    const pkgOf = {};
-    const byStudent = {};
-    timed.slice().sort((a, b) => new Date(a.start.dateTime) - new Date(b.start.dateTime)).forEach(e => {
-      const pkg = parsePackage(e.summary || "");
-      const sid = studentIdFromTitle(e.summary);
-      if (!pkg || !sid) return;
-      (byStudent[sid] = byStudent[sid] || []).push({ e, pkg });
-    });
-    Object.keys(byStudent).forEach(sid => {
-      let cycleId = null, prev = 0;
-      byStudent[sid].forEach(({ e, pkg }) => {
-        if (!cycleId || pkg.current <= prev) cycleId = "pkg_" + e.id;
-        prev = pkg.current;
-        pkgOf[e.id] = cycleId;
-      });
-    });
-    return timed.map(e => {
-      const startMs = new Date(e.start.dateTime).getTime();
-      const endMs = new Date(e.end.dateTime).getTime();
-      const mark = marks[e.id];
-      return {
-        id: e.id,
-        data: lessonData({
-          title: e.summary || "Без названия",
-          startMs,
-          endMs: endMs > startMs ? endMs : startMs + 60 * 60000,
-          status: mark && mark.marked ? "done" : "planned",
-          packageId: pkgOf[e.id] || null,
-          recurrenceId: e.recurringEventId || null,
-          source: "gcal",
-          extra: { gcalEventId: e.id, importedAt: Date.now(), createdAt: Date.now() },
-        }),
-      };
-    });
-  }
-
-  async function importFromCalendar() {
-    const evs = await calendarFetch(LESSONS_CALENDAR_ID, IMPORT_FROM.toISOString(), IMPORT_TO.toISOString());
-    const existing = await window.TutorFB.listLessons(IMPORT_FROM.getTime(), IMPORT_TO.getTime());
-    const have = new Set(existing.map(l => l.id));
-    const all = buildImportedLessons(evs);
-    const fresh = all.filter(it => !have.has(it.id));
-    if (fresh.length) await window.TutorFB.saveLessons(fresh);
-    const summary = { lessonsSource: "firestore", lessonsImportedAt: Date.now(), lessonsImportFound: all.length, lessonsImportAdded: fresh.length };
-    await window.TutorFB.patchState(summary);
-    Object.assign(remoteState, summary);
-    lessonsSource = "firestore";
-    lessonsDenied = false;
-    return { found: all.length, added: fresh.length };
-  }
-
-  // Правила уже пускают к lessons? (до деплоя новых правил — нет)
-  async function lessonsAllowed() {
-    try {
-      await window.TutorFB.listLessons(0, 1);
-      return true;
-    } catch (e) {
-      if (isPermissionDenied(e)) return false;
-      throw e;
-    }
-  }
-
-  let importBusy = false;
-  async function runImport(auto) {
-    if (importBusy) return;
-    importBusy = true;
-    renderSourceCard(auto ? "Переношу занятия из Google Календаря в дашборд…" : "Импортирую…");
-    try {
-      const r = await importFromCalendar();
-      if (activeTab !== "calendar") showTab(activeTab); else refreshCalendar();
-      renderSourceCard(`Готово: из Google Календаря найдено ${r.found} занятий, добавлено новых — ${r.added}.`);
-      startChannelWatch();
-      publishViewsSoon();
-    } catch (e) {
-      console.error("Импорт не удался", e);
-      renderSourceCard(isPermissionDenied(e)
-        ? "Импорт пока невозможен: в базе ещё старые правила доступа. Нужно один раз обновить их (команда firebase deploy — см. DEVLOG.md)."
-        : "Импорт не удался (нет интернета?). Попробуй ещё раз кнопкой ниже.");
-    } finally {
-      importBusy = false;
-    }
-  }
-
-  // Первый вход после обновления правил: переносим занятия сами, без кнопки.
-  // Если пользователь сам вернулся к Google Календарю — больше не трогаем.
-  async function maybeAutoImport() {
-    if (lessonsSource === "firestore" || remoteState.lessonsImportDisabled) {
-      renderSourceCard();
-      await startChannelWatch();
-      publishViewsSoon(); // раз в заход освежаем «занято» в кабинетах родителей
-      return;
-    }
-    try {
-      if (await lessonsAllowed()) await runImport(true);
-      else { lessonsDenied = true; renderSourceCard(); }
-    } catch (e) {
-      renderSourceCard();
-    }
-  }
-
-  function renderSourceCard(note) {
-    const el = $("sourceCard");
-    if (!el) return;
-    const noteHtml = note ? `<div class="msg ok">${escHtml(note)}</div>` : "";
-    if (usingFirestoreLessons()) {
-      const when = remoteState.lessonsImportedAt ? new Date(remoteState.lessonsImportedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
-      el.innerHTML = `<div class="banner">Занятия ведутся <b>в дашборде</b> (Google Календарь больше не нужен для учёта). Импорт из календаря «Занятия»: ${when}.
-        <div class="btn-row">
-          <button class="btn secondary" type="button" data-src-action="reimport">Досинхронизировать из Google Календаря</button>
-          <button class="btn secondary" type="button" data-src-action="back">Вернуться к Google Календарю</button>
-        </div>
-        <div class="hint">«Досинхронизировать» добавит только события, которых ещё нет в дашборде (до ${fmtShort(new Date(IMPORT_TO.getTime() - 1))}); уже перенесённые занятия не меняются.</div>${noteHtml}</div>`;
-    } else if (lessonsDenied) {
-      el.innerHTML = `<div class="banner">Сейчас занятия берутся из <b>Google Календаря</b> и здесь только просмотр. Редактор включится сам, как только в базе обновятся правила доступа (один раз, командой <code>firebase deploy --only firestore:rules --project tutor-cabinet</code>).${noteHtml}</div>`;
-    } else {
-      el.innerHTML = `<div class="banner">Сейчас занятия берутся из <b>Google Календаря</b> (только просмотр). Перенеси их в дашборд, чтобы создавать, переносить и отменять занятия прямо здесь.
-        <div class="btn-row"><button class="btn" type="button" data-src-action="import">Перенести занятия в дашборд</button></div>${noteHtml}</div>`;
-    }
-  }
-
-  $("sourceCard").addEventListener("click", async (e) => {
-    const b = e.target.closest("[data-src-action]");
-    if (!b) return;
-    const act = b.dataset.srcAction;
-    if (act === "import" || act === "reimport") {
-      await window.TutorFB.patchState({ lessonsImportDisabled: false }).catch(() => {});
-      remoteState.lessonsImportDisabled = false;
-      runImport(false);
-    } else if (act === "back") {
-      if (!confirm("Вернуться к Google Календарю? Занятия, созданные или изменённые в дашборде, в Google Календаре не появятся. Данные в дашборде не удаляются — можно переключиться обратно.")) return;
-      await window.TutorFB.patchState({ lessonsSource: "calendar", lessonsImportDisabled: true }).catch(reportSaveError);
-      remoteState.lessonsImportDisabled = true;
-      lessonsSource = "calendar";
-      renderSourceCard();
-      refreshCalendar();
-    }
-  });
-
   function escHtml(s) {
     return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   }
 
-  async function fetchRatesFromSheet() {
-    const url = "https://sheets.googleapis.com/v4/spreadsheets/" + RATES_FILE_ID + "/values/A:D";
-    const data = await apiFetch(url);
-    const rows = (data.values || []).slice();
-    rows.shift(); // заголовок
-    return rows.map(r => ({
-      name: (r[0] || "").toString().trim(),
-      surname: (r[1] || "").toString().trim(),
-      cls: parseInt(r[2], 10),
-      rate: parseFloat((r[3] || "").toString().replace(",", ".")),
-    })).filter(r => r.name && !Number.isNaN(r.cls) && !Number.isNaN(r.rate));
-  }
-
-  // ---------- СТАВКИ ----------
-
-  async function loadRatesFromCache() {
-    try {
-      const raw = localStorage.getItem("rates_cache");
-      if (raw) {
-        const data = JSON.parse(raw);
-        rates = data.rows || [];
-        ratesMeta = { updatedAt: data.updatedAt };
-      }
-    } catch (e) { /* ignore */ }
-  }
-
-  async function refreshRates() {
-    $("refreshRatesBtn").disabled = true;
-    setBadge($("ratesBadge"), "Ставки: обновляю…", "warn");
-    try {
-      rates = await fetchRatesFromSheet();
-      ratesMeta = { updatedAt: Date.now() };
-      setBadge($("ratesBadge"), "Ставки: обновлены", "ok");
-      try { localStorage.setItem("rates_cache", JSON.stringify({ rows: rates, updatedAt: ratesMeta.updatedAt })); } catch (e) { /* ignore */ }
-      renderRatesMeta();
-      renderLessons();
-      renderStudentsRoster();
-    } catch (e) {
-      if (e.message !== "auth") setBadge($("ratesBadge"), "Ставки: ошибка", "err");
-    } finally {
-      $("refreshRatesBtn").disabled = false;
-    }
-  }
-
-  function renderRatesMeta() {
-    const n = rates.length;
-    const t = ratesMeta && ratesMeta.updatedAt
-      ? new Date(ratesMeta.updatedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
-      : "—";
-    $("ratesMeta").textContent = `${n} ставок · обновлено: ${t}`;
-  }
-
-  // ---------- ОТМЕТКИ И ПАКЕТЫ (Firestore, teacherSpaces/{ключ учителя}/state/main) ----------
+  // ---------- ОТМЕТКИ И ПАКЕТЫ (Firestore, teacherSpaces/{uid}/state/main) ----------
   // Раньше жили в localStorage этого браузера — теперь общие для всех
   // устройств тьютора. При первом заходе на новом Firebase-проекте всё,
   // что уже накопилось в localStorage, переносится в Firestore один раз.
-
-  function readLocalMarksAll() {
-    const out = {};
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && k.indexOf("mark_") === 0) {
-          try { out[k.slice(5)] = JSON.parse(localStorage.getItem(k)); } catch (e) { /* skip */ }
-        }
-      }
-    } catch (e) { /* ignore */ }
-    return out;
-  }
-
-  function readLocalPkgOverridesRaw() {
-    try {
-      const raw = localStorage.getItem("pkg_overrides");
-      return raw ? JSON.parse(raw) : {};
-    } catch (e) { return {}; }
-  }
 
   let remoteStateReady = false;
   let remoteState = {};
@@ -1561,7 +1395,8 @@
     alert("Не получилось сохранить изменение в облако (нет интернета?). Обнови страницу и повтори.");
   }
 
-  // true — можно работать; false — показан экран ключа/ошибки.
+  // Состояние учителя (отметки, пакеты, профили, каналы). startApp уже
+  // проверил, что документ есть.
   async function bootstrapRemoteState() {
     if (remoteStateReady) return true;
     let remote;
@@ -1569,23 +1404,12 @@
       remote = await window.TutorFB.loadState();
     } catch (e) {
       console.error("Firestore недоступен", e);
-      // Старые отметки из localStorage — только показать, не сохранить.
-      packageOverrides = readLocalPkgOverridesRaw();
-      marks = readLocalMarksAll();
-      setBadge($("calBadge"), "База: нет связи, изменения не сохранятся", "err");
-      remoteStateReady = true;
-      return true;
-    }
-    if (!remote) {
-      // Ключ правильного вида, но пространства нет — чаще всего это старый
-      // ключ, который заменили. Создавать пустое пространство НЕ будем.
-      showKeyScreen("По сохранённому на этом устройстве ключу учителя данных нет — возможно, ключ заменили. Открой свою новую секретную ссылку или вставь ключ:");
+      setBadge($("calBadge"), "База: нет связи — обнови страницу", "err");
       return false;
     }
-    remoteState = remote;
-    packageOverrides = remote.pkgOverrides || {};
-    marks = remote.marks || {};
-    lessonsSource = remote.lessonsSource === "firestore" ? "firestore" : "calendar";
+    remoteState = remote || {};
+    packageOverrides = remoteState.pkgOverrides || {};
+    marks = remoteState.marks || {};
     remoteStateReady = true;
     return true;
   }
@@ -1766,11 +1590,10 @@
     async function doFetch() {
       try {
         events = await fetchLessons(range.start, range.end);
-        if (lessonsSource !== "firestore") setBadge($("calBadge"), "Календарь: подключен", "ok");
         loadMarksFor(events.map(e => e.id));
         renderLessons();
       } catch (e) {
-        if (e.message !== "auth") setBadge($("calBadge"), "Календарь: ошибка", "err");
+        setBadge($("calBadge"), "Занятия: ошибка загрузки", "err");
       }
     }
     await doFetch();
@@ -1835,7 +1658,7 @@
       renderCompare(stats, prevStats);
       loadMarksFor(summaryEvents.map(e => e.id));
     } catch (e) {
-      if (e.message !== "auth") $("studentsSummaryList").innerHTML = '<div class="empty">Не удалось загрузить</div>';
+      $("studentsSummaryList").innerHTML = '<div class="empty">Не удалось загрузить</div>';
     }
   }
 
@@ -1901,10 +1724,6 @@
   // ---------- ИТОГИ → ОПЛАТА ----------
   function renderPayments(evs) {
     const el = $("payList");
-    if (!usingFirestoreLessons()) {
-      el.innerHTML = '<div class="empty">Отметки «Оплачено» работают, когда занятия ведутся в дашборде.</div>';
-      return;
-    }
     const by = {};
     evs.forEach(ev => {
       const l = ev._lesson;
@@ -2033,7 +1852,7 @@
       });
       renderTrendChart(buckets);
     } catch (e) {
-      if (e.message !== "auth") el.innerHTML = '<div class="empty">Не удалось загрузить</div>';
+      el.innerHTML = '<div class="empty">Не удалось загрузить</div>';
     }
   }
 
@@ -2286,7 +2105,7 @@
       loadMarksFor(lastPackageEvents.map(e => e.id));
       renderPackages(buildPackages(lastPackageEvents));
     } catch (e) {
-      if (e.message !== "auth") $("packagesList").innerHTML = '<div class="empty">Не удалось загрузить пакеты</div>';
+      $("packagesList").innerHTML = '<div class="empty">Не удалось загрузить пакеты</div>';
     }
   }
 
@@ -2378,24 +2197,12 @@
     return p.callUrl && safeHref(p.callUrl) ? { url: p.callUrl, own: false } : null;
   }
 
-  // Все ученики: из таблицы ставок + добавленные вручную; без удалённых.
-  // Формат как у строк таблицы: { name, surname, cls, rate, manual }.
+  // Все ученики = профили с именем и классом (удалённые не показываем).
   function studentList() {
-    const profs = studentProfiles();
-    const out = [];
-    const seen = new Set();
-    rates.forEach(r => {
-      const id = `${r.name}, ${r.cls} класс`;
-      if (seen.has(id) || (profs[id] && profs[id].hidden)) return;
-      seen.add(id);
-      out.push({ name: r.name, surname: r.surname, cls: r.cls, rate: r.rate, manual: false });
-    });
-    Object.entries(profs).forEach(([id, p]) => {
-      if (!p || !p.manual || p.hidden || seen.has(id)) return;
-      seen.add(id);
-      out.push({ name: p.name, surname: p.surname || "", cls: p.cls, rate: typeof p.rate === "number" ? p.rate : null, manual: true });
-    });
-    return out.sort((a, b) => a.name.localeCompare(b.name, "ru") || a.cls - b.cls);
+    return Object.values(studentProfiles())
+      .filter(p => p && p.name && p.cls && !p.hidden)
+      .map(p => ({ name: p.name, surname: p.surname || "", cls: Number(p.cls), rate: typeof p.rate === "number" ? p.rate : null }))
+      .sort((a, b) => a.name.localeCompare(b.name, "ru") || a.cls - b.cls);
   }
 
   function rosterStudents() {
@@ -2404,7 +2211,6 @@
       label: `${st.name}${st.surname ? " " + st.surname : ""}`,
       cls: st.cls,
       rate: st.rate,
-      manual: st.manual,
     }));
   }
 
@@ -2434,16 +2240,18 @@
       <div class="student-card${isOpen ? " open" : ""}" data-student="${escHtml(st.id)}">
         <div class="student-head">
           <div>
-            <div class="name">${escHtml(st.label)}${st.manual ? ' <span class="cls">(добавлен вручную)</span>' : ""}</div>
+            <div class="name">${escHtml(st.label)}</div>
             <div class="agg">${st.cls ? escHtml(st.cls) + " класс" : ""}${tags ? " · " + escHtml(tags) : ""}${pkgEnding(lastPackagesByKey[st.id]) ? ` <span class="pkg-tag${lastPackagesByKey[st.id].remaining <= 0 ? " over" : ""}">${escHtml(pkgEnding(lastPackagesByKey[st.id]).short)}</span>` : ""}</div>
           </div>
           <div style="display:flex; align-items:center; gap:10px">
-            ${st.rate != null ? `<div class="rate" style="font-family:'Space Grotesk',sans-serif;font-weight:700;color:var(--accent-2)">${st.rate.toLocaleString("ru-RU")} ₽</div>` : ""}
+            ${st.rate != null ? `<div class="rate" style="font-family:'Space Grotesk',sans-serif;font-weight:700;color:var(--accent-2)">${st.rate.toLocaleString("ru-RU")} ₽</div>` : '<div class="cls">ставка не задана</div>'}
             <div class="chev">▸</div>
           </div>
         </div>
         <div class="student-body">
-          <div class="field" style="margin-top:10px"><span>Ссылка на созвон (постоянная)</span>
+          <div class="field" style="margin-top:10px; max-width:180px"><span>Ставка за занятие, ₽</span>
+            <input type="number" class="pf-rate" min="0" step="50" value="${st.rate != null ? st.rate : ""}"></div>
+          <div class="field"><span>Ссылка на созвон (постоянная)</span>
             <input type="url" class="pf-call" maxlength="500" placeholder="https://telemost.yandex.ru/…" value="${escHtml(p.callUrl || "")}"></div>
           <div class="field"><span>Ссылка на занятие / доступ (необязательно)</span>
             <input type="url" class="pf-access" maxlength="500" placeholder="доска, папка с материалами, платформа…" value="${escHtml(p.accessUrl || "")}"></div>
@@ -2486,18 +2294,18 @@
     const callUrl = card.querySelector(".pf-call").value.trim();
     const accessUrl = card.querySelector(".pf-access").value.trim();
     const notes = card.querySelector(".pf-notes").value.trim();
+    const rateRaw = card.querySelector(".pf-rate").value.trim();
+    const rate = rateRaw === "" ? null : parseFloat(rateRaw);
+    if (rate != null && !(rate >= 0)) { msg.textContent = "Ставка — число (или оставь пустой)"; msg.className = "msg pf-msg err"; return; }
     for (const u of [callUrl, accessUrl]) {
       if (u && !safeHref(u)) { msg.textContent = "Ссылка должна начинаться с https:// (или http://)"; msg.className = "msg pf-msg err"; return; }
     }
     saveBtn.disabled = true;
-    const existing = profileOf(sid);
-    const value = (callUrl || accessUrl || notes || existing.manual)
-      ? Object.assign({}, existing, { callUrl, accessUrl, notes, updatedAt: Date.now() })
-      : null;
+    const value = Object.assign({}, profileOf(sid), { rate, callUrl, accessUrl, notes, updatedAt: Date.now() });
     try {
       await window.TutorFB.setStudentProfile(sid, value);
       const all = Object.assign({}, studentProfiles());
-      if (value) all[sid] = value; else delete all[sid];
+      all[sid] = value;
       remoteState.studentProfiles = all;
       openProfile = sid;
       publishViewsSoon(); // ссылка на созвон появится в кабинете ученика
@@ -2527,7 +2335,6 @@
     if (exists) { msg("Такой ученик уже есть в списке.", "err"); return; }
     const prev = profileOf(id);
     const value = Object.assign({}, prev.hidden ? {} : prev, {
-      manual: !rates.some(r => r.name.toLowerCase() === nameFixed.toLowerCase() && r.cls === cls),
       hidden: false, name: nameFixed, cls, rate, createdAt: Date.now(), updatedAt: Date.now(),
     });
     try {
@@ -2550,20 +2357,19 @@
     const now = Date.now();
     const future = lessons.filter(l => l.startMs >= now && l.status !== "done");
     const past = lessons.filter(l => !(l.startMs >= now && l.status !== "done"));
-    const fromSheet = rates.some(r => `${r.name}, ${r.cls} класс` === sid);
     openModal(`
       <h2>Удалить ученика «${escHtml(sid)}»?</h2>
       <div class="banner" style="margin-top:8px">
         <div>Будет удалено:</div>
         <ul style="margin:6px 0 0; padding-left:18px">
-          <li>профиль: ссылки и заметки;</li>
+          <li>профиль: ставка, ссылки и заметки;</li>
           <li>будущие занятия: <b>${future.length}</b>;</li>
           <li>доступы родителей/учеников: <b>${keys.length}</b> (ссылки сразу перестанут работать), заявки и загруженные ими файлы в очереди;</li>
           <li>ручные правки пакета.</li>
         </ul>
       </div>
       <label class="check" style="margin-top:12px"><input type="checkbox" id="delPast"> Удалить и прошедшие занятия (${past.length}) — вместе с отметками «Провёл»; из «Итогов» и заработка они тоже пропадут</label>
-      <div class="hint">${past.length ? "Если не отмечать — прошедшие занятия останутся в истории и в заработке." : ""}${fromSheet ? " Ученик есть в таблице «Ставки учеников» — из дашборда он скроется, а строку в самой таблице удали вручную." : ""} Отменить удаление нельзя.</div>
+      <div class="hint">${past.length ? "Если не отмечать — прошедшие занятия останутся в истории и в заработке." : ""} Отменить удаление нельзя.</div>
       <div class="msg" id="mMsg"></div>
       <div class="btn-row">
         <button class="btn danger" type="button" id="delConfirm">Удалить ученика</button>
@@ -2574,7 +2380,7 @@
       e.currentTarget.disabled = true;
       modalMsg("Удаляю…");
       try {
-        await deleteStudent(sid, mq("#delPast").checked, fromSheet);
+        await deleteStudent(sid, mq("#delPast").checked);
         closeModal();
         openProfile = null;
         renderStudentsRoster();
@@ -2589,7 +2395,7 @@
     });
   }
 
-  async function deleteStudent(sid, withPast, fromSheet) {
+  async function deleteStudent(sid, withPast) {
     const now = Date.now();
     const lessons = await window.TutorFB.listLessonsOfStudent(sid);
     const doomed = lessons.filter(l => withPast || (l.startMs >= now && l.status !== "done"));
@@ -2620,12 +2426,9 @@
       delete packageOverrides[sid];
       await window.TutorFB.setPkgOverride(sid, null);
     }
-    // Ученик из таблицы ставок вернулся бы при следующей загрузке ставок —
-    // поэтому запоминаем «скрыт»; добавленного вручную удаляем целиком.
-    const tomb = fromSheet ? { hidden: true, hiddenAt: now } : null;
-    await window.TutorFB.setStudentProfile(sid, tomb);
+    await window.TutorFB.setStudentProfile(sid, null);
     const profs = Object.assign({}, studentProfiles());
-    if (tomb) profs[sid] = tomb; else delete profs[sid];
+    delete profs[sid];
     remoteState.studentProfiles = profs;
     await getAccessKeys(true);
     startChannelWatch();
@@ -2657,14 +2460,10 @@
     $("schedTable").innerHTML = '<tr><td class="empty">Загрузка…</td></tr>';
 
     try {
-      const [lessonsEvs, personalEvs] = await Promise.all([
-        fetchLessons(week.mon, week.nextMon),
-        calendarFetch("primary", fmtISO(week.mon), fmtISO(week.nextMon)),
-      ]);
-      const allEvs = [...lessonsEvs, ...personalEvs].filter(e => e.start && e.start.dateTime && e.end && e.end.dateTime);
+      const allEvs = (await fetchLessons(week.mon, week.nextMon)).filter(e => e.start && e.start.dateTime && e.end && e.end.dateTime);
       renderSchedule(week, allEvs);
     } catch (e) {
-      if (e.message !== "auth") $("schedTable").innerHTML = '<tr><td class="empty">Не удалось загрузить</td></tr>';
+      $("schedTable").innerHTML = '<tr><td class="empty">Не удалось загрузить</td></tr>';
     }
   }
 
@@ -2851,21 +2650,13 @@
       decisions = await window.TutorFB.listRequestDecisions(now - 365 * DAY_MS); // история заявок в кабинете — за год
     } catch (e) { /* журнал заявок недоступен (старые правила) — без него */ }
     const channels = studentChannels();
-    let personal = [];
-    try {
-      if (accessToken) personal = await calendarFetch("primary", new Date(busyFrom).toISOString(), new Date(busyTo).toISOString());
-    } catch (e) { /* без личного календаря — только занятия */ }
-    const personalBusy = personal
-      .filter(e => e.start.dateTime && e.end && e.end.dateTime)
-      .map(e => ({ s: Date.parse(e.start.dateTime), e: Date.parse(e.end.dateTime) }));
     const pkgs = buildPackages(all.filter(l => isActiveStatus(l.status)).map(lessonToEv));
 
     return keys.map(k => {
       const own = all.filter(l => l.studentId === k.studentId);
       const busy = all
         .filter(l => isActiveStatus(l.status) && l.studentId !== k.studentId && l.endMs > busyFrom && l.startMs < busyTo)
-        .map(l => ({ s: l.startMs, e: l.endMs }))
-        .concat(personalBusy);
+        .map(l => ({ s: l.startMs, e: l.endMs }));
       const ch = channels[k.studentId] || {};
       // Всё ниже — только про ЭТОГО ученика (фильтр по studentId); чужие
       // занятия попадают в busy без имён и без id.
@@ -2916,7 +2707,6 @@
   }
 
   async function publishViews(onlyKeys) {
-    if (!usingFirestoreLessons()) return 0;
     const keys = onlyKeys || (await getAccessKeys()).filter(k => k.active);
     if (!keys.length) return 0;
     const built = await buildViews(keys);
@@ -2926,7 +2716,6 @@
 
   let publishTimer = null;
   function publishViewsSoon() {
-    if (!usingFirestoreLessons()) return;
     clearTimeout(publishTimer);
     publishTimer = setTimeout(() => {
       publishViews().catch(e => console.error("Кабинеты родителей/учеников не обновились", e));
@@ -2954,10 +2743,6 @@
 
   async function loadAccessCard(fresh) {
     const el = $("accessBody");
-    if (!usingFirestoreLessons()) {
-      el.innerHTML = '<div class="hint" style="margin-top:0">Кабинеты для родителей и учеников заработают после переноса занятий в дашборд (вкладка «Календарь»).</div>';
-      return;
-    }
     if (!fresh) el.innerHTML = '<div class="empty">Загрузка…</div>';
     let keys;
     try {
@@ -3100,7 +2885,6 @@
   }
 
   async function startChannelWatch() {
-    if (!usingFirestoreLessons()) return;
     let keys;
     try {
       keys = await getAccessKeys(true);
@@ -3243,11 +3027,6 @@
 
   async function renderRequests() {
     const list = $("requestsList");
-    if (!usingFirestoreLessons()) {
-      list.innerHTML = '<div class="empty">Заявки работают, когда занятия ведутся в дашборде.</div>';
-      $("requestsHistory").innerHTML = "";
-      return;
-    }
     const pend = pendingRequests();
     for (const p of pend) {
       if (!(p.item.lessonId in lessonCache)) {
@@ -3412,14 +3191,6 @@
     return m ? ` ${m[1]}/${m[2]}` : "";
   }
 
-  function requireEditable() {
-    if (usingFirestoreLessons()) return true;
-    alert(lessonsDenied
-      ? "Редактор включится после обновления правил базы (см. подсказку над календарём)."
-      : "Сначала перенеси занятия в дашборд — кнопка над календарём.");
-    return false;
-  }
-
   function lessonToFc(l) {
     const tag = l.status === "cancelled" ? " · отмена" : l.status === "rescheduled" ? " · перенос" : "";
     return {
@@ -3435,22 +3206,8 @@
 
   async function loadFcEvents(info, success, failure) {
     try {
-      if (usingFirestoreLessons()) {
-        try {
-          const list = await window.TutorFB.listLessons(info.start.getTime(), info.end.getTime());
-          success(list.map(lessonToFc));
-          return;
-        } catch (e) {
-          if (!isPermissionDenied(e)) throw e;
-          lessonsDenied = true;
-          renderSourceCard();
-        }
-      }
-      const evs = await calendarFetch(LESSONS_CALENDAR_ID, info.start.toISOString(), info.end.toISOString());
-      success(evs.filter(e => e.start.dateTime).map(e => ({
-        id: e.id, title: e.summary || "", start: e.start.dateTime, end: e.end && e.end.dateTime,
-        classNames: ["st-gcal"], editable: false, extendedProps: { gcal: e },
-      })));
+      const list = await window.TutorFB.listLessons(info.start.getTime(), info.end.getTime());
+      success(list.map(lessonToFc));
     } catch (e) {
       failure(e);
     }
@@ -3488,12 +3245,10 @@
       events: loadFcEvents,
       select: (info) => {
         fc.unselect();
-        if (!requireEditable()) return;
         openCreateModal(info.start, info.end);
       },
       eventClick: (info) => {
         info.jsEvent.preventDefault();
-        if (info.event.extendedProps.gcal) { openGcalInfoModal(info.event.extendedProps.gcal); return; }
         openLessonModal(info.event.id);
       },
       eventDrop: onFcDrop,
@@ -3508,7 +3263,6 @@
   }
 
   async function refreshCalendar() {
-    renderSourceCard();
     if (activeTab !== "calendar") { if (fc) fc.refetchEvents(); return; }
     try {
       await ensureCalendar();
@@ -3528,7 +3282,7 @@
 
   async function onFcDrop(info) {
     const l = info.event.extendedProps.lesson;
-    if (!l || !usingFirestoreLessons()) { info.revert(); return; }
+    if (!l) { info.revert(); return; }
     const startMs = info.event.start.getTime();
     const endMs = info.event.end ? info.event.end.getTime() : startMs + (l.endMs - l.startMs);
     if (!confirm(`Перенести «${l.title}» на ${fmtWhen(startMs, endMs)}?\nВ истории останется отметка «перенесено».`)) { info.revert(); return; }
@@ -3544,7 +3298,7 @@
 
   async function onFcResize(info) {
     const l = info.event.extendedProps.lesson;
-    if (!l || !usingFirestoreLessons()) { info.revert(); return; }
+    if (!l) { info.revert(); return; }
     const endMs = info.event.end.getTime();
     try {
       await window.TutorFB.updateLesson(l.id, { endMs, end: mskIso(endMs), durationMin: Math.round((endMs - l.startMs) / 60000), updatedAt: Date.now() });
@@ -3707,7 +3461,6 @@
     if (durMin <= 30) durMin = 60;
     openModal(`
       <h2>Новое занятие</h2>
-      <div class="meta">Сохранится в дашборде (не в Google Календаре).</div>
       ${studentSelectHtml(lastStudentChoice)}
       ${whenFieldsHtml(startMs, durMin)}
       <label class="check"><input type="checkbox" id="mRepeat"> Повторять каждую неделю</label>
@@ -3769,17 +3522,6 @@
         console.error(e);
       }
     });
-  }
-
-  function openGcalInfoModal(e) {
-    const s = new Date(e.start.dateTime).getTime();
-    const en = e.end && e.end.dateTime ? new Date(e.end.dateTime).getTime() : null;
-    openModal(`
-      <h2>${escHtml(e.summary || "Без названия")}</h2>
-      <div class="meta">${escHtml(fmtWhen(s, en))} · из Google Календаря</div>
-      <div class="banner">Это событие из Google Календаря — здесь только просмотр. ${lessonsDenied ? "Редактор включится после обновления правил базы." : "Перенеси занятия в дашборд (кнопка над календарём), чтобы править их здесь."}</div>
-      <div class="btn-row" style="margin-top:12px"><button class="btn secondary" type="button" id="mClose">Закрыть</button></div>`);
-    mq("#mClose").addEventListener("click", closeModal);
   }
 
   async function openLessonModal(id) {
@@ -3878,9 +3620,9 @@
 
     const exportHtml = `
       <div class="section">
-        <div class="section-title">Google Календарь</div>
-        <button class="btn secondary" type="button" id="mExport">${l.exportedEventId ? "Обновить в моём Google Календаре" : "Добавить в мой Google Календарь"}</button>
-        <div class="hint">Только в одну сторону, для удобства (напоминания на телефоне). Изменения в Google Календаре сюда не возвращаются.</div>
+        <div class="section-title">Мой календарь</div>
+        <button class="btn secondary" type="button" id="mExport">Добавить в календарь (.ics)</button>
+        <div class="hint">Скачается файл события — телефон или компьютер предложит добавить его в твой календарь (Google, Apple, Outlook), с напоминанием за 30 минут. Без входа в аккаунты. Каждое нажатие — новое событие; изменения занятия туда сами не попадут.</div>
       </div>`;
 
     openModal(`
@@ -4025,57 +3767,62 @@
       publishViewsSoon();
       await reopen(uploaded.length > 1 ? `Загружено файлов: ${uploaded.length}` : "Файл загружен");
     }).catch(() => {}));
-    mq("#mExport").addEventListener("click", (e) => {
-      // Токен на запись нужно запросить синхронно в обработчике нажатия,
-      // иначе браузер заблокирует окно Google.
-      const tokenPromise = getWriteToken();
-      busy(e.currentTarget, async () => {
-        modalMsg("Добавляю в Google Календарь…");
-        let token;
-        try { token = await tokenPromise; } catch (err) { modalMsg("Google не дал доступ к календарю на запись (окно закрыто?).", "err"); return; }
-        const gid = await exportLessonToGoogle(l, token);
-        await window.TutorFB.updateLesson(l.id, { exportedEventId: gid, exportedAt: Date.now() });
-        await reopen("Готово — занятие есть в твоём Google Календаре");
-      });
+    mq("#mExport").addEventListener("click", () => {
+      downloadIcs(l);
+      modalMsg("Файл события скачан — открой его, чтобы добавить в календарь.", "ok");
     });
   }
 
-  // ---------- ЭКСПОРТ В GOOGLE КАЛЕНДАРЬ (одностороний) ----------
+  // ---------- «ДОБАВИТЬ В КАЛЕНДАРЬ»: файл .ics (без входа в Google) ----------
+  // Стандарт iCalendar (RFC 5545): время в UTC, строки через CRLF, длинные
+  // строки переносятся, спецсимволы экранируются. UID каждый раз новый —
+  // повторное нажатие просто добавит ещё одно событие.
 
-  const WRITE_SCOPE = "https://www.googleapis.com/auth/calendar.events";
-  let writeTokenClient = null;
-  let writeToken = null;
-
-  function getWriteToken() {
-    return new Promise((resolve, reject) => {
-      if (writeToken && writeToken.expiresAt > Date.now()) { resolve(writeToken.token); return; }
-      if (typeof google === "undefined" || !google.accounts) { reject(new Error("gis")); return; }
-      if (!writeTokenClient) {
-        writeTokenClient = google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: WRITE_SCOPE, include_granted_scopes: true, callback: () => {} });
-      }
-      writeTokenClient.callback = (resp) => {
-        if (resp.error) { reject(new Error(resp.error)); return; }
-        writeToken = { token: resp.access_token, expiresAt: Date.now() + (Number(resp.expires_in || 3600) - 60) * 1000 };
-        resolve(writeToken.token);
-      };
-      writeTokenClient.error_callback = (err) => reject(new Error((err && err.type) || "popup"));
-      writeTokenClient.requestAccessToken();
-    });
+  function icsEscape(v) {
+    return String(v || "").replace(/\\/g, "\\\\").replace(/\r?\n/g, "\\n").replace(/([,;])/g, "\\$1");
   }
-
-  async function exportLessonToGoogle(l, token) {
-    const body = {
-      summary: l.title,
-      description: "Из дашборда репетитора" + (l.report ? "\n\nОтчёт: " + l.report : ""),
-      start: { dateTime: l.start, timeZone: "Europe/Moscow" },
-      end: { dateTime: l.end, timeZone: "Europe/Moscow" },
-    };
-    const base = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
-    const send = (method, url) => fetch(url, { method, headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    let res = l.exportedEventId ? await send("PATCH", base + "/" + encodeURIComponent(l.exportedEventId)) : null;
-    if (!res || res.status === 404 || res.status === 410) res = await send("POST", base);
-    if (!res.ok) throw new Error("gcal " + res.status);
-    return (await res.json()).id;
+  function icsDate(ms) {
+    return new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  }
+  function icsFold(line) {
+    const enc = new TextEncoder();
+    const out = [];
+    let cur = "", bytes = 0;
+    for (const ch of line) {
+      const n = enc.encode(ch).length;
+      if (bytes + n > 73) { out.push(cur); cur = " " + ch; bytes = 1 + n; } else { cur += ch; bytes += n; }
+    }
+    out.push(cur);
+    return out.join("\r\n");
+  }
+  function buildIcs(l) {
+    const call = callLinkFor(l);
+    const desc = [call ? "Созвон: " + call.url : "", l.report ? "Отчёт: " + l.report : ""].filter(Boolean).join("\n");
+    const lines = [
+      "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//tutor-dashboard//RU", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+      "BEGIN:VEVENT",
+      `UID:${l.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@tutor-dashboard`,
+      `DTSTAMP:${icsDate(Date.now())}`,
+      `DTSTART:${icsDate(l.startMs)}`,
+      `DTEND:${icsDate(l.endMs)}`,
+      `SUMMARY:${icsEscape(l.title)}`,
+      desc ? `DESCRIPTION:${icsEscape(desc)}` : null,
+      call ? `URL:${call.url}` : null,
+      "BEGIN:VALARM", "ACTION:DISPLAY", "DESCRIPTION:Занятие", "TRIGGER:-PT30M", "END:VALARM",
+      "END:VEVENT", "END:VCALENDAR",
+    ].filter(Boolean);
+    return lines.map(icsFold).join("\r\n") + "\r\n";
+  }
+  function downloadIcs(l) {
+    const blob = new Blob([buildIcs(l)], { type: "text/calendar;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `zanyatie-${l.date || "lesson"}.ics`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
 
   // ---------- ФАЙЛЫ ДОМАШКИ (Cloudinary, unsigned upload) ----------
@@ -4101,7 +3848,7 @@
     return { url: data.secure_url, name: file.name, bytes: data.bytes || file.size, format: data.format || "", uploadedAt: Date.now() };
   }
 
-  $("fcAddBtn").addEventListener("click", () => { if (requireEditable()) openCreateModal(); });
+  $("fcAddBtn").addEventListener("click", () => openCreateModal());
 
   // ---------- НАВИГАЦИЯ ПО ВКЛАДКАМ ----------
 
@@ -4175,7 +3922,6 @@
   $("schedNextBtn").addEventListener("click", () => { schedWeekOffset++; loadSchedule(); });
   $("schedExportBtn").addEventListener("click", exportScheduleImage);
 
-  $("refreshRatesBtn").addEventListener("click", refreshRates);
 
   (function initRangeInputs() {
     const today = new Date();
@@ -4184,21 +3930,17 @@
     $("summaryRangeEnd").value = toDateInputValue(today);
   })();
 
-  initGis();
+  // Модуль Firebase (type="module") выполняется после этого скрипта —
+  // ждём первого сигнала о входе; дальнейшие входы/выходы тоже слушаем.
   (async function start() {
-    await fbReady();
-    if (!window.TutorKey) {
-      showKeyScreen("Не удалось загрузить базу данных — проверь интернет и обнови страницу.");
+    const ok = await authReady();
+    if (!ok || !window.TutorAuth) {
+      authPanel("authSignIn");
+      authMsg("Не удалось загрузить вход — проверь интернет и обнови страницу.", "err");
       return;
     }
-    if (!window.TutorFB) { showKeyScreen(); return; }
-    const stored = loadStoredToken();
-    if (stored) {
-      accessToken = stored;
-      afterAuth();
-    } else {
-      showLoginScreen();
-    }
+    window.addEventListener("tutor-auth", () => { if (!appStarted) startApp(); });
+    startApp();
   })();
 })();
 </script>

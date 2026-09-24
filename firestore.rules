@@ -1,29 +1,23 @@
 rules_version = '2';
 
-// Модель доступа — без Firebase Authentication: «ключ = пароль».
-// Кто знает точный ключ в пути документа, тот имеет доступ; без ключа
-// документ не найти, потому что листинг верхних коллекций запрещён.
-//
-//  • teacherSpaces/{ключ учителя}/...   — всё хозяйство тьютора.
-//    Ключ учителя НЕ хранится в коде сайта: он вводится один раз на
-//    устройстве (ссылка .../#t=КЛЮЧ) и живёт в localStorage браузера.
-//  • parentAccess/{ключ родителя}       — витрина для родителя (только
-//  • studentAccess/{ключ ученика}         его ребёнок + «занято» без имён).
-//    Витрины публикует кабинет учителя. У каждого родителя/ученика свой
-//    ключ; отзыв ключа = удаление витрины.
-//  • channels/{ключ канала}/items          — то, что пишут родитель/ученик
-//    (ДЗ, заявки, «оплачено»). У каждого ученика общий канал (родитель +
+// Модель доступа.
+//  • teacherSpaces/{uid}/...  — всё хозяйство учителя. Доступ только после
+//    входа (Firebase Authentication, email+пароль) и только владельцу:
+//    request.auth.uid == uid. Секретных ключей в пути больше нет.
+//  • parentAccess/{ключ}, studentAccess/{ключ} — «витрины» кабинетов
+//    родителя/ученика: «ключ = пароль», точечное чтение, листинг запрещён.
+//  • channels/{ключ канала}/items — то, что пишут родитель/ученик (ДЗ,
+//    заявки, «оплачено»). У каждого ученика общий канал (родитель +
 //    ученик) и отдельный родительский (оплата). Учитель проверяет, что
 //    каждое сообщение относится к занятию именно этого ученика.
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Первый ключ учителя попал в публичный index.html (сентябрь 2026),
-    // поэтому он выведен из оборота: данные перенесены на новый ключ,
-    // а старый путь закрыт полностью.
-    function liveTeacher(teacherId) {
-      return teacherId != "2Vv0fLQi3MXbEgqpwlmWk5E1KnVRz9-q"
-        && teacherId.size() >= 24;
+    // Учитель = вошедший пользователь, чей uid совпадает с папкой. Старые
+    // пути с секретным ключом (teacherSpaces/{ключ}) этому не соответствуют
+    // никогда (uid выдаёт Firebase), поэтому закрыты автоматически.
+    function isTeacher(uid) {
+      return request.auth != null && request.auth.uid == uid;
     }
 
     function validLesson(d) {
@@ -62,24 +56,22 @@ service cloud.firestore {
         && d.busy is list && d.busy.size() <= 1500;
     }
 
-    match /teacherSpaces/{teacherId}/state/{stateDoc} {
-      allow get, write: if liveTeacher(teacherId);
+    match /teacherSpaces/{uid}/state/{stateDoc} {
+      allow get, write: if isTeacher(uid);
     }
 
-    // Листинг здесь разрешён: чтобы что-то перечислить, всё равно нужно
-    // знать ключ учителя в пути.
-    match /teacherSpaces/{teacherId}/lessons/{lessonId} {
-      allow get, list, delete: if liveTeacher(teacherId);
-      allow create, update: if liveTeacher(teacherId) && validLesson(request.resource.data);
+    match /teacherSpaces/{uid}/lessons/{lessonId} {
+      allow get, list, delete: if isTeacher(uid);
+      allow create, update: if isTeacher(uid) && validLesson(request.resource.data);
     }
 
-    match /teacherSpaces/{teacherId}/accessKeys/{accessKey} {
-      allow get, list, write: if liveTeacher(teacherId);
+    match /teacherSpaces/{uid}/accessKeys/{accessKey} {
+      allow get, list, write: if isTeacher(uid);
     }
 
     // Журнал решений по заявкам (подтверждено/отклонено) — только учитель.
-    match /teacherSpaces/{teacherId}/requests/{requestId} {
-      allow get, list, write: if liveTeacher(teacherId);
+    match /teacherSpaces/{uid}/requests/{requestId} {
+      allow get, list, write: if isTeacher(uid);
     }
 
     // Каналы учеников: channels/{ключ канала}/items/{id}. Ключ канала знает

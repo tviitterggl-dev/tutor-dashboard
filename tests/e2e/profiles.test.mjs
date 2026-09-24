@@ -15,7 +15,7 @@ async function waitFor(fn, what, timeout = 8000) {
 test("профиль ученика: сохранить ссылки и заметки; созвон сам подставляется в занятие, можно заменить разово", async () => {
   const app = await openApp();
   const { page } = app;
-  await waitFor(async () => (await app.db())[statePath].lessonsSource === "firestore", "импорт");
+  await app.page.waitForSelector("#appRoot", { state: "visible" });
   await page.click('.tab[data-tab="students"]');
   const card = page.locator('.student-card[data-student="Тест, 7 класс"]');
   await card.locator(".student-head").click();

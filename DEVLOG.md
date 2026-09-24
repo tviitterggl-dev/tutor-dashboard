@@ -16,10 +16,30 @@
   на сервер попадают только после команды деплоя** (см. ниже).
 - `firebase.json` — настройки для команды `firebase` (где лежат правила,
   порты эмулятора).
-- `tests/` — автотесты (в браузере с подменёнными Google/Firebase и
+- `tests/` — автотесты (в браузере с подменёнными Firebase/Cloudinary/CDN и
   проверка правил в локальном эмуляторе). На сайт не влияют.
+- Вход учителя — **Firebase Authentication (email + пароль)**, данные в
+  `teacherSpaces/{uid}`. Google-входа, чтения Google Календаря и Google
+  Таблицы в проекте больше нет (с 2026-09-25).
 - Сайт: GitHub Pages из ветки `main` → https://tviitterggl-dev.github.io/tutor-dashboard/
   (обновляется примерно через 1–2 минуты после push в `main`).
+
+### Включить вход по email в Firebase (один раз, делает владелец проекта)
+Консоль Firebase → проект `tutor-cabinet` → **Authentication** → «Get
+started» (если ещё не нажимали) → вкладка **Sign-in method** → **Email/Password**
+→ включить первый переключатель (Email/Password; «Email link» не нужен) →
+**Save**. Проверка из облачной сессии (без пароля):
+```
+curl -s -X POST -H 'Content-Type: application/json' \
+  "https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=<apiKey>" \
+  --data '{"email":"nobody@example.invalid","password":"x","returnSecureToken":true}' | jq .error.message
+# CONFIGURATION_NOT_FOUND — Authentication не включён; OPERATION_NOT_ALLOWED — не включён Email/Password;
+# EMAIL_NOT_FOUND / INVALID_LOGIN_CREDENTIALS — всё включено.
+```
+По желанию, после создания своей учётной записи: Authentication → Settings →
+User actions → снять «Enable create (sign-up)», чтобы новые учётные записи
+больше никто не заводил. Посторонние и так не видят чужих данных (правила
+пускают только в свою папку), это просто порядок.
 
 ### Задеплоить правила Firestore (делает владелец Google-аккаунта)
 В обычном терминале (PowerShell) на своём компьютере:
@@ -48,30 +68,36 @@ node check-syntax.mjs ../index.html ../cabinet.html   # быстрая пров�
 облачной сессии уже установлен).
 
 ### Проверить базу напрямую (без браузера)
-Firestore REST API, ключ API — из `firebaseConfig` в `index.html`
-(он публичный, это нормально для Firebase):
+Firestore REST API, ключ API — из `firebaseConfig` в `index.html` (он
+публичный, это нормально для Firebase). Данные учителя без входа не
+читаются: нужен токен (`idToken`) из входа учителя —
+`accounts:signInWithPassword` с её email и паролем, из облачной сессии
+этого не сделать. Без входа видны только витрины кабинетов и каналы, если
+знать их ключи:
 ```
-K=<apiKey>; T=<ключ учителя>
+K=<apiKey>
 B='https://firestore.googleapis.com/v1/projects/tutor-cabinet/databases/(default)/documents'
-curl -s "$B/teacherSpaces/$T/state/main?key=$K" | jq '.fields | keys'
-curl -s "$B/teacherSpaces?key=$K" | jq '.error.status'   # должно быть PERMISSION_DENIED
+curl -s "$B/parentAccess/<ключ родителя>?key=$K" | jq '.fields | keys'
+curl -s "$B/teacherSpaces?key=$K" | jq '.error.status'   # PERMISSION_DENIED
+# с токеном учителя: curl -H "Authorization: Bearer $ID_TOKEN" "$B/teacherSpaces/$UID/state/main"
 ```
 Важно: в bash путь с `(default)` надо брать в одинарные кавычки, иначе
 `syntax error near unexpected token '('`.
 
 ### Модель данных Firestore
 ```
-teacherSpaces/{ключ учителя}/state/main      отметки «Провёл» (marks), правки пакетов (pkgOverrides),
-                                              lessonsSource: "calendar" | "firestore", даты импорта
-teacherSpaces/{ключ учителя}/lessons/{id}     занятие: title, studentId ("Имя, N класс"), startMs/endMs,
+teacherSpaces/{uid}/state/main               отметки «Провёл» (marks), правки пакетов (pkgOverrides),
+                                              профили учеников (studentProfiles: name, cls, rate,
+                                              callUrl, accessUrl, notes), каналы (studentChannels)
+teacherSpaces/{uid}/lessons/{id}              занятие: title, studentId ("Имя, N класс"), startMs/endMs,
                                               start/end (ISO, +03:00), date, time, durationMin,
                                               status: planned|done|cancelled|rescheduled,
                                               packageId, recurrenceId, source: gcal|app,
-                                              report, homework[{url,name}], rescheduledFrom/To,
-                                              exportedEventId (событие в личном Google Календаре)
-teacherSpaces/{ключ учителя}/accessKeys/{key} реестр выданных ключей: role, studentId, label,
+                                              report, homework[{url,name,by}], rescheduledFrom/To,
+                                              paid {value,by,at}, callUrl (разовая ссылка на созвон)
+teacherSpaces/{uid}/accessKeys/{key}          реестр выданных ключей: role, studentId, label,
                                               createdAt, active, revokedAt
-teacherSpaces/{ключ учителя}/requests/{id}    решения по заявкам: type, lessonId, studentId, status
+teacherSpaces/{uid}/requests/{id}             решения по заявкам: type, lessonId, studentId, status
                                               approved|rejected, reason, old/newStartMs, decidedAt
 parentAccess/{key}, studentAccess/{key}       «витрина» для кабинета: занятия одного ученика (с id),
                                               отчёты, домашка, пакет и paid (родителю), busy[] без
@@ -79,10 +105,120 @@ parentAccess/{key}, studentAccess/{key}       «витрина» для каби
 channels/{ключ канала}/items/{id}             сообщения из кабинетов: homework | reschedule |
                                               cancel | paid (только создание, см. правила)
 ```
-В `lessons` добавились поля `paid: {value, by, at}` и у файлов домашки
-`by: teacher|parent|student`; в `state/main` — `studentChannels`.
-Импортированные из Google Календаря занятия имеют id = id события, поэтому
-старые отметки «Провёл» (marks, тоже по id события) продолжают работать.
+Занятия, когда-то импортированные из Google Календаря, имеют id = id
+события, поэтому старые отметки «Провёл» (marks, тоже по id события)
+продолжают работать.
+
+---
+
+## 2026-09-25 (2) — вход по email и паролю, без Google: .ics вместо экспорта
+
+### Что сделано
+1. **Вход учителя через Firebase Authentication (email + пароль)** вместо
+   секретной ссылки `#t=КЛЮЧ`. Экран входа:
+   - «Войти»;
+   - «Забыли пароль?» — стандартное письмо Firebase, `sendPasswordResetEmail`;
+   - «Первый вход — создать учётную запись» (`createUserWithEmailAndPassword`,
+     прямо в браузере, без сервера), пароль не короче 8 символов.
+
+   Вход запоминается на устройстве (обычное поведение Firebase). Кнопка
+   «выйти» — в верхней карточке; в «Ученики» → «Аккаунт» — «Сменить пароль»
+   и «Выйти».
+2. **Данные переехали в `teacherSpaces/{uid}`**, правила переписаны на
+   `request.auth.uid == uid` (функция `isTeacher`). Секретный ключ в пути
+   больше не нужен: старые пути `teacherSpaces/{ключ}` не совпадают ни с
+   одним uid и закрываются сами, как только задеплоены новые правила.
+3. **Перенос данных при первом входе.** Если в новой учётной записи данных
+   нет, дашборд копирует всё со старого пути: `state/main`, `lessons`,
+   `accessKeys`, `requests`; `state/main` — последним, чтобы незавершённый
+   перенос не выглядел готовым. Старый ключ берётся из памяти устройства,
+   где раньше открывали секретную ссылку; если его там нет, дашборд просит
+   вставить старую ссылку. Работает, **пока на сервере старые правила** —
+   поэтому порядок: сначала первый вход на сайте, потом деплой правил. Старые
+   данные не удаляются (резервная копия; после деплоя правил они недоступны
+   никому). Есть «Начать с пустого дашборда» — на случай, если переносить
+   нечего.
+4. **«Добавить в календарь (.ics)»** вместо экспорта в Google Календарь.
+   Скачивается файл события (RFC 5545):
+   - время в UTC;
+   - в описании — ссылка на созвон и отчёт;
+   - напоминание за 30 минут.
+
+   Телефон или компьютер сам предлагает добавить событие в Google, Apple или
+   Outlook, без входа. UID каждый раз новый, поэтому повторное нажатие
+   добавляет ещё одно событие (так договорились).
+5. **Google OAuth удалён полностью**: Google Identity Services, OAuth Client
+   ID, чтение календаря «Занятия» (с откатом на него и кнопками
+   «Досинхронизировать» / «Вернуться к Google Календарю»), чтение
+   основного календаря в «Расписании» и в «занято» кабинетов, экспорт
+   через Google-вход, **чтение Google-таблицы ставок**.
+6. **Ставки теперь в профилях учеников** (вкладка «Ученики»: поле «Ставка за
+   занятие»). Перед переходом я прочитала таблицу «Ставки учеников» через
+   Google Drive и записала 17 ставок в `studentProfiles`, не трогая ссылки и
+   заметки: скрипт `rates_migrate.mjs` в облачной сессии, `PATCH
+   …/state/main?updateMask.fieldPaths=studentProfiles`. Список учеников
+   (`studentList()`) — это профили; удаление ученика удаляет профиль целиком.
+
+### Что стало хуже / о чём помнить
+- «Расписание» и «занято» в кабинетах больше не учитывают **личные события**
+  из Google Календаря: без Google-входа их не прочитать. Сейчас там только
+  занятия.
+- Кто угодно может завести учётную запись на сайте, но увидит только свою
+  пустую папку. Чтобы закрыть регистрацию — см. шпаргалку («Включить вход
+  по email»).
+
+### Порядок шагов владельца (важно!)
+1. Консоль Firebase → Authentication → Get started → Sign-in method →
+   Email/Password → включить → Save. Пока не включено, экран входа пишет
+   «Вход по email ещё не включён в Firebase».
+2. Открыть сайт **на устройстве, где раньше открывалась секретная ссылка**
+   (или держать её под рукой) → «Первый вход» → email и пароль → данные
+   перенесутся сами (сообщение «Готово: перенесено занятий — N…»).
+3. Только после этого: `git pull` → `firebase deploy --only firestore:rules
+   --project tutor-cabinet`.
+4. На остальных устройствах — просто войти с тем же email и паролем.
+
+**Если правила задеплоили раньше шага 2** (экран скажет «Старые данные уже
+закрыты новыми правилами…»): временно вернуть старые правила, сделать
+шаг 2, затем снова задеплоить новые:
+```
+git show 49a35d8:firestore.rules > firestore.rules
+firebase deploy --only firestore:rules --project tutor-cabinet
+# … первый вход на сайте, дождаться «Готово: перенесено…»
+git checkout firestore.rules
+firebase deploy --only firestore:rules --project tutor-cabinet
+```
+
+### Проблемы и решения
+- **Firebase Authentication в проекте не был включён** — проверила запросом
+  `accounts:signInWithPassword` на несуществующий email: ответ
+  `CONFIGURATION_NOT_FOUND` (команда в шпаргалке). Включить можно только в
+  консоли под владельцем — это шаг 1.
+- **Правила с `request.auth` в эмуляторе.** Эмулятор принимает неподписанный
+  JWT (`alg: none`) с `sub`/`user_id` = uid. Функция `tokenFor(uid)` в
+  `tests/rules/rules.test.mjs`. Проверено: учитель пускается; без входа и
+  под чужим аккаунтом — 403; чужой может завести только свою папку; старые
+  пути с ключом закрыты для всех, включая вошедшего учителя.
+- **Тестовый стенд:**
+  - новая заглушка `tests/stubs/firebase-auth.js` (пользователи и вход
+    хранятся в localStorage);
+  - заглушка Firestore повторяет новые правила: `teacherSpaces/{uid}` —
+    только вошедшему с этим uid; `window.__FAKE_RULES = "old"` включает
+    старые правила для теста переноса;
+  - занятия больше не «импортируются из календаря», а сразу лежат в базе:
+    `lessonDoc()` в `harness.mjs`;
+  - `.ics` проверяется через `page.waitForEvent("download")`: время,
+    экранирование, перенос строк ≤ 75 байт, новый UID при повторе.
+- **Порядок запуска.** Модуль Firebase выполняется после основного скрипта,
+  а первый `onAuthStateChanged` может прийти раньше подписки. Решение:
+  флаг `TutorAuth.ready` + `authReady()`, плюс защита от двойного запуска
+  (`appStarting`).
+
+### Тесты
+44 e2e-сценария (новый `app.test.mjs`: вход, неверный пароль, «забыли
+пароль», выход, первый вход с автопереносом, перенос по вставленной ссылке,
+«правила уже новые», «начать с пустого», занятый email, «вход не включён»,
+в коде нет Google) и 10 проверок правил — всё зелёное.
 
 ---
 

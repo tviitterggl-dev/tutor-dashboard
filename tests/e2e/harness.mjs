@@ -13,8 +13,9 @@ const ROOT = path.resolve(HERE, "../..");
 const NM = path.resolve(HERE, "../node_modules");
 const STUBS = path.resolve(HERE, "../stubs");
 
-export const T = "teacher_key_for_tests_0123456789";
-export const LESSONS_CAL = "676742127252c358d9ad3f9bd85e2965176875b1aeb2d7fa65cd4341361d4397@group.calendar.google.com";
+export const T = "teacherUid0123456789abcdef";   // uid учителя (Firebase Auth)
+export const TEACHER_EMAIL = "teacher@example.org";
+export const TEACHER_PASSWORD = "correct-horse-1";
 export const NOW = "2026-09-24T12:00:00+03:00"; // четверг
 
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "application/javascript", ".css": "text/css", ".json": "application/json" };
@@ -68,36 +69,48 @@ export function defaultLessonsFixture() {
   out.push(ev("trial1", "Пробное занятие Авито", "2026-09-22T09:00:00", 30));
   return out;
 }
-export function defaultPersonalFixture() {
-  return [ev("doc1", "Врач", "2026-09-25T13:00:00", 60)];
-}
-export const RATES = [
-  ["Имя", "Фамилия", "Класс", "Ставка"],
-  ["Тест", "Тестов", "7", "2000"],
-  ["Анна", "", "6", "1500"],
-  ["Борис", "", "8", "1800"],
-];
-
-export function defaultSeed() {
+// Занятие в формате Firestore (как его хранит дашборд).
+export function lessonDoc(e, marks = {}) {
+  const startMs = Date.parse(e.start.dateTime);
+  const endMs = Date.parse(e.end.dateTime);
+  const iso = (ms) => new Date(ms + 3 * 3600000).toISOString().slice(0, 19) + "+03:00";
+  const m = (e.summary || "").match(/^([А-ЯЁа-яё]+)\s+(\d{1,2})\s*класс/u);
+  const studentId = m ? `${m[1]}, ${m[2]} класс` : null;
+  const pkg = /\d+\/\d+$/.test(e.summary || "");
   return {
-    [`teacherSpaces/${T}/state/main`]: {
-      marks: {
-        "serA_20260914T070000Z": { marked: true, overrideAmount: null, lockedRate: 2000, updatedAt: 1 },
-        "serA_20260916T070000Z": { marked: true, overrideAmount: null, lockedRate: 2000, updatedAt: 1 },
-        anna3: { marked: true, overrideAmount: 1400, lockedRate: 1500, updatedAt: 1 },
-      },
-      pkgOverrides: {},
-    },
+    title: e.summary, studentId, startMs, endMs, start: iso(startMs), end: iso(endMs),
+    date: iso(startMs).slice(0, 10), time: iso(startMs).slice(11, 16), durationMin: Math.round((endMs - startMs) / 60000),
+    status: marks[e.id] && marks[e.id].marked ? "done" : "planned",
+    packageId: pkg && studentId ? "pkg_" + studentId : null, recurrenceId: e.recurringEventId || null,
+    source: "gcal", createdAt: 1, updatedAt: 1,
   };
+}
+
+export const PROFILES = {
+  "Тест, 7 класс": { name: "Тест", surname: "Тестов", cls: 7, rate: 2000, manual: true },
+  "Анна, 6 класс": { name: "Анна", surname: "", cls: 6, rate: 1500, manual: true },
+  "Борис, 8 класс": { name: "Борис", surname: "", cls: 8, rate: 1800, manual: true },
+};
+
+export function defaultSeed(opts = {}) {
+  const uid = opts.uid || T;
+  const marks = {
+    "serA_20260914T070000Z": { marked: true, overrideAmount: null, lockedRate: 2000, updatedAt: 1 },
+    "serA_20260916T070000Z": { marked: true, overrideAmount: null, lockedRate: 2000, updatedAt: 1 },
+    anna3: { marked: true, overrideAmount: 1400, lockedRate: 1500, updatedAt: 1 },
+  };
+  const seed = {
+    [`teacherSpaces/${uid}/state/main`]: { marks, pkgOverrides: {}, studentProfiles: JSON.parse(JSON.stringify(PROFILES)) },
+  };
+  for (const e of opts.lessons || defaultLessonsFixture()) seed[`teacherSpaces/${uid}/lessons/${e.id}`] = lessonDoc(e, marks);
+  return seed;
 }
 
 // ---- открыть страницу ----
 export async function openApp(opts = {}) {
   const url0 = await ensureServer();
   if (!browser) browser = await chromium.launch();
-  const lessons = opts.lessons || defaultLessonsFixture();
-  const personal = opts.personal || defaultPersonalFixture();
-  const calls = { calendarWrites: [], cloudinary: [], unexpected: [], calendarReads: 0 };
+  const calls = { cloudinary: [], unexpected: [] };
 
   const context = await browser.newContext({
     timezoneId: "Europe/Moscow",
@@ -108,23 +121,30 @@ export async function openApp(opts = {}) {
     isMobile: !!opts.isMobile,
   });
   const initState = {
-    seed: opts.seed === undefined ? defaultSeed() : opts.seed,
-    teacherKey: opts.teacherKey === undefined ? T : opts.teacherKey,
-    token: opts.loggedIn === false ? null : true,
+    seed: opts.seed === undefined ? defaultSeed({ lessons: opts.lessons }) : opts.seed,
+    // учётная запись учителя существует всегда; вошёл ли он — opts.signedIn
+    users: opts.users || { [TEACHER_EMAIL]: { password: TEACHER_PASSWORD, uid: T } },
+    signedIn: opts.signedIn === false ? null : { uid: T, email: TEACHER_EMAIL },
     deny: opts.deny || [],
-    localMarks: opts.localStorage || {},
+    rules: opts.rules || "new",
+    authDisabled: !!opts.authDisabled,
+    nextUid: opts.nextUid || null,
+    extraStorage: opts.localStorage || {},
   };
   await context.addInitScript((s) => {
     window.__FAKE_DENY = s.deny;
+    window.__FAKE_RULES = s.rules;
+    window.__FAKE_AUTH_DISABLED = s.authDisabled;
+    if (s.nextUid) window.__FAKE_NEXT_UID = s.nextUid;
     // Флаг в localStorage: общий для всех вкладок контекста (кабинет,
     // открытый во второй вкладке, не должен стирать «базу»).
     if (localStorage.getItem("__seeded")) return;
     localStorage.clear();
     localStorage.setItem("__seeded", "1");
     localStorage.setItem("__fakeDb", JSON.stringify(s.seed || {}));
-    if (s.teacherKey) localStorage.setItem("teacherKey", s.teacherKey);
-    if (s.token) localStorage.setItem("gtoken", JSON.stringify({ token: "read-token", expiresAt: Date.now() + 10 * 365 * 864e5 }));
-    for (const [k, v] of Object.entries(s.localMarks)) localStorage.setItem(k, v);
+    localStorage.setItem("__fakeAuthUsers", JSON.stringify(s.users));
+    if (s.signedIn) localStorage.setItem("__fakeAuthUser", JSON.stringify(s.signedIn));
+    for (const [k, v] of Object.entries(s.extraStorage)) localStorage.setItem(k, v);
   }, initState);
 
   await context.route("**/*", async (route) => {
@@ -136,28 +156,11 @@ export async function openApp(opts = {}) {
     if (u.origin === url0) return route.continue();
     if (u.hostname === "www.gstatic.com" && u.pathname.endsWith("/firebase-app.js")) return file(path.join(STUBS, "firebase-app.js"));
     if (u.hostname === "www.gstatic.com" && u.pathname.endsWith("/firebase-firestore.js")) return file(path.join(STUBS, "firebase-firestore.js"));
-    if (u.hostname === "accounts.google.com") return file(path.join(STUBS, "gsi.js"));
+    if (u.hostname === "www.gstatic.com" && u.pathname.endsWith("/firebase-auth.js")) return file(path.join(STUBS, "firebase-auth.js"));
     if (u.hostname.startsWith("fonts.")) return route.fulfill({ status: 200, contentType: "text/css", body: "" });
     if (u.hostname === "cdn.jsdelivr.net" && u.pathname.includes("/fullcalendar@")) return file(path.join(NM, "fullcalendar/index.global.min.js"));
     if (u.hostname === "cdn.jsdelivr.net" && u.pathname.includes("/locales/ru.global")) return file(path.join(NM, "@fullcalendar/core/locales/ru.global.min.js"));
     if (u.hostname === "cdnjs.cloudflare.com" && u.pathname.includes("html2canvas")) return file(path.join(NM, "html2canvas/dist/html2canvas.min.js"));
-    if (u.hostname === "sheets.googleapis.com") return json({ values: RATES });
-    if (u.hostname === "www.googleapis.com" && u.pathname.startsWith("/calendar/v3/calendars/")) {
-      const calId = decodeURIComponent(u.pathname.split("/")[4]);
-      if (req.method() === "GET") {
-        calls.calendarReads++;
-        const min = new Date(u.searchParams.get("timeMin")).getTime();
-        const max = new Date(u.searchParams.get("timeMax")).getTime();
-        const src = calId === "primary" ? personal : calId === LESSONS_CAL ? lessons : [];
-        const items = src.filter((e) => { const s = new Date(e.start.dateTime).getTime(); return s >= min && s < max; })
-          .sort((a, b) => new Date(a.start.dateTime) - new Date(b.start.dateTime));
-        return json({ items });
-      }
-      const body = req.postDataJSON();
-      const n = calls.calendarWrites.length + 1;
-      calls.calendarWrites.push({ method: req.method(), calId, path: u.pathname, body, auth: req.headers()["authorization"] });
-      return json({ id: u.pathname.split("/")[6] || `exp${n}`, ...body });
-    }
     if (u.hostname === "api.cloudinary.com") {
       const n = calls.cloudinary.length + 1;
       calls.cloudinary.push({ url: req.url() });
