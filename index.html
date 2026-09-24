@@ -80,6 +80,17 @@
         const snap = await getDocs(q);
         return snap.docs.map((d) => Object.assign({ id: d.id }, d.data()));
       },
+      async listLessonsOfStudent(studentId) {
+        const snap = await getDocs(query(lessonsCol, where("studentId", "==", studentId)));
+        return snap.docs.map((d) => Object.assign({ id: d.id }, d.data()));
+      },
+      async deleteMarks(ids) {
+        for (const part of chunk(ids, 200)) {
+          const args = [];
+          part.forEach((id) => { args.push(new FieldPath("marks", id), deleteField()); });
+          if (args.length) await updateDoc(stateRef, ...args);
+        }
+      },
       async listSeries(recurrenceId) {
         const snap = await getDocs(query(lessonsCol, where("recurrenceId", "==", recurrenceId)));
         return snap.docs.map((d) => Object.assign({ id: d.id }, d.data())).sort((a, b) => a.startMs - b.startMs);
@@ -413,6 +424,8 @@
     cursor: pointer;
   }
   .mark-btn.done { background: var(--done-text); border-color: var(--done-text); color: #fdfef6; }
+  /* «Оплачено» — та же кнопка, что «Провёл»; отмечено = зелёная обводка */
+  .mark-btn.paid-btn.paid { background: var(--done-bg); border: 2px solid var(--done-text); color: var(--done-text); font-weight: 600; }
   .mark-btn:disabled { opacity: 0.5; }
 
   .totals {
@@ -663,6 +676,13 @@
 
   .count-badge { display: inline-block; min-width: 18px; height: 18px; line-height: 18px; padding: 0 5px; margin-left: 5px; border-radius: 9px; background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; font-family: "Inter", sans-serif; vertical-align: 1px; }
   .req-alert { display: block; width: 100%; text-align: left; margin: 0 0 10px; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--danger-border); background: var(--danger-bg); color: var(--danger); font-weight: 600; font-size: 13px; cursor: pointer; font-family: inherit; }
+  .pkg-alert { border-color: var(--pending-border); background: var(--pending-bg); color: var(--pending-text); }
+  .pkg-card.pkg-warn { border: 2px solid var(--pending-border); background: var(--pending-bg); }
+  .pkg-card.pkg-over { border: 2px solid var(--danger-border); background: var(--danger-bg); }
+  .pkg-ending { font-size: 12.5px; font-weight: 600; color: var(--pending-text); margin: 2px 0 6px; }
+  .pkg-over .pkg-ending { color: var(--danger); }
+  .pkg-tag { display: inline-block; font-size: 11px; font-weight: 600; border-radius: 999px; padding: 1px 7px; margin-left: 4px; background: var(--pending-bg); color: var(--pending-text); border: 1px solid var(--pending-border); }
+  .pkg-tag.over { background: var(--danger-bg); color: var(--danger); border-color: var(--danger-border); }
   .req { border: 1px solid var(--border); border-radius: 12px; padding: 11px 12px; margin-bottom: 9px; font-size: 13px; }
   .req .who { font-weight: 600; font-size: 14px; }
   .req .what { margin: 4px 0; }
@@ -712,6 +732,7 @@
         <button class="logout-link" id="logoutBtn">выйти</button>
       </div>
       <button class="req-alert" id="reqAlert" type="button" style="display:none"></button>
+      <button class="req-alert pkg-alert" id="pkgAlert" type="button" style="display:none"></button>
       <div class="rates-row">
         <div class="meta" id="ratesMeta">Ставки не загружены</div>
         <button class="btn secondary" id="refreshRatesBtn">Обновить цены</button>
@@ -827,6 +848,12 @@
         <div class="hint">Только отмеченные «Провёл». Нажми на ученика, чтобы посмотреть занятия.</div>
       </div>
 
+      <div class="card" id="payCard">
+        <div class="chart-title">Оплата</div>
+        <div id="payList"><div class="empty">Загрузка…</div></div>
+        <div class="hint">За выбранный выше период. «Не оплатили» — проведённые занятия (отметка «Провёл») без отметки «Оплачено». «Оплатили» — занятия с отметкой «Оплачено» (её ставишь ты в карточке занятия или родитель в своём кабинете).</div>
+      </div>
+
       <div class="card">
         <div class="chart-title">Динамика дохода</div>
         <div class="subtabs" style="margin-bottom:10px">
@@ -843,7 +870,7 @@
       <div class="card">
         <div class="chart-title">Ученики</div>
         <div id="studentsRosterList"><div class="empty">Загрузка…</div></div>
-        <div class="hint">Нажми на ученика — там постоянная ссылка на созвон, ссылка на материалы/доступ и заметки. Это видишь только ты: в кабинеты родителей и учеников эти поля не попадают. Ссылка на созвон сама подставляется в каждое занятие ученика (для одного занятия её можно заменить в карточке занятия). Список и ставки — из таблицы «Ставки учеников», обновляются кнопкой «Обновить цены».</div>
+        <div class="hint">Нажми на ученика — там постоянная ссылка на созвон, ссылка на материалы/доступ и заметки. Ссылка на созвон сама подставляется в каждое занятие ученика (для одного занятия её можно заменить в карточке занятия) и видна родителю и ученику в их кабинетах. Заметки и ссылку на материалы видишь только ты. Список и ставки — из таблицы «Ставки учеников», обновляются кнопкой «Обновить цены».</div>
       </div>
       <div class="card">
         <div class="sub" style="margin-bottom:10px">Пакеты (предоплата)</div>
@@ -1055,7 +1082,8 @@
     renderRatesMeta();
     if (!rates.length) await refreshRates();
     showTab("lessons");
-    maybeAutoImport();
+    await maybeAutoImport();
+    refreshPackageAlertsSoon();
   }
 
   // ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДАТ ----------
@@ -1157,7 +1185,10 @@
   function findRate(name, cls) {
     const nlow = name.toLowerCase();
     const row = rates.find(r => r.name.toLowerCase() === nlow && r.cls === cls);
-    return row ? row.rate : null;
+    if (row) return row.rate;
+    // ученик, добавленный вручную во вкладке «Ученики», со своей ставкой
+    const prof = (remoteState.studentProfiles || {})[`${name}, ${cls} класс`];
+    return prof && prof.manual && !prof.hidden && typeof prof.rate === "number" ? prof.rate : null;
   }
   function studentKey(ev) {
     const parsed = parseLesson(ev.summary || "");
@@ -1567,6 +1598,7 @@
 
   function saveMark(id, state) {
     marks[id] = state;
+    refreshPackageAlertsSoon();
     return window.TutorFB.setMark(id, state).catch(reportSaveError);
   }
 
@@ -1791,6 +1823,7 @@
       const stats = computeStats(summaryEvents);
       lastStats = { range, stats };
       renderSummary(stats);
+      renderPayments(summaryEvents);
 
       const forecast = computeForecast(summaryEvents);
       $("sumForecastCount").textContent = String(forecast.count);
@@ -1863,6 +1896,40 @@
       card.appendChild(body);
       list.appendChild(card);
     });
+  }
+
+  // ---------- ИТОГИ → ОПЛАТА ----------
+  function renderPayments(evs) {
+    const el = $("payList");
+    if (!usingFirestoreLessons()) {
+      el.innerHTML = '<div class="empty">Отметки «Оплачено» работают, когда занятия ведутся в дашборде.</div>';
+      return;
+    }
+    const by = {};
+    evs.forEach(ev => {
+      const l = ev._lesson;
+      if (!l) return;
+      const mark = marks[ev.id];
+      const conducted = (mark && mark.marked) || l.status === "done";
+      const paid = !!(l.paid && l.paid.value);
+      if (!conducted && !paid) return;
+      const key = studentKey(ev);
+      const amount = effectiveAmountFor(ev, mark);
+      const row = by[key] = by[key] || { key, unpaid: [], paid: [] };
+      (paid ? row.paid : row.unpaid).push({ start: new Date(ev.start.dateTime), amount: amount != null && !Number.isNaN(amount) ? amount : 0 });
+    });
+    const rows = Object.values(by).sort((a, b) => a.key.localeCompare(b.key, "ru"));
+    const p = (n) => String(n).padStart(2, "0");
+    const dates = (list) => list.sort((a, b) => a.start - b.start).map(x => `${p(x.start.getDate())}.${p(x.start.getMonth() + 1)}`).join(", ");
+    const sum = (list) => list.reduce((t, x) => t + x.amount, 0);
+    const line = (r, list) => `<div class="session-row"><span class="when">${escHtml(r.key)}</span><span>${list.length} зан. · <b>${sum(list).toLocaleString("ru-RU")} ₽</b><br><span class="cls">${escHtml(dates(list))}</span></span></div>`;
+    const unpaid = rows.filter(r => r.unpaid.length);
+    const paid = rows.filter(r => r.paid.length);
+    el.innerHTML = `
+      <div style="font-weight:600;font-size:13px;margin:4px 0 6px;color:var(--danger)">Не оплатили${unpaid.length ? ` — ${unpaid.reduce((t, r) => t + sum(r.unpaid), 0).toLocaleString("ru-RU")} ₽` : ""}</div>
+      <div id="payUnpaid">${unpaid.length ? unpaid.map(r => line(r, r.unpaid)).join("") : '<div class="hint" style="margin:0 0 8px">Все проведённые занятия отмечены как оплаченные.</div>'}</div>
+      <div style="font-weight:600;font-size:13px;margin:14px 0 6px;color:var(--done-text)">Оплатили${paid.length ? ` — ${paid.reduce((t, r) => t + sum(r.paid), 0).toLocaleString("ru-RU")} ₽` : ""}</div>
+      <div id="payPaid">${paid.length ? paid.map(r => line(r, r.paid)).join("") : '<div class="hint" style="margin:0">Пока нет отметок «Оплачено» за этот период.</div>'}</div>`;
   }
 
   function buildSummaryText() {
@@ -2117,7 +2184,45 @@
     return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
   }
 
+  // «Пакет заканчивается»: осталось 1–2 занятия — пора предложить продление;
+  // 0 — пакет закончился.
+  function pkgEnding(p) {
+    if (!p || !p.total) return null;
+    if (p.remaining <= 0) return { cls: "pkg-over", text: "Пакет закончился — предложи продление", short: "пакет закончился" };
+    if (p.remaining <= 2) return { cls: "pkg-warn", text: `Осталось ${p.remaining} ${p.remaining === 1 ? "занятие" : "занятия"} — пора предложить продление`, short: `пакет: осталось ${p.remaining}` };
+    return null;
+  }
+  let lastPackagesByKey = {};
+
+  // Плашка наверху (видна с любой вкладки) — у кого пакет на исходе.
+  function renderPkgAlert(packages) {
+    const ending = packages.filter(p => pkgEnding(p));
+    const el = $("pkgAlert");
+    el.style.display = ending.length ? "block" : "none";
+    el.textContent = ending.length ? "Пакет заканчивается: " + ending.map(p => `${p.key} (${pkgEnding(p).short})`).join(", ") : "";
+  }
+  let pkgAlertTimer = null;
+  function refreshPackageAlertsSoon() {
+    clearTimeout(pkgAlertTimer);
+    pkgAlertTimer = setTimeout(async () => {
+      try {
+        const now = new Date();
+        const start = new Date(now); start.setDate(start.getDate() - 21);
+        const end = new Date(now); end.setDate(end.getDate() + 240);
+        const evs = await fetchLessons(start, end);
+        loadMarksFor(evs.map(e => e.id));
+        const pk = buildPackages(evs);
+        lastPackagesByKey = Object.fromEntries(pk.map(p => [p.key, p]));
+        renderPkgAlert(pk);
+        if (activeTab === "students") renderStudentsRoster();
+      } catch (e) { /* не критично */ }
+    }, 800);
+  }
+  $("pkgAlert").addEventListener("click", () => showTab("students"));
+
   function renderPackages(packages) {
+    lastPackagesByKey = Object.fromEntries(packages.map(p => [p.key, p]));
+    renderPkgAlert(packages);
     const list = $("packagesList");
     const hiddenKeys = Object.keys(packageOverrides).filter(k => packageOverrides[k] && packageOverrides[k].hidden);
 
@@ -2126,12 +2231,14 @@
       const moneyLine = p.rate != null
         ? `<div class="pkg-money"><span class="earned">${p.doneSum.toLocaleString("ru-RU")} ₽ отработано</span><span class="left">не отработано ещё: ~${p.unearned.toLocaleString("ru-RU")} ₽</span></div>`
         : `<div class="pkg-money"><span class="left">ставка не найдена — сумма не посчитана</span></div>`;
+      const ending = pkgEnding(p);
       return `
-        <div class="pkg-card" data-key="${escAttr(p.key)}">
+        <div class="pkg-card${ending ? " " + ending.cls : ""}" data-key="${escAttr(p.key)}">
           <div class="pkg-head">
-            <div class="pkg-name">${p.key}${p.isManual ? ' <span class="unmatched">(вручную)</span>' : ""}</div>
+            <div class="pkg-name">${escHtml(p.key)}${p.isManual ? ' <span class="unmatched">(вручную)</span>' : ""}</div>
             <div class="pkg-progress-text">${p.doneCount} из ${p.total}, осталось ${p.remaining}</div>
           </div>
+          ${ending ? `<div class="pkg-ending">${escHtml(ending.text)}</div>` : ""}
           <div class="pkg-bar"><div class="pkg-bar-fill" style="width:${pct}%"></div></div>
           ${moneyLine}
           <div class="btn-row" style="margin-top:8px; margin-bottom:0;">
@@ -2271,29 +2378,55 @@
     return p.callUrl && safeHref(p.callUrl) ? { url: p.callUrl, own: false } : null;
   }
 
-  function rosterStudents() {
-    const map = {};
+  // Все ученики: из таблицы ставок + добавленные вручную; без удалённых.
+  // Формат как у строк таблицы: { name, surname, cls, rate, manual }.
+  function studentList() {
+    const profs = studentProfiles();
+    const out = [];
+    const seen = new Set();
     rates.forEach(r => {
       const id = `${r.name}, ${r.cls} класс`;
-      map[id] = { id, label: `${r.name}${r.surname ? " " + r.surname : ""}`, cls: r.cls, rate: r.rate };
+      if (seen.has(id) || (profs[id] && profs[id].hidden)) return;
+      seen.add(id);
+      out.push({ name: r.name, surname: r.surname, cls: r.cls, rate: r.rate, manual: false });
     });
-    Object.keys(studentProfiles()).forEach(id => {
-      if (!map[id]) {
-        const m = id.match(/^(.+?),\s*(\d+)\s*класс$/u);
-        map[id] = { id, label: m ? m[1] : id, cls: m ? m[2] : "", rate: null };
-      }
+    Object.entries(profs).forEach(([id, p]) => {
+      if (!p || !p.manual || p.hidden || seen.has(id)) return;
+      seen.add(id);
+      out.push({ name: p.name, surname: p.surname || "", cls: p.cls, rate: typeof p.rate === "number" ? p.rate : null, manual: true });
     });
-    return Object.values(map).sort((a, b) => a.label.localeCompare(b.label, "ru") || a.cls - b.cls);
+    return out.sort((a, b) => a.name.localeCompare(b.name, "ru") || a.cls - b.cls);
+  }
+
+  function rosterStudents() {
+    return studentList().map(st => ({
+      id: `${st.name}, ${st.cls} класс`,
+      label: `${st.name}${st.surname ? " " + st.surname : ""}`,
+      cls: st.cls,
+      rate: st.rate,
+      manual: st.manual,
+    }));
   }
 
   function renderStudentsRoster() {
     const list = $("studentsRosterList");
     const students = rosterStudents();
+    const addForm = `
+      <div class="btn-row" style="margin-bottom:8px"><button class="btn secondary block" type="button" id="stAddToggle">+ Добавить ученика</button></div>
+      <div id="stAddForm" style="display:none; margin-bottom:10px">
+        <div class="field-row">
+          <div class="field"><span>Имя (одним словом)</span><input type="text" id="stAddName" maxlength="30" placeholder="Например: Маша"></div>
+          <div class="field" style="max-width:110px"><span>Класс</span><input type="number" id="stAddCls" min="1" max="11"></div>
+          <div class="field" style="max-width:140px"><span>Ставка, ₽ (необяз.)</span><input type="number" id="stAddRate" min="0" step="50"></div>
+        </div>
+        <div class="btn-row" style="margin-bottom:0"><button class="btn" type="button" id="stAddSave">Добавить</button></div>
+        <div class="msg" id="stAddMsg"></div>
+      </div>`;
     if (!students.length) {
-      list.innerHTML = '<div class="empty">Ставки не загружены</div>';
+      list.innerHTML = addForm + '<div class="empty">Учеников пока нет (или не загрузились ставки)</div>';
       return;
     }
-    list.innerHTML = students.map(st => {
+    list.innerHTML = addForm + students.map(st => {
       const p = profileOf(st.id);
       const isOpen = openProfile === st.id;
       const tags = [p.callUrl ? "созвон" : "", p.accessUrl ? "материалы" : "", p.notes ? "заметки" : ""].filter(Boolean).join(" · ");
@@ -2301,8 +2434,8 @@
       <div class="student-card${isOpen ? " open" : ""}" data-student="${escHtml(st.id)}">
         <div class="student-head">
           <div>
-            <div class="name">${escHtml(st.label)}</div>
-            <div class="agg">${st.cls ? escHtml(st.cls) + " класс" : ""}${tags ? " · " + escHtml(tags) : ""}</div>
+            <div class="name">${escHtml(st.label)}${st.manual ? ' <span class="cls">(добавлен вручную)</span>' : ""}</div>
+            <div class="agg">${st.cls ? escHtml(st.cls) + " класс" : ""}${tags ? " · " + escHtml(tags) : ""}${pkgEnding(lastPackagesByKey[st.id]) ? ` <span class="pkg-tag${lastPackagesByKey[st.id].remaining <= 0 ? " over" : ""}">${escHtml(pkgEnding(lastPackagesByKey[st.id]).short)}</span>` : ""}</div>
           </div>
           <div style="display:flex; align-items:center; gap:10px">
             ${st.rate != null ? `<div class="rate" style="font-family:'Space Grotesk',sans-serif;font-weight:700;color:var(--accent-2)">${st.rate.toLocaleString("ru-RU")} ₽</div>` : ""}
@@ -2322,15 +2455,25 @@
             ${p.accessUrl && safeHref(p.accessUrl) ? `<a class="btn secondary" href="${escHtml(p.accessUrl)}" target="_blank" rel="noopener" style="text-decoration:none;text-align:center">Материалы</a>` : ""}
           </div>
           <div class="msg pf-msg"></div>
+          <div class="btn-row" style="margin:12px 0 0; justify-content:flex-end">
+            <button class="btn danger" type="button" data-st-delete>Удалить ученика…</button>
+          </div>
         </div>
       </div>`;
     }).join("");
   }
 
   $("studentsRosterList").addEventListener("click", async (e) => {
+    if (e.target.closest("#stAddToggle")) {
+      const f = $("stAddForm");
+      f.style.display = f.style.display === "none" ? "block" : "none";
+      return;
+    }
+    if (e.target.closest("#stAddSave")) { addStudentFromForm(); return; }
     const card = e.target.closest(".student-card");
     if (!card) return;
     const sid = card.dataset.student;
+    if (e.target.closest("[data-st-delete]")) { openDeleteStudentModal(sid); return; }
     if (e.target.closest(".student-head")) {
       openProfile = openProfile === sid ? null : sid;
       card.classList.toggle("open", openProfile === sid);
@@ -2347,13 +2490,17 @@
       if (u && !safeHref(u)) { msg.textContent = "Ссылка должна начинаться с https:// (или http://)"; msg.className = "msg pf-msg err"; return; }
     }
     saveBtn.disabled = true;
-    const value = (callUrl || accessUrl || notes) ? { callUrl, accessUrl, notes, updatedAt: Date.now() } : null;
+    const existing = profileOf(sid);
+    const value = (callUrl || accessUrl || notes || existing.manual)
+      ? Object.assign({}, existing, { callUrl, accessUrl, notes, updatedAt: Date.now() })
+      : null;
     try {
       await window.TutorFB.setStudentProfile(sid, value);
       const all = Object.assign({}, studentProfiles());
       if (value) all[sid] = value; else delete all[sid];
       remoteState.studentProfiles = all;
       openProfile = sid;
+      publishViewsSoon(); // ссылка на созвон появится в кабинете ученика
       renderStudentsRoster();
       const m = $("studentsRosterList").querySelector(`.student-card[data-student="${CSS.escape(sid)}"] .pf-msg`);
       if (m) { m.textContent = "Сохранено"; m.className = "msg pf-msg ok"; }
@@ -2363,6 +2510,126 @@
       msg.className = "msg pf-msg err";
     }
   });
+
+  async function addStudentFromForm() {
+    const msg = (t, k) => { $("stAddMsg").textContent = t; $("stAddMsg").className = "msg" + (k ? " " + k : ""); };
+    const name = $("stAddName").value.trim();
+    const cls = parseInt($("stAddCls").value, 10);
+    const rateRaw = $("stAddRate").value.trim();
+    const rate = rateRaw === "" ? null : parseFloat(rateRaw);
+    // Имя одним русским словом — иначе занятия «Имя N класс» не распознаются.
+    if (!/^[А-ЯЁа-яё]+$/.test(name)) { msg("Имя — одним словом, русскими буквами (так его узнают занятия: «Маша 7 класс»).", "err"); return; }
+    if (!(cls >= 1 && cls <= 11)) { msg("Класс — число от 1 до 11.", "err"); return; }
+    if (rate != null && !(rate >= 0)) { msg("Ставка — число (или оставь пустой).", "err"); return; }
+    const nameFixed = name[0].toUpperCase() + name.slice(1);
+    const id = `${nameFixed}, ${cls} класс`;
+    const exists = studentList().some(st => `${st.name}, ${st.cls} класс`.toLowerCase() === id.toLowerCase());
+    if (exists) { msg("Такой ученик уже есть в списке.", "err"); return; }
+    const prev = profileOf(id);
+    const value = Object.assign({}, prev.hidden ? {} : prev, {
+      manual: !rates.some(r => r.name.toLowerCase() === nameFixed.toLowerCase() && r.cls === cls),
+      hidden: false, name: nameFixed, cls, rate, createdAt: Date.now(), updatedAt: Date.now(),
+    });
+    try {
+      await window.TutorFB.setStudentProfile(id, value);
+      remoteState.studentProfiles = Object.assign({}, studentProfiles(), { [id]: value });
+      openProfile = id;
+      renderStudentsRoster();
+      if (activeTab === "students") loadAccessCard();
+    } catch (err) {
+      msg("Не сохранилось (нет интернета?)", "err");
+    }
+  }
+
+  async function openDeleteStudentModal(sid) {
+    let lessons = [], keys = [];
+    try {
+      lessons = await window.TutorFB.listLessonsOfStudent(sid);
+      keys = (await getAccessKeys(true)).filter(k => k.active && k.studentId === sid);
+    } catch (e) { /* покажем что есть */ }
+    const now = Date.now();
+    const future = lessons.filter(l => l.startMs >= now && l.status !== "done");
+    const past = lessons.filter(l => !(l.startMs >= now && l.status !== "done"));
+    const fromSheet = rates.some(r => `${r.name}, ${r.cls} класс` === sid);
+    openModal(`
+      <h2>Удалить ученика «${escHtml(sid)}»?</h2>
+      <div class="banner" style="margin-top:8px">
+        <div>Будет удалено:</div>
+        <ul style="margin:6px 0 0; padding-left:18px">
+          <li>профиль: ссылки и заметки;</li>
+          <li>будущие занятия: <b>${future.length}</b>;</li>
+          <li>доступы родителей/учеников: <b>${keys.length}</b> (ссылки сразу перестанут работать), заявки и загруженные ими файлы в очереди;</li>
+          <li>ручные правки пакета.</li>
+        </ul>
+      </div>
+      <label class="check" style="margin-top:12px"><input type="checkbox" id="delPast"> Удалить и прошедшие занятия (${past.length}) — вместе с отметками «Провёл»; из «Итогов» и заработка они тоже пропадут</label>
+      <div class="hint">${past.length ? "Если не отмечать — прошедшие занятия останутся в истории и в заработке." : ""}${fromSheet ? " Ученик есть в таблице «Ставки учеников» — из дашборда он скроется, а строку в самой таблице удали вручную." : ""} Отменить удаление нельзя.</div>
+      <div class="msg" id="mMsg"></div>
+      <div class="btn-row">
+        <button class="btn danger" type="button" id="delConfirm">Удалить ученика</button>
+        <button class="btn secondary" type="button" id="mClose">Отмена</button>
+      </div>`);
+    mq("#mClose").addEventListener("click", closeModal);
+    mq("#delConfirm").addEventListener("click", async (e) => {
+      e.currentTarget.disabled = true;
+      modalMsg("Удаляю…");
+      try {
+        await deleteStudent(sid, mq("#delPast").checked, fromSheet);
+        closeModal();
+        openProfile = null;
+        renderStudentsRoster();
+        loadAccessCard();
+        loadPackages();
+        afterLessonsChanged();
+      } catch (err) {
+        console.error(err);
+        e.currentTarget.disabled = false;
+        modalMsg("Удалилось не всё (нет интернета?). Нажми ещё раз — повтор безопасен.", "err");
+      }
+    });
+  }
+
+  async function deleteStudent(sid, withPast, fromSheet) {
+    const now = Date.now();
+    const lessons = await window.TutorFB.listLessonsOfStudent(sid);
+    const doomed = lessons.filter(l => withPast || (l.startMs >= now && l.status !== "done"));
+    await window.TutorFB.deleteLessons(doomed.map(l => l.id));
+    if (withPast) {
+      const markIds = doomed.map(l => l.id).filter(id => marks[id]);
+      await window.TutorFB.deleteMarks(markIds);
+      markIds.forEach(id => { delete marks[id]; });
+    }
+    // Доступы: витрины удаляем, ключи помечаем отозванными (история остаётся).
+    const keys = (await getAccessKeys(true)).filter(k => k.active && k.studentId === sid);
+    for (const k of keys) {
+      await window.TutorFB.deleteView(k.role, k.id);
+      await window.TutorFB.saveAccessKey(k.id, { active: false, revokedAt: now, revokedReason: "student-deleted" });
+    }
+    const ch = studentChannels()[sid];
+    if (ch) {
+      for (const ck of [ch.shared, ch.parent].filter(Boolean)) {
+        const items = await window.TutorFB.listChannel(ck).catch(() => []);
+        if (items.length) await window.TutorFB.deleteChannelItems(ck, items.map(i => i.id));
+      }
+      await window.TutorFB.setStudentChannels(sid, null);
+      const map = Object.assign({}, studentChannels());
+      delete map[sid];
+      remoteState.studentChannels = map;
+    }
+    if (packageOverrides[sid]) {
+      delete packageOverrides[sid];
+      await window.TutorFB.setPkgOverride(sid, null);
+    }
+    // Ученик из таблицы ставок вернулся бы при следующей загрузке ставок —
+    // поэтому запоминаем «скрыт»; добавленного вручную удаляем целиком.
+    const tomb = fromSheet ? { hidden: true, hiddenAt: now } : null;
+    await window.TutorFB.setStudentProfile(sid, tomb);
+    const profs = Object.assign({}, studentProfiles());
+    if (tomb) profs[sid] = tomb; else delete profs[sid];
+    remoteState.studentProfiles = profs;
+    await getAccessKeys(true);
+    startChannelWatch();
+  }
 
   // ---------- РАСПИСАНИЕ ----------
 
@@ -2619,6 +2886,10 @@
             pkg: pkgSuffix(l.title).trim() || null,
             report: l.report || "",
             homework: (Array.isArray(l.homework) ? l.homework : []).map(h => ({ url: h.url, name: h.name || "файл", by: h.by || "teacher" })),
+            // Ссылка на созвон (разовая у занятия или из профиля ученика) —
+            // единственное, что из профиля уходит в кабинет; заметки и
+            // «материалы» остаются только у учителя.
+            callUrl: isActiveStatus(l.status) && callLinkFor(l) ? callLinkFor(l).url : null,
           };
           if (k.role === "parent") {
             out.paid = !!(l.paid && l.paid.value);
@@ -2702,7 +2973,7 @@
 
   function renderAccessCard(keys, fresh) {
     const el = $("accessBody");
-    const students = [...rates].sort((a, b) => a.name.localeCompare(b.name, "ru") || a.cls - b.cls);
+    const students = studentList();
     const fmtD = (ms) => new Date(ms).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
     const freshHtml = fresh ? `
       <div class="banner" style="margin-bottom:10px">Ссылка для <b>${escHtml(fresh.studentId)}</b> (${fresh.role === "parent" ? "родитель" : "ученик"}). Отправь её — по ней откроется личный кабинет:
@@ -3249,6 +3520,7 @@
   }
 
   function afterLessonsChanged() {
+    refreshPackageAlertsSoon();
     if (fc) fc.refetchEvents();
     if (activeTab === "lessons") loadLessonEvents();
     publishViewsSoon();
@@ -3378,7 +3650,7 @@
   let lastStudentChoice = "";
 
   function studentSelectHtml(currentBase) {
-    const sorted = [...rates].sort((a, b) => a.name.localeCompare(b.name, "ru") || a.cls - b.cls);
+    const sorted = studentList();
     const values = sorted.map(r => `${r.name} ${r.cls} класс`);
     const known = values.includes(currentBase);
     const opts = sorted.map((r, i) => {
@@ -3548,7 +3820,10 @@
           <button class="mark-btn ${mark.marked ? "done" : ""}" type="button" id="mMark" ${canMark ? "" : "disabled"}>${mark.marked ? "✓ Провёл (снять)" : "Провёл занятие"}</button>
         </div>
         ${canMark ? "" : '<div class="hint">Ставка не найдена — впиши сумму, тогда можно отметить.</div>'}
-        <label class="check" style="margin-top:10px"><input type="checkbox" id="mPaid" ${l.paid && l.paid.value ? "checked" : ""}> Оплачено${l.paid && l.paid.by === "parent" ? ` <span class="cls">(отметил родитель ${escHtml(new Date(l.paid.at).toLocaleDateString("ru-RU"))})</span>` : ""}</label>
+        <div style="margin-top:10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap">
+          <button class="mark-btn paid-btn ${l.paid && l.paid.value ? "paid" : ""}" type="button" id="mPaid" aria-pressed="${l.paid && l.paid.value ? "true" : "false"}">${l.paid && l.paid.value ? "✓ Оплачено (снять)" : "Отметить оплату"}</button>
+          ${l.paid && l.paid.value && l.paid.by === "parent" ? `<span class="cls">отметил родитель ${escHtml(new Date(l.paid.at).toLocaleDateString("ru-RU"))}</span>` : ""}
+        </div>
         <div class="hint" style="margin-top:0">Просто отметка для себя и родителя — родитель видит и может ставить её в своём кабинете.</div>
       </div>` : "";
 
@@ -3661,13 +3936,14 @@
     const saveCall = (value) => busy(null, async () => {
       if (value && !safeHref(value)) { modalMsg("Ссылка должна начинаться с https:// (или http://)", "err"); return; }
       await window.TutorFB.updateLesson(l.id, { callUrl: value || null, updatedAt: Date.now() });
+      publishViewsSoon();
       await reopen(value ? "Разовая ссылка сохранена" : "Вернули обычную ссылку ученика");
     });
     mq("#mCallSave").addEventListener("click", () => saveCall(mq("#mCallUrl").value.trim()));
     if (mq("#mCallReset")) mq("#mCallReset").addEventListener("click", () => saveCall(""));
     if (mq("#mPaid")) {
-      mq("#mPaid").addEventListener("change", (e) => busy(e.currentTarget, async () => {
-        const value = e.target.checked;
+      mq("#mPaid").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+        const value = !(l.paid && l.paid.value);
         await setPaidByTeacher(l, value);
         await reopen(value ? "Отмечено: оплачено" : "Отметка «оплачено» снята");
       }));

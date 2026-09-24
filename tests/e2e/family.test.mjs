@@ -253,7 +253,8 @@ test("«Оплачено»: родитель ↔ учитель в обе сто
   const parent = await openCabinet(app, `#p=${PK_T}`);
   await parent.waitForSelector("#pane-lessons .lesson");
   await parent.locator(".lesson", { hasText: "7/8" }).first().click();
-  await parent.check("#mPaid");
+  assert.equal(await parent.textContent("#mPaid"), "Отметить оплату");
+  await parent.click("#mPaid");
   await parent.waitForFunction(() => /Отмечено: оплачено/.test(document.querySelector("#mMsg").textContent));
   await waitFor(async () => (await app.db())[L("serA_20260928T070000Z")].paid?.value === true, "paid у учителя");
   assert.equal((await app.db())[L("serA_20260928T070000Z")].paid.by, "parent");
@@ -262,11 +263,13 @@ test("«Оплачено»: родитель ↔ учитель в обе сто
   await page.click(".fc-next-button");
   await page.locator("#fcRoot .fc-event", { hasText: "Тест 7 класс 7/8" }).click();
   await page.waitForSelector("#mPaid");
-  assert.equal(await page.isChecked("#mPaid"), true);
+  assert.match(await page.getAttribute("#mPaid", "class"), /\bpaid\b/, "зелёная обводка «Оплачено»");
+  assert.match(await page.getAttribute("#mPaid", "class"), /\bmark-btn\b/, "тот же стиль, что у «Провёл»");
+  assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector("#mPaid")).borderTopWidth), "2px");
   assert.match(await page.textContent("#modal"), /отметил родитель/);
-  await page.uncheck("#mPaid");
+  await page.click("#mPaid");
   await page.waitForFunction(() => /снята/.test(document.querySelector("#mMsg").textContent));
-  await parent.waitForFunction(() => !document.querySelector("#mPaid").checked);
+  await parent.waitForFunction(() => !document.querySelector("#mPaid").classList.contains("paid"));
 
   const student = await openCabinet(app, `#s=${SK_T}`);
   await student.waitForSelector("#pane-lessons .lesson");

@@ -166,6 +166,12 @@
   .hw-upload select { width: 100%; padding: 9px; border: 1px solid var(--border); border-radius: 9px; background: var(--card-bg); color: var(--text); font-size: 14px; font-family: inherit; margin-bottom: 8px; }
   .file-btn { display: inline-block; margin-top: 8px; padding: 6px 11px; border-radius: 9px; background: var(--accent-soft); color: var(--accent-2); font-size: 12.5px; font-weight: 600; cursor: pointer; }
   .file-btn input { display: none; }
+  .mark-btn { border: 1px solid var(--border); background: var(--card-bg); color: var(--text); border-radius: 9px; padding: 8px 13px; font-size: 13.5px; font-weight: 500; cursor: pointer; font-family: inherit; }
+  .mark-btn:disabled { opacity: 0.5; }
+  .mark-btn.paid-btn.paid { background: var(--done-bg); border: 2px solid var(--done-text); color: var(--done-text); font-weight: 600; }
+  .pkg-note { font-size: 13px; font-weight: 600; color: var(--pending-text); background: var(--pending-bg); border: 1px solid var(--pending-border); border-radius: 9px; padding: 7px 10px; margin-top: 6px; }
+  .pkg-note.over { color: var(--danger); background: var(--danger-bg); border-color: var(--danger-border); }
+  .call-link { display: inline-block; margin-top: 6px; font-size: 13px; font-weight: 600; color: var(--accent-2); }
   .forget { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 10px; padding: 8px 12px; font-size: 12.5px; cursor: pointer; }
 </style>
 </head>
@@ -450,6 +456,7 @@
           <div class="lesson-when">${esc(fmtWhen(l.startMs, l.endMs))}${l.pkg ? ` · ${esc(l.pkg)}` : ""}</div>
           ${lessonPills(l, now)}
         </div>
+        ${l.callUrl && /^https?:\/\//i.test(l.callUrl) && l.status === "planned" && l.endMs >= now ? `<a class="call-link" href="${esc(l.callUrl)}" target="_blank" rel="noopener noreferrer">Подключиться к занятию →</a>` : ""}
         ${l.report ? `<div class="report">${esc(l.report)}</div>` : ""}
         ${files.length ? `<ul class="files">${files.map((h) => `<li><a href="${esc(h.url)}" target="_blank" rel="noopener noreferrer">${esc(h.name || "файл")}</a> <span class="who">(${esc(ROLE[h.by] || ROLE.teacher)})</span></li>`).join("")}</ul>` : ""}
       </div>`;
@@ -509,6 +516,8 @@
         <div class="card-title">Пакет занятий</div>
         <div>Проведено <b>${esc(pk.done)}</b> из <b>${esc(pk.total)}</b> · осталось <span class="big">${esc(pk.remaining)}</span></div>
         <div class="pkg-bar"><div class="pkg-bar-fill" style="width:${pct}%"></div></div>
+        ${pk.total && pk.remaining <= 0 ? '<div class="pkg-note over">Пакет закончился — напишите преподавателю о продлении.</div>'
+          : pk.total && pk.remaining <= 2 ? `<div class="pkg-note">Осталось ${esc(pk.remaining)} ${pk.remaining === 1 ? "занятие" : "занятия"} — скоро нужно будет продлить пакет.</div>` : ""}
       </div>`;
     }
     const list = lessonsFilter === "upcoming" ? upcoming.slice(0, 30) : past.slice(0, pastLimit);
@@ -882,12 +891,16 @@
     }
 
     const paidHtml = current.role === "parent" && l.status !== "cancelled" && l.status !== "rescheduled" && view.parentChannel ? `
-      <div class="section"><label class="check"><input type="checkbox" id="mPaid" ${paid ? "checked" : ""}> Оплачено</label>
+      <div class="section"><button class="mark-btn paid-btn ${paid ? "paid" : ""}" type="button" id="mPaid" aria-pressed="${paid ? "true" : "false"}">${paid ? "✓ Оплачено (снять)" : "Отметить оплату"}</button>
         <div class="hint">Просто отметка — её сразу видит преподаватель. Деньги через сайт не передаются.</div></div>` : "";
 
+    const callOk = l.callUrl && /^https?:\/\//i.test(l.callUrl) && (l.status === "planned" || l.status === "done");
+    const callHtml = callOk ? `<div class="section"><div class="section-title">Созвон</div>
+        <a class="btn" id="mCall" href="${esc(l.callUrl)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none; display:inline-block">Подключиться к занятию</a></div>` : "";
     openModal(`
       <h2>${esc(fmtWhen(l.startMs, l.endMs))}</h2>
       <div class="meta">${l.pkg ? `Занятие ${esc(l.pkg)} · ` : ""}${lessonPills(l, now)}</div>
+      ${callHtml}
       ${l.report ? `<div class="section"><div class="section-title">Отчёт преподавателя</div><div class="report" style="margin-top:0">${esc(l.report)}</div></div>` : ""}
       <div class="section"><div class="section-title">Домашнее задание</div>
         ${files.length ? `<ul class="files">${files.map((h) => `<li><a href="${esc(h.url)}" target="_blank" rel="noopener noreferrer">${esc(h.name || "файл")}</a> <span class="who">(${esc(ROLE[h.by] || ROLE.teacher)})</span></li>`).join("")}</ul>` : '<div class="hint" style="margin-top:0">Файлов пока нет.</div>'}
@@ -942,9 +955,9 @@
       });
     }
     if (mq("#mPaid")) {
-      mq("#mPaid").addEventListener("change", async (e) => {
-        const value = e.target.checked;
-        e.target.disabled = true;
+      mq("#mPaid").addEventListener("click", async (e) => {
+        const value = !paidOf(l);
+        e.currentTarget.disabled = true;
         try {
           await addItem(view.parentChannel, { type: "paid", lessonId: l.id, by: "parent", createdAt: Date.now(), paid: value });
           modalNote = [value ? "Отмечено: оплачено" : "Отметка «оплачено» снята", "ok"];
