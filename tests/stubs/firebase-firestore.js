@@ -156,6 +156,29 @@ export async function getDocs(q) {
   return { docs, size: docs.length, empty: !docs.length, forEach: (fn) => docs.forEach(fn) };
 }
 
+// Живые обновления: опрашиваем «базу» и зовём callback при изменениях
+// (как настоящий onSnapshot, но через localStorage, общий для вкладок).
+export function onSnapshot(target, onNext, onError) {
+  let last = null;
+  let stopped = false;
+  async function tick() {
+    if (stopped) return;
+    try {
+      const snap = target.type === "document" ? await getDoc(target) : await getDocs(target);
+      const sig = target.type === "document"
+        ? JSON.stringify(snap.exists() ? snap.data() : null)
+        : JSON.stringify(snap.docs.map((d) => [d.id, d.data()]));
+      if (sig !== last) { last = sig; onNext(snap); }
+    } catch (e) {
+      stopped = true;
+      if (onError) onError(e);
+    }
+  }
+  tick();
+  const t = setInterval(tick, 250);
+  return () => { stopped = true; clearInterval(t); };
+}
+
 export function writeBatch() {
   const ops = [];
   return {

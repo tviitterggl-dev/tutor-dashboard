@@ -81,7 +81,7 @@ test("выдача ключа родителю → кабинет → отзыв
   cab.on("dialog", async (d) => { alerted = true; await d.dismiss(); });
   await cab.clock.setFixedTime(new Date("2026-09-24T12:00:00+03:00"));
   await cab.goto(link.replace(/^.*\/cabinet\.html/, page.url().replace(/\/index\.html.*$/, "") + "/cabinet.html"));
-  await cab.waitForSelector("#wTable td");
+  await cab.waitForSelector("#cal .fc-event.own");
   assert.equal(await cab.textContent("#title"), "Кабинет родителя");
   assert.equal(await cab.textContent("#subtitle"), "Тест, 7 класс");
   const body = await cab.textContent("body");
@@ -90,10 +90,11 @@ test("выдача ключа родителю → кабинет → отзыв
   assert.equal(body.includes("Анна"), false);
   assert.equal(await cab.$$eval('a[href^="javascript"]', (a) => a.length), 0, "опасные ссылки отброшены");
   assert.equal(await cab.$$eval('a[href^="https://res.cloudinary.com"]', (a) => a.length), 1);
-  const cells = await cab.$$eval("#wTable td", (tds) => tds.map((t) => t.className));
-  assert.ok(cells.includes("own"), "свои занятия выделены");
-  assert.ok(cells.includes("busy"), "чужие — «занято»");
-  assert.ok(cells.includes("free"));
+  const evs = await cab.$$eval("#cal .fc-event", (els) => els.map((e) => ({ cls: e.className, text: e.textContent })));
+  assert.ok(evs.some((e) => /\bown\b/.test(e.cls)), "свои занятия выделены");
+  assert.ok(evs.some((e) => /\bbusy\b/.test(e.cls) && /занято/.test(e.text)), "чужие — «занято»");
+  assert.ok(evs.filter((e) => /\bbusy\b/.test(e.cls)).every((e) => !/Анна|Борис|Пробное/.test(e.text)), "без имён");
+  assert.equal(new URL(cab.url()).hash, "", "ключ убран из адресной строки");
   assert.equal(alerted, false);
   assert.deepEqual(cabErrors, []);
 

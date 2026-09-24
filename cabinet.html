@@ -23,10 +23,12 @@
     --done-border: #c7d0a3;
     --done-text: #4f6b2a;
     --pending-bg: #fdecd2;
+    --pending-border: #f0c98a;
     --pending-text: #8a5a1a;
     --danger: #b3402a;
     --danger-bg: #fbe6df;
     --danger-border: #eab7a4;
+    --busy: #c9bcae;
     --shadow: 0 1px 2px rgba(90, 55, 20, 0.04), 0 6px 20px -8px rgba(120, 70, 20, 0.18);
     color-scheme: light;
   }
@@ -35,8 +37,9 @@
       --bg: #1c1712; --card-bg: #251e17; --text: #f2e9dd; --muted: #ab9885;
       --border: #3c3024; --accent: #e08a3e; --accent-2: #f0a75c; --accent-soft: #3a2a17;
       --done-bg: #29301c; --done-border: #465228; --done-text: #b8cf85;
-      --pending-bg: #3a2c14; --pending-text: #edc27e;
+      --pending-bg: #3a2c14; --pending-border: #6b4f1f; --pending-text: #edc27e;
       --danger: #e08b74; --danger-bg: #3a231c; --danger-border: #6b3a2a;
+      --busy: #4a3d30;
       --shadow: 0 1px 2px rgba(0,0,0,0.2), 0 6px 20px -8px rgba(0,0,0,0.4);
       color-scheme: dark;
     }
@@ -45,8 +48,9 @@
     --bg: #1c1712; --card-bg: #251e17; --text: #f2e9dd; --muted: #ab9885;
     --border: #3c3024; --accent: #e08a3e; --accent-2: #f0a75c; --accent-soft: #3a2a17;
     --done-bg: #29301c; --done-border: #465228; --done-text: #b8cf85;
-    --pending-bg: #3a2c14; --pending-text: #edc27e;
+    --pending-bg: #3a2c14; --pending-border: #6b4f1f; --pending-text: #edc27e;
     --danger: #e08b74; --danger-bg: #3a231c; --danger-border: #6b3a2a;
+    --busy: #4a3d30;
     --shadow: 0 1px 2px rgba(0,0,0,0.2), 0 6px 20px -8px rgba(0,0,0,0.4);
     color-scheme: dark;
   }
@@ -59,59 +63,115 @@
     padding: 20px 16px 44px;
     -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 720px; margin: 0 auto; }
+  .wrap { max-width: 760px; margin: 0 auto; }
   h1 { font-family: "Space Grotesk", "Inter", sans-serif; font-size: 21px; margin: 0 0 3px; }
-  .sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
   .card {
     background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px;
     padding: 16px; margin-bottom: 14px; box-shadow: var(--shadow);
   }
   .card-title { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 14px; margin-bottom: 10px; }
   .empty { color: var(--muted); font-size: 13px; text-align: center; padding: 18px 0; }
-  .hint { color: var(--muted); font-size: 11.5px; margin-top: 8px; }
+  .hint { color: var(--muted); font-size: 11.5px; margin-top: 8px; line-height: 1.4; }
   .pkg-bar { height: 9px; border-radius: 6px; background: var(--border); overflow: hidden; margin: 8px 0; }
   .pkg-bar-fill { height: 100%; background: var(--accent); border-radius: 6px; }
   .big { font-family: "Space Grotesk", sans-serif; font-size: 20px; font-weight: 700; color: var(--accent); }
-  .lesson { border: 1px solid var(--border); border-radius: 12px; padding: 11px 12px; margin-bottom: 8px; }
+  .lesson { border: 1px solid var(--border); border-radius: 12px; padding: 11px 12px; margin-bottom: 8px; cursor: pointer; }
+  .lesson:hover { border-color: var(--accent); }
   .lesson-top { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: baseline; }
   .lesson-when { font-weight: 600; font-size: 14px; }
-  .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 600; border: 1px solid var(--border); }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 600; border: 1px solid var(--border); white-space: nowrap; }
   .pill.planned { background: var(--accent-soft); color: var(--accent-2); }
-  .pill.done { background: var(--done-bg); color: var(--done-text); border-color: var(--done-border); }
-  .pill.cancelled, .pill.rescheduled { background: var(--danger-bg); color: var(--danger); border-color: var(--danger-border); }
+  .pill.done, .pill.paid, .pill.approved { background: var(--done-bg); color: var(--done-text); border-color: var(--done-border); }
+  .pill.cancelled, .pill.rescheduled, .pill.rejected { background: var(--danger-bg); color: var(--danger); border-color: var(--danger-border); }
   .pill.past { background: transparent; color: var(--muted); }
+  .pill.pending { background: var(--pending-bg); color: var(--pending-text); border-color: var(--pending-border); }
+  .pills { display: flex; gap: 5px; flex-wrap: wrap; }
   .report { white-space: pre-wrap; font-size: 13.5px; margin-top: 8px; line-height: 1.45; }
-  .files { margin: 8px 0 0; padding: 0; list-style: none; font-size: 13px; }
-  .files li { margin: 3px 0; }
+  .files { margin: 6px 0 0; padding: 0; list-style: none; font-size: 13px; }
+  .files li { margin: 4px 0; }
   .files a { color: var(--accent-2); word-break: break-all; }
-  .week-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
-  .week-nav button { border: 1px solid var(--border); background: var(--card-bg); color: var(--accent-2); border-radius: 10px; padding: 6px 12px; font-size: 15px; font-weight: 600; cursor: pointer; }
-  .week-nav button:disabled { opacity: 0.35; cursor: default; }
-  .week-label { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 14px; text-align: center; flex: 1; }
-  .sched-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  table.sched { border-collapse: collapse; width: 100%; min-width: 560px; }
-  table.sched th, table.sched td { border: 1px solid var(--border); text-align: center; padding: 4px 2px; font-size: 10.5px; }
-  table.sched thead th { background: var(--accent); color: #fff8f0; font-family: "Space Grotesk", sans-serif; font-weight: 600; padding: 6px 2px; }
-  table.sched td.time-col { background: var(--accent-soft); color: var(--accent-2); font-weight: 600; white-space: nowrap; }
-  table.sched td.busy { background: var(--pending-bg); color: var(--pending-text); }
-  table.sched td.free { background: var(--done-bg); color: var(--done-text); }
-  table.sched td.own { background: var(--accent); color: #fff8f0; font-weight: 600; }
+  .who { color: var(--muted); font-size: 11.5px; }
   .more { background: none; border: none; color: var(--accent-2); text-decoration: underline; cursor: pointer; font-size: 13px; padding: 4px 0; }
+  .btn {
+    border: none; background: var(--accent); color: #fff8f0; border-radius: 10px; padding: 9px 14px;
+    font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 13px; cursor: pointer;
+  }
+  .btn:disabled { opacity: 0.5; cursor: default; }
+  .btn.secondary { background: var(--accent-soft); color: var(--accent-2); }
+  .btn.danger { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger-border); }
+  .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .contacts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .contacts a {
+    flex: 1; min-width: 150px; text-align: center; text-decoration: none; padding: 10px 12px; border-radius: 10px;
+    background: var(--accent-soft); color: var(--accent-2); font-weight: 600; font-size: 13.5px; border: 1px solid var(--border);
+  }
+  .req-row { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; padding: 7px 0; border-bottom: 1px dashed var(--border); font-size: 13px; }
+  .req-row:last-child { border-bottom: none; }
+  select.switch { padding: 6px 8px; border-radius: 9px; border: 1px solid var(--border); background: var(--card-bg); color: var(--text); font-size: 13px; margin-bottom: 12px; }
+
+  #cal { font-size: 12.5px; --fc-border-color: var(--border); --fc-today-bg-color: var(--accent-soft); --fc-page-bg-color: var(--card-bg); --fc-neutral-bg-color: var(--accent-soft); --fc-list-event-hover-bg-color: var(--accent-soft); }
+  #cal .fc-toolbar-title { font-family: "Space Grotesk", sans-serif; font-size: 15px; }
+  #cal .fc-button { background: var(--accent-soft); color: var(--accent-2); border: none; font-size: 12px; padding: 5px 8px; box-shadow: none; }
+  #cal .fc-button-active, #cal .fc-button:hover { background: var(--accent) !important; color: #fff8f0 !important; }
+  #cal .fc-button:disabled { opacity: 0.4; }
+  #cal .fc-toolbar.fc-header-toolbar { flex-wrap: wrap; gap: 6px; }
+  #cal .own { background: var(--accent); border-color: var(--accent); cursor: pointer; }
+  #cal .own.done { background: var(--done-text); border-color: var(--done-text); }
+  #cal .own.cancelled, #cal .own.rescheduled { background: transparent; border: 1px dashed var(--muted); }
+  #cal .own.cancelled .fc-event-main, #cal .own.rescheduled .fc-event-main { color: var(--muted); text-decoration: line-through; }
+  #cal .busy { background: var(--busy); border-color: var(--busy); }
+  #cal .busy .fc-event-main { color: var(--text); opacity: 0.75; }
+  #cal .ghost { background: var(--pending-bg); border: 1px dashed var(--pending-text); }
+  #cal .ghost .fc-event-main { color: var(--pending-text); }
+
+  .modal-back { position: fixed; inset: 0; z-index: 50; background: rgba(30, 20, 10, 0.45); display: flex; align-items: flex-start; justify-content: center; overflow-y: auto; padding: 24px 12px; }
+  .modal { background: var(--card-bg); color: var(--text); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow); width: 100%; max-width: 500px; padding: 16px; }
+  .modal h2 { font-family: "Space Grotesk", sans-serif; font-size: 17px; margin: 0 0 4px; }
+  .modal .meta { font-size: 12.5px; color: var(--muted); margin-bottom: 10px; }
+  .section { border-top: 1px dashed var(--border); padding-top: 12px; margin-top: 12px; }
+  .section-title { font-weight: 600; font-size: 13px; margin-bottom: 8px; }
+  .field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; font-size: 12px; color: var(--muted); }
+  .field-row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .field-row .field { flex: 1; min-width: 130px; }
+  .field input, .field textarea { padding: 9px; border: 1px solid var(--border); border-radius: 9px; background: var(--card-bg); color: var(--text); font-family: inherit; font-size: 15px; }
+  .field textarea { min-height: 60px; resize: vertical; }
+  .check { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .check input { width: 20px; height: 20px; }
+  .msg { font-size: 12.5px; margin-top: 8px; min-height: 1em; }
+  .msg.err { color: var(--danger); }
+  .msg.ok { color: var(--done-text); }
+  .forget { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 10px; padding: 8px 12px; font-size: 12.5px; cursor: pointer; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1 id="title">Личный кабинет</h1>
   <div class="sub" id="subtitle">Загрузка…</div>
+  <div id="switcher"></div>
   <div id="root"></div>
+  <div class="card">
+    <div class="card-title">Если что — пишите</div>
+    <div class="contacts">
+      <a id="tgLink" href="https://t.me/mat_repet" target="_blank" rel="noopener noreferrer">Telegram</a>
+      <a id="telemostLink" href="https://yandex.ru/chat/p/ad9c2706-f36a-940f-7a90-d15f170427e5?utm_source=invite" target="_blank" rel="noopener noreferrer">Яндекс Телемост</a>
+    </div>
+  </div>
+  <div style="text-align:center; margin-top:18px">
+    <button class="forget" id="forgetBtn" type="button">Забыть это устройство</button>
+    <div class="hint" id="updatedAt"></div>
+  </div>
 </div>
+<div class="modal-back" id="modalBack" style="display:none"><div class="modal" id="modal" role="dialog" aria-modal="true"></div></div>
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
-  import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+  import { getFirestore, doc, setDoc, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
-  // Здесь нет и не должно быть ключа учителя: кабинет читает только свою
-  // «витрину» по ключу из ссылки (#p=… для родителя, #s=… для ученика).
+  // Здесь нет и не должно быть ключа учителя. Кабинет видит только:
+  //  • свою витрину parentAccess/{ключ} или studentAccess/{ключ} (её пишет учитель);
+  //  • канал своего ученика (ДЗ и заявки) и, у родителя, родительский канал (оплата).
+  // Писать сюда можно только сообщения в каналы; расписание меняет учитель.
   const firebaseConfig = {
     apiKey: "AIzaSyBjf7oN8bZMc7MHnX9C3LGICbE040K1IQU",
     authDomain: "tutor-cabinet.firebaseapp.com",
@@ -122,21 +182,40 @@
   };
   const db = getFirestore(initializeApp(firebaseConfig));
 
+  const FC_JS = "https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js";
+  const FC_RU = "https://cdn.jsdelivr.net/npm/@fullcalendar/core@6.1.19/locales/ru.global.min.js";
+  const CLOUDINARY_CLOUD = "xf4hvf5p";
+  const CLOUDINARY_PRESET = "tutor-dashboard";
+  const CLOUDINARY_MAX_BYTES = 10 * 1024 * 1024;
+  const STORE = "cabinetKeys";
+
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const p2 = (n) => String(n).padStart(2, "0");
   const DAYS = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
   const MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
   const STATUS = { planned: "запланировано", done: "проведено", cancelled: "отменено", rescheduled: "перенесено" };
-  const DAY = 86400000;
+  const ROLE = { parent: "родитель", student: "ученик", teacher: "преподаватель" };
+  const safeUrl = (u) => /^https:\/\//.test(u || "");
 
   function fmtDay(ms) {
     const d = new Date(ms);
     return `${DAYS[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]}`;
   }
   function fmtTime(s, e) {
-    const a = new Date(s), b = new Date(e);
-    return `${p2(a.getHours())}:${p2(a.getMinutes())}–${p2(b.getHours())}:${p2(b.getMinutes())}`;
+    const a = new Date(s);
+    const out = `${p2(a.getHours())}:${p2(a.getMinutes())}`;
+    if (!e) return out;
+    const b = new Date(e);
+    return `${out}–${p2(b.getHours())}:${p2(b.getMinutes())}`;
+  }
+  const fmtWhen = (s, e) => `${fmtDay(s)}, ${fmtTime(s, e)}`;
+  function toDateInput(ms) { const d = new Date(ms); return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}`; }
+  function toTimeInput(ms) { const d = new Date(ms); return `${p2(d.getHours())}:${p2(d.getMinutes())}`; }
+  function newId() {
+    const b = new Uint8Array(9);
+    crypto.getRandomValues(b);
+    return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
   }
   function mondayOf(ms) {
     const d = new Date(ms);
@@ -146,46 +225,181 @@
     return d;
   }
 
-  function parseHash() {
+  // ---------- ключи на этом устройстве ----------
+  // Ссылка #p=… / #s=… сохраняется в браузере и убирается из адресной
+  // строки. «Забыть это устройство» стирает всё сохранённое.
+  function loadSaved() {
+    try { return JSON.parse(localStorage.getItem(STORE) || "[]").filter((x) => x && x.key && x.role); } catch (e) { return []; }
+  }
+  function saveSaved(list) {
+    try { localStorage.setItem(STORE, JSON.stringify(list)); } catch (e) { /* приватный режим */ }
+  }
+  function takeFromHash() {
     const m = location.hash.match(/(?:^#|&)([ps])=([A-Za-z0-9_-]{24,64})/);
-    return m ? { role: m[1] === "p" ? "parent" : "student", key: m[2] } : null;
+    if (!m) return null;
+    const entry = { role: m[1] === "p" ? "parent" : "student", key: m[2] };
+    const list = loadSaved().filter((x) => x.key !== entry.key);
+    list.unshift(entry);
+    saveSaved(list);
+    history.replaceState(null, "", location.pathname + location.search);
+    return entry;
   }
 
-  function showError(text) {
+  // ---------- состояние ----------
+  let current = null;       // { role, key }
+  let view = null;          // витрина от учителя
+  let shared = [];          // сообщения общего канала (ДЗ, заявки)
+  let parentItems = [];     // сообщения родительского канала (оплата)
+  let unsubs = [];
+  let pastLimit = 10;
+  let cal = null;
+  let openLessonId = null;
+
+  function stopWatching() {
+    unsubs.forEach((u) => u());
+    unsubs = [];
+    shared = [];
+    parentItems = [];
+  }
+
+  function showMessage(text) {
     $("title").textContent = "Личный кабинет";
     $("subtitle").textContent = "";
     $("root").innerHTML = `<div class="card"><div class="empty">${esc(text)}</div></div>`;
+    $("updatedAt").textContent = "";
+  }
+
+  function viewRef(entry) {
+    return doc(db, entry.role === "parent" ? "parentAccess" : "studentAccess", entry.key);
+  }
+
+  function open(entry) {
+    stopWatching();
+    current = entry;
+    view = null;
+    cal = null;
+    closeModal();
+    $("root").innerHTML = '<div class="card"><div class="empty">Загрузка…</div></div>';
+    let watchedChannel = null, watchedParent = null;
+    let unsubChannel = null, unsubParent = null;
+    const u = onSnapshot(viewRef(entry), (snap) => {
+      if (!snap.exists()) {
+        const list = loadSaved().filter((x) => x.key !== entry.key);
+        saveSaved(list);
+        stopWatching();
+        showMessage("Ссылка недействительна или доступ отозван. Попросите у преподавателя новую.");
+        renderSwitcher();
+        return;
+      }
+      view = snap.data();
+      const list = loadSaved();
+      const me = list.find((x) => x.key === entry.key);
+      if (me && me.studentId !== view.studentId) { me.studentId = view.studentId; saveSaved(list); }
+      // Каналы могут смениться (после отзыва чужого доступа) — переподписываемся.
+      // Старую подписку обязательно отключаем: иначе опустевший старый канал
+      // затрёт данные нового.
+      if (view.channel !== watchedChannel) {
+        watchedChannel = view.channel;
+        if (unsubChannel) unsubChannel();
+        unsubChannel = null;
+        shared = [];
+        if (view.channel) {
+          const ch = view.channel;
+          unsubChannel = onSnapshot(collection(db, "channels", ch, "items"),
+            (s) => { if (ch !== watchedChannel) return; shared = s.docs.map((d) => Object.assign({ id: d.id }, d.data())); render(); },
+            (e) => console.error(e));
+          unsubs.push(() => unsubChannel && unsubChannel());
+        }
+      }
+      if (entry.role === "parent" && view.parentChannel !== watchedParent) {
+        watchedParent = view.parentChannel;
+        if (unsubParent) unsubParent();
+        unsubParent = null;
+        parentItems = [];
+        if (view.parentChannel) {
+          const ch = view.parentChannel;
+          unsubParent = onSnapshot(collection(db, "channels", ch, "items"),
+            (s) => { if (ch !== watchedParent) return; parentItems = s.docs.map((d) => Object.assign({ id: d.id }, d.data())); render(); },
+            (e) => console.error(e));
+          unsubs.push(() => unsubParent && unsubParent());
+        }
+      }
+      renderSwitcher();
+      render();
+    }, (e) => {
+      console.error(e);
+      showMessage("Не удалось загрузить кабинет. Проверьте интернет и обновите страницу.");
+    });
+    unsubs.push(u);
+  }
+
+  function renderSwitcher() {
+    const list = loadSaved();
+    const el = $("switcher");
+    if (list.length < 2) { el.innerHTML = ""; return; }
+    el.innerHTML = `<select class="switch" id="switchSel">${list.map((x) => `<option value="${esc(x.key)}"${current && x.key === current.key ? " selected" : ""}>${esc(x.studentId || "кабинет")} · ${ROLE[x.role]}</option>`).join("")}</select>`;
+    $("switchSel").addEventListener("change", (e) => {
+      const entry = loadSaved().find((x) => x.key === e.target.value);
+      if (entry) open(entry);
+    });
+  }
+
+  // ---------- производные данные ----------
+  const myLessons = () => (view && view.lessons ? view.lessons : []);
+  const lessonById = (id) => myLessons().find((l) => l.id === id);
+  const pendingFor = (id) => shared.find((i) => (i.type === "reschedule" || i.type === "cancel") && i.lessonId === id);
+  const canRequest = (l) => l.status === "planned" && l.startMs > Date.now() && !!view.channel;
+
+  function homeworkOf(l) {
+    const list = (l.homework || []).map((h) => Object.assign({}, h));
+    shared.filter((i) => i.type === "homework" && i.lessonId === l.id && i.file).forEach((i) => {
+      if (!list.some((h) => h.url === i.file.url)) list.push({ url: i.file.url, name: i.file.name, by: i.by, fresh: true });
+    });
+    return list.filter((h) => safeUrl(h.url));
+  }
+  function paidOf(l) {
+    if (current.role !== "parent") return null;
+    const items = parentItems.filter((i) => i.type === "paid" && i.lessonId === l.id).sort((a, b) => a.createdAt - b.createdAt);
+    const latest = items[items.length - 1];
+    if (latest && latest.createdAt >= (l.paidAt || 0)) return latest.paid;
+    return !!l.paid;
+  }
+
+  // ---------- отрисовка ----------
+  function lessonPills(l, now) {
+    let cls = l.status, text = STATUS[l.status] || l.status;
+    if (l.status === "planned" && l.endMs < now) { cls = "past"; text = "прошло"; }
+    const pills = [`<span class="pill ${esc(cls)}">${esc(text)}</span>`];
+    if (pendingFor(l.id)) pills.push('<span class="pill pending">заявка отправлена</span>');
+    if (paidOf(l)) pills.push('<span class="pill paid">оплачено</span>');
+    return `<div class="pills">${pills.join("")}</div>`;
   }
 
   function lessonCard(l, now) {
-    const past = l.endMs < now;
-    let pillCls = l.status, pillText = STATUS[l.status] || l.status;
-    if (l.status === "planned" && past) { pillCls = "past"; pillText = "прошло"; }
-    const files = (l.homework || []).filter(h => /^https:\/\//.test(h.url || ""));
+    const files = homeworkOf(l);
     return `
-      <div class="lesson">
+      <div class="lesson" data-lesson="${esc(l.id || "")}">
         <div class="lesson-top">
-          <div class="lesson-when">${esc(fmtDay(l.startMs))}, ${esc(fmtTime(l.startMs, l.endMs))}${l.pkg ? ` · ${esc(l.pkg)}` : ""}</div>
-          <span class="pill ${esc(pillCls)}">${esc(pillText)}</span>
+          <div class="lesson-when">${esc(fmtWhen(l.startMs, l.endMs))}${l.pkg ? ` · ${esc(l.pkg)}` : ""}</div>
+          ${lessonPills(l, now)}
         </div>
         ${l.report ? `<div class="report">${esc(l.report)}</div>` : ""}
-        ${files.length ? `<div class="hint" style="margin-top:8px">Домашнее задание:</div><ul class="files">${files.map(h => `<li><a href="${esc(h.url)}" target="_blank" rel="noopener noreferrer">${esc(h.name || "файл")}</a></li>`).join("")}</ul>` : ""}
+        ${files.length ? `<ul class="files">${files.map((h) => `<li><a href="${esc(h.url)}" target="_blank" rel="noopener noreferrer">${esc(h.name || "файл")}</a> <span class="who">(${esc(ROLE[h.by] || ROLE.teacher)})</span></li>`).join("")}</ul>` : ""}
       </div>`;
   }
 
-  let view = null;
-  let weekStart = null;
-  let pastLimit = 10;
-
   function render() {
+    if (!view) return;
     const now = Date.now();
     const v = view;
     $("title").textContent = v.role === "parent" ? "Кабинет родителя" : "Кабинет ученика";
     $("subtitle").textContent = v.studentId || "";
+    const upd = v.generatedAt ? new Date(v.generatedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+    $("updatedAt").textContent = `Расписание обновлено: ${upd}`;
 
-    const lessons = (v.lessons || []).slice().sort((a, b) => a.startMs - b.startMs);
-    const upcoming = lessons.filter(l => l.endMs >= now && l.status === "planned");
-    const past = lessons.filter(l => !(l.endMs >= now && l.status === "planned")).reverse();
+    const lessons = myLessons().slice().sort((a, b) => a.startMs - b.startMs);
+    const upcoming = lessons.filter((l) => l.endMs >= now && l.status === "planned");
+    const past = lessons.filter((l) => !(l.endMs >= now && l.status === "planned")).reverse();
 
     let html = "";
     if (v.role === "parent" && v.package) {
@@ -198,81 +412,372 @@
       </div>`;
     }
 
-    html += `<div class="card"><div class="card-title">Ближайшие занятия</div>
-      ${upcoming.length ? upcoming.slice(0, 12).map(l => lessonCard(l, now)).join("") : '<div class="empty">Запланированных занятий нет</div>'}
+    const pend = shared.filter((i) => i.type === "reschedule" || i.type === "cancel");
+    const decided = (v.requests || []).slice().sort((a, b) => b.decidedAt - a.decidedAt).slice(0, 6);
+    if (pend.length || decided.length) {
+      html += `<div class="card" id="requestsCard"><div class="card-title">Заявки на перенос и отмену</div>
+        ${pend.map((i) => {
+          const l = lessonById(i.lessonId);
+          const what = i.type === "reschedule" ? `перенос${l ? " " + fmtWhen(l.startMs, l.endMs) : ""} → ${fmtWhen(i.newStartMs, i.newEndMs)}` : `отмена${l ? " " + fmtWhen(l.startMs, l.endMs) : ""}`;
+          return `<div class="req-row"><span>${esc(what)} <span class="who">(${esc(ROLE[i.by] || "")})</span></span><span class="pill pending">ждёт ответа</span></div>`;
+        }).join("")}
+        ${decided.map((d) => {
+          const what = d.type === "reschedule" ? `перенос${d.oldStartMs ? " " + fmtWhen(d.oldStartMs) : ""}${d.newStartMs ? " → " + fmtWhen(d.newStartMs) : ""}` : `отмена${d.oldStartMs ? " " + fmtWhen(d.oldStartMs) : ""}`;
+          return `<div class="req-row"><span>${esc(what)}${d.reason ? ` <span class="who">— ${esc(d.reason)}</span>` : ""}</span><span class="pill ${d.status === "approved" ? "approved" : "rejected"}">${d.status === "approved" ? "подтверждено" : "отклонено"}</span></div>`;
+        }).join("")}
+      </div>`;
+    }
+
+    html += `<div class="card"><div class="card-title">Расписание</div>
+      <div id="cal"></div>
+      <div class="hint">Оранжевые — ваши занятия, серые — время занято, пустое — свободно. Чтобы перенести или отменить занятие, нажмите на него (или перетащите на свободное время) — преподавателю уйдёт заявка, расписание изменится после подтверждения.</div>
     </div>`;
 
-    html += `<div class="card"><div class="card-title">Занятость преподавателя</div>
-      <div class="week-nav"><button type="button" id="wPrev">‹</button><div class="week-label" id="wLabel"></div><button type="button" id="wNext">›</button></div>
-      <div class="sched-wrap"><table class="sched" id="wTable"></table></div>
-      <div class="hint">Выделено — ваши занятия, «занято» — время уже занято, «своб.» — можно договориться о занятии.</div>
+    html += `<div class="card"><div class="card-title">Ближайшие занятия</div>
+      ${upcoming.length ? upcoming.slice(0, 12).map((l) => lessonCard(l, now)).join("") : '<div class="empty">Запланированных занятий нет</div>'}
     </div>`;
 
     html += `<div class="card"><div class="card-title">История занятий</div>
-      ${past.length ? past.slice(0, pastLimit).map(l => lessonCard(l, now)).join("") : '<div class="empty">Пока пусто</div>'}
+      ${past.length ? past.slice(0, pastLimit).map((l) => lessonCard(l, now)).join("") : '<div class="empty">Пока пусто</div>'}
       ${past.length > pastLimit ? '<button class="more" type="button" id="more">Показать ещё</button>' : ""}
     </div>`;
 
-    const upd = v.generatedAt ? new Date(v.generatedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
-    html += `<div class="hint" style="text-align:center">Обновлено: ${esc(upd)}</div>`;
+    const keepCalView = cal ? { type: cal.view.type, date: cal.getDate() } : null;
+    if (cal) { cal.destroy(); cal = null; }
     $("root").innerHTML = html;
-
     if ($("more")) $("more").addEventListener("click", () => { pastLimit += 20; render(); });
-    $("wPrev").addEventListener("click", () => { weekStart = new Date(weekStart.getTime() - 7 * DAY); renderWeek(); });
-    $("wNext").addEventListener("click", () => { weekStart = new Date(weekStart.getTime() + 7 * DAY); renderWeek(); });
-    renderWeek();
+    $("root").querySelectorAll("[data-lesson]").forEach((el) => el.addEventListener("click", (e) => {
+      if (e.target.closest("a")) return;
+      if (el.dataset.lesson) openLessonModal(el.dataset.lesson);
+    }));
+    renderCalendar(keepCalView);
+    if (openLessonId && $("modalBack").style.display !== "none") refreshModal();
   }
 
-  function renderWeek() {
-    const v = view;
-    const from = v.busyFrom || Date.now();
-    const to = v.busyTo || from + 35 * DAY;
-    if (!weekStart) weekStart = mondayOf(Date.now());
-    const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(d.getDate() + i); return d; });
-    const sun = days[6];
-    $("wLabel").textContent = `${p2(days[0].getDate())}.${p2(days[0].getMonth() + 1)} – ${p2(sun.getDate())}.${p2(sun.getMonth() + 1)}`;
-    $("wPrev").disabled = weekStart.getTime() <= mondayOf(from).getTime();
-    $("wNext").disabled = weekStart.getTime() + 7 * DAY >= to;
-
-    const own = (v.lessons || []).filter(l => l.status === "planned" || l.status === "done");
-    const busy = v.busy || [];
-    const H0 = 8, H1 = 22;
-    let html = "<thead><tr><th>Время</th>" + days.map(d => `<th>${p2(d.getDate())}.${p2(d.getMonth() + 1)}<br>${DAYS[d.getDay()]}</th>`).join("") + "</tr></thead><tbody>";
-    for (let h = H0; h < H1; h++) {
-      html += `<tr><td class="time-col">${p2(h)}:00</td>`;
-      days.forEach(d => {
-        const hs = new Date(d); hs.setHours(h, 0, 0, 0);
-        const he = new Date(d); he.setHours(h + 1, 0, 0, 0);
-        const a = hs.getTime(), b = he.getTime();
-        const overlaps = (x) => x.s < b && x.e > a;
-        const known = a >= from && a < to;
-        if (own.some(l => overlaps({ s: l.startMs, e: l.endMs }))) html += '<td class="own">урок</td>';
-        else if (!known) html += "<td>—</td>";
-        else if (busy.some(overlaps)) html += '<td class="busy">занято</td>';
-        else html += '<td class="free">своб.</td>';
+  // ---------- календарь ----------
+  // Один промис на скрипт: повторный вызов, пока скрипт ещё грузится,
+  // ждёт ту же загрузку (иначе «FullCalendar is not defined»).
+  const scriptLoads = {};
+  function loadScript(src) {
+    if (!scriptLoads[src]) {
+      scriptLoads[src] = new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = src;
+        s.onload = () => resolve();
+        s.onerror = () => { delete scriptLoads[src]; reject(new Error("load " + src)); };
+        document.head.appendChild(s);
       });
-      html += "</tr>";
     }
-    $("wTable").innerHTML = html + "</tbody>";
+    return scriptLoads[src];
   }
 
-  async function load() {
-    const h = parseHash();
-    if (!h) { showError("Для входа нужна личная ссылка от преподавателя."); return; }
+  function calEvents() {
+    const out = [];
+    myLessons().forEach((l) => {
+      const req = pendingFor(l.id);
+      out.push({
+        id: "own_" + l.id,
+        title: (l.pkg ? `Урок ${l.pkg}` : "Урок") + (l.status === "cancelled" ? " · отмена" : l.status === "rescheduled" ? " · перенос" : "") + (req ? " · заявка" : ""),
+        start: l.startMs,
+        end: l.endMs,
+        classNames: ["own", l.status],
+        editable: canRequest(l) && !req,
+        extendedProps: { lessonId: l.id },
+      });
+      if (req && req.type === "reschedule") {
+        out.push({ id: "ghost_" + req.id, title: "заявка: перенос сюда", start: req.newStartMs, end: req.newEndMs, classNames: ["ghost"], editable: false, extendedProps: { lessonId: l.id } });
+      }
+    });
+    (view.busy || []).forEach((b, i) => {
+      out.push({ id: "busy_" + i, title: "занято", start: b.s, end: b.e, classNames: ["busy"], editable: false, overlap: false, extendedProps: { busy: true } });
+    });
+    return out;
+  }
+
+  async function renderCalendar(keep) {
+    const el = $("cal");
+    if (!el) return;
     try {
-      const snap = await getDoc(doc(db, h.role === "parent" ? "parentAccess" : "studentAccess", h.key));
-      if (!snap.exists()) { showError("Ссылка недействительна или доступ отозван. Попросите у преподавателя новую."); return; }
-      view = snap.data();
-      weekStart = null;
-      render();
+      await loadScript(FC_JS);
+      await loadScript(FC_RU);
     } catch (e) {
-      console.error(e);
-      showError("Не удалось загрузить кабинет. Проверьте интернет и обновите страницу.");
+      el.innerHTML = '<div class="empty">Календарь не загрузился — проверьте интернет.</div>';
+      return;
+    }
+    if (!$("cal") || $("cal") !== el) return;
+    const narrow = window.innerWidth < 640;
+    const from = view.busyFrom || mondayOf(Date.now() - 7 * 86400000).getTime();
+    const to = view.busyTo || Date.now() + 35 * 86400000;
+    cal = new FullCalendar.Calendar(el, {
+      locale: "ru",
+      firstDay: 1,
+      initialView: keep ? keep.type : (narrow ? "timeGridDay" : "timeGridWeek"),
+      initialDate: keep ? keep.date : new Date(),
+      validRange: { start: new Date(from), end: new Date(to) },
+      headerToolbar: narrow
+        ? { left: "prev,next today", center: "", right: "timeGridDay,timeGridWeek,listWeek" }
+        : { left: "prev,next today", center: "title", right: "timeGridDay,timeGridWeek,listWeek" },
+      footerToolbar: narrow ? { center: "title" } : false,
+      buttonText: { today: "сегодня", day: "день", week: "неделя", list: "список" },
+      slotMinTime: "08:00:00",
+      slotMaxTime: "22:00:00",
+      scrollTime: "09:00:00",
+      allDaySlot: false,
+      nowIndicator: true,
+      height: "auto",
+      slotDuration: "00:30:00",
+      snapDuration: "00:15:00",
+      eventTimeFormat: { hour: "2-digit", minute: "2-digit" },
+      eventLongPressDelay: 400,
+      editable: true,
+      eventDurationEditable: false,
+      eventOverlap: (still) => !still.extendedProps.busy,
+      events: calEvents(),
+      eventClick: (info) => {
+        info.jsEvent.preventDefault();
+        const id = info.event.extendedProps.lessonId;
+        if (id) openLessonModal(id);
+      },
+      eventDrop: async (info) => {
+        const l = lessonById(info.event.extendedProps.lessonId);
+        const s = info.event.start.getTime();
+        const e = info.event.end ? info.event.end.getTime() : s + (l.endMs - l.startMs);
+        info.revert(); // расписание меняет только преподаватель
+        if (!l || !canRequest(l)) return;
+        if (s < Date.now()) { alert("Нельзя перенести на прошедшее время."); return; }
+        if (!confirm(`Отправить преподавателю заявку на перенос занятия ${fmtWhen(l.startMs, l.endMs)} → ${fmtWhen(s, e)}?`)) return;
+        try {
+          await sendRequest(l, "reschedule", { newStartMs: s, newEndMs: e });
+        } catch (err) {
+          alert(errText(err, "Не удалось отправить заявку. Проверьте интернет."));
+        }
+      },
+    });
+    cal.render();
+  }
+
+  // ---------- действия ----------
+  async function addItem(channel, data) {
+    const clean = {};
+    Object.entries(data).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== "") clean[k] = v; });
+    await setDoc(doc(db, "channels", channel, "items", newId()), clean);
+  }
+
+  function slotProblem(l, s, e) {
+    if (!(s > Date.now())) return "Выберите время в будущем.";
+    if (view.busyTo && e > view.busyTo) return "Так далеко расписание пока не открыто — напишите преподавателю.";
+    if ((view.busy || []).some((b) => b.s < e && b.e > s)) return "Это время уже занято — выберите свободное (в календаре оно не серое).";
+    if (myLessons().some((x) => x.id !== l.id && (x.status === "planned" || x.status === "done") && x.startMs < e && x.endMs > s)) return "В это время уже стоит ваше другое занятие.";
+    return "";
+  }
+
+  // База отвечает «нет прав», пока преподаватель не обновил настройки
+  // доступа (правила Firestore) — объясняем по-человечески.
+  function errText(err, fallback) {
+    if (err && (err.code === "permission-denied" || /insufficient permissions/i.test(err.message || ""))) {
+      return "Эта функция ещё не включена у преподавателя. Пока напишите, пожалуйста, в Telegram.";
+    }
+    return (err && err.userText) || fallback;
+  }
+
+  async function sendRequest(l, type, extra) {
+    await addItem(view.channel, Object.assign({ type, lessonId: l.id, by: current.role, createdAt: Date.now() }, extra));
+  }
+
+  async function uploadToCloudinary(file) {
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("upload_preset", CLOUDINARY_PRESET);
+    const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/auto/upload`, { method: "POST", body: fd });
+    let data = {};
+    try { data = await res.json(); } catch (e) { /* пусто */ }
+    if (!res.ok || !data.secure_url) {
+      const err = new Error((data.error && data.error.message) || ("код " + res.status));
+      err.userText = `Файл «${file.name}» не загрузился: ${err.message}`;
+      throw err;
+    }
+    return { url: data.secure_url, name: file.name.slice(0, 200) };
+  }
+
+  // ---------- окно занятия ----------
+  function openModal(html) {
+    $("modal").innerHTML = html;
+    $("modalBack").style.display = "flex";
+    document.body.style.overflow = "hidden";
+  }
+  function closeModal() {
+    openLessonId = null;
+    $("modalBack").style.display = "none";
+    $("modal").innerHTML = "";
+    document.body.style.overflow = "";
+  }
+  $("modalBack").addEventListener("click", (e) => { if (e.target === $("modalBack")) closeModal(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
+  const mq = (s) => $("modal").querySelector(s);
+  function msg(text, kind) {
+    const el = mq("#mMsg");
+    if (el) { el.textContent = text || ""; el.className = "msg" + (kind ? " " + kind : ""); }
+  }
+
+  let modalNote = null;
+  function openLessonModal(id) {
+    openLessonId = id;
+    modalNote = null;
+    refreshModal(true);
+  }
+
+  // Перерисовка окна при живых обновлениях — не трогаем, если человек
+  // сейчас что-то вводит (формы переноса/отмены).
+  function refreshModal(force) {
+    if (!force && mq("#reqForm") && mq("#reqForm").style.display !== "none") return;
+    const l = lessonById(openLessonId);
+    if (!l) { closeModal(); return; }
+    const now = Date.now();
+    const req = pendingFor(l.id);
+    const files = homeworkOf(l);
+    const paid = paidOf(l);
+
+    let reqHtml = "";
+    if (req) {
+      reqHtml = `<div class="section"><div class="section-title">Заявка</div>
+        <div>${req.type === "reschedule" ? `Вы попросили перенести на <b>${esc(fmtWhen(req.newStartMs, req.newEndMs))}</b>.` : "Вы попросили отменить это занятие."} Ждём ответа преподавателя.</div></div>`;
+    } else if (canRequest(l)) {
+      reqHtml = `<div class="section"><div class="section-title">Перенести или отменить</div>
+        <div class="btn-row" id="reqButtons" style="margin-top:0">
+          <button class="btn" type="button" id="mMove">Перенести…</button>
+          <button class="btn danger" type="button" id="mCancel">Отменить…</button>
+        </div>
+        <div id="reqForm" style="display:none">
+          <div id="moveFields" class="field-row">
+            <div class="field"><span>Новая дата</span><input type="date" id="mDate" value="${toDateInput(l.startMs)}"></div>
+            <div class="field"><span>Время</span><input type="time" id="mTime" step="300" value="${toTimeInput(l.startMs)}"></div>
+          </div>
+          <div class="field"><span>Комментарий (необязательно)</span><textarea id="mComment" maxlength="500" placeholder="Например: заболели, можно на четверг?"></textarea></div>
+          <div class="btn-row">
+            <button class="btn" type="button" id="mSend">Отправить заявку</button>
+            <button class="btn secondary" type="button" id="mBack">Назад</button>
+          </div>
+        </div>
+        <div class="hint">Расписание изменится только после подтверждения преподавателем.</div>
+      </div>`;
+    }
+
+    const paidHtml = current.role === "parent" && l.status !== "cancelled" && l.status !== "rescheduled" && view.parentChannel ? `
+      <div class="section"><label class="check"><input type="checkbox" id="mPaid" ${paid ? "checked" : ""}> Оплачено</label>
+        <div class="hint">Просто отметка — её сразу видит преподаватель. Деньги через сайт не передаются.</div></div>` : "";
+
+    openModal(`
+      <h2>${esc(fmtWhen(l.startMs, l.endMs))}</h2>
+      <div class="meta">${l.pkg ? `Занятие ${esc(l.pkg)} · ` : ""}${lessonPills(l, now)}</div>
+      ${l.report ? `<div class="section"><div class="section-title">Отчёт преподавателя</div><div class="report" style="margin-top:0">${esc(l.report)}</div></div>` : ""}
+      <div class="section"><div class="section-title">Домашнее задание</div>
+        ${files.length ? `<ul class="files">${files.map((h) => `<li><a href="${esc(h.url)}" target="_blank" rel="noopener noreferrer">${esc(h.name || "файл")}</a> <span class="who">(${esc(ROLE[h.by] || ROLE.teacher)})</span></li>`).join("")}</ul>` : '<div class="hint" style="margin-top:0">Файлов пока нет.</div>'}
+        ${view.channel ? `<div style="margin-top:8px"><input type="file" id="mFile" multiple style="font-size:13px; max-width:100%"></div>
+        <div class="hint">Сфотографируйте или приложите выполненное задание (до 10 МБ). Его сразу увидят преподаватель и ${current.role === "parent" ? "ученик" : "родитель"}.</div>` : '<div class="hint">Загрузка файлов и заявки появятся после ближайшего входа преподавателя в свой кабинет.</div>'}
+      </div>
+      ${paidHtml}
+      ${reqHtml}
+      <div class="msg" id="mMsg"></div>
+      <div class="btn-row"><button class="btn secondary" type="button" id="mClose">Закрыть</button></div>`);
+    if (modalNote) msg(modalNote[0], modalNote[1]);
+    wireModal(l);
+  }
+
+  function wireModal(l) {
+    mq("#mClose").addEventListener("click", closeModal);
+    let mode = null;
+    if (mq("#mMove")) {
+      const showForm = (m) => {
+        mode = m;
+        mq("#reqButtons").style.display = "none";
+        mq("#reqForm").style.display = "block";
+        mq("#moveFields").style.display = m === "reschedule" ? "flex" : "none";
+        mq("#mSend").textContent = m === "reschedule" ? "Отправить заявку на перенос" : "Отправить заявку на отмену";
+      };
+      mq("#mMove").addEventListener("click", () => showForm("reschedule"));
+      mq("#mCancel").addEventListener("click", () => showForm("cancel"));
+      mq("#mBack").addEventListener("click", () => { mode = null; mq("#reqForm").style.display = "none"; mq("#reqButtons").style.display = "flex"; msg(""); });
+      mq("#mSend").addEventListener("click", async (e) => {
+        const btn = e.currentTarget;
+        const comment = mq("#mComment").value.trim().slice(0, 500);
+        const extra = { comment };
+        if (mode === "reschedule") {
+          const s = new Date(`${mq("#mDate").value}T${mq("#mTime").value}:00`).getTime();
+          if (Number.isNaN(s)) { msg("Выберите дату и время.", "err"); return; }
+          const e2 = s + (l.endMs - l.startMs);
+          if (s === l.startMs) { msg("Выберите другое время.", "err"); return; }
+          const problem = slotProblem(l, s, e2);
+          if (problem) { msg(problem, "err"); return; }
+          extra.newStartMs = s;
+          extra.newEndMs = e2;
+        }
+        btn.disabled = true;
+        try {
+          await sendRequest(l, mode, extra);
+          modalNote = ["Заявка отправлена. Ответ появится здесь и в разделе «Заявки».", "ok"];
+          refreshModal(true);
+        } catch (err) {
+          btn.disabled = false;
+          msg(errText(err, "Не удалось отправить. Проверьте интернет и попробуйте ещё раз."), "err");
+        }
+      });
+    }
+    if (mq("#mPaid")) {
+      mq("#mPaid").addEventListener("change", async (e) => {
+        const value = e.target.checked;
+        e.target.disabled = true;
+        try {
+          await addItem(view.parentChannel, { type: "paid", lessonId: l.id, by: "parent", createdAt: Date.now(), paid: value });
+          modalNote = [value ? "Отмечено: оплачено" : "Отметка «оплачено» снята", "ok"];
+        } catch (err) {
+          modalNote = [errText(err, "Не сохранилось — проверьте интернет."), "err"];
+        }
+        refreshModal(true);
+      });
+    }
+    if (mq("#mFile")) {
+      mq("#mFile").addEventListener("change", async (e) => {
+        const files = Array.from(e.target.files || []);
+        if (!files.length) return;
+        const big = files.filter((f) => f.size > CLOUDINARY_MAX_BYTES);
+        if (big.length) { msg(`Слишком большой файл: ${big.map((f) => f.name).join(", ")} (максимум 10 МБ).`, "err"); return; }
+        e.target.disabled = true;
+        try {
+          for (let i = 0; i < files.length; i++) {
+            msg(`Загружаю ${i + 1} из ${files.length}: ${files[i].name}…`);
+            const file = await uploadToCloudinary(files[i]);
+            await addItem(view.channel, { type: "homework", lessonId: l.id, by: current.role, createdAt: Date.now(), file });
+          }
+          modalNote = [files.length > 1 ? `Загружено файлов: ${files.length}` : "Файл загружен", "ok"];
+          refreshModal(true);
+        } catch (err) {
+          e.target.disabled = false;
+          msg(errText(err, "Не удалось загрузить. Проверьте интернет."), "err");
+        }
+      });
     }
   }
 
-  window.addEventListener("hashchange", load);
-  load();
+  // ---------- запуск ----------
+  $("forgetBtn").addEventListener("click", () => {
+    if (!confirm("Забыть кабинет на этом устройстве? Чтобы снова войти, понадобится ссылка от преподавателя.")) return;
+    stopWatching();
+    try { localStorage.removeItem(STORE); } catch (e) { /* ничего */ }
+    current = null;
+    view = null;
+    closeModal();
+    $("switcher").innerHTML = "";
+    showMessage("Кабинет на этом устройстве забыт. Для входа откройте ссылку от преподавателя.");
+  });
+
+  function start() {
+    const fromHash = takeFromHash();
+    const entry = fromHash || loadSaved()[0];
+    if (!entry) { showMessage("Для входа нужна личная ссылка от преподавателя."); renderSwitcher(); return; }
+    open(entry);
+  }
+  window.addEventListener("hashchange", start);
+  start();
 </script>
 </body>
 </html>

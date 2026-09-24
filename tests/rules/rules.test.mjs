@@ -76,6 +76,39 @@ test("витрина родителя: точечное чтение, валид
   assert.equal(await put(`parentAccess/shortkey`, view), 403);
 });
 
+const CK = "channel_key_for_tests_012345678";
+const item = { type: "reschedule", lessonId: "l1", by: "parent", createdAt: 1790000000000, newStartMs: 1790100000000, newEndMs: 1790103600000, comment: "можно позже?" };
+
+test("канал: создание, чтение, удаление; изменение запрещено", async () => {
+  assert.equal(await put(`channels/${CK}/items/i1`, item), 200);
+  assert.equal(await get(`channels/${CK}/items/i1`), 200);
+  assert.equal(await get(`channels/${CK}/items`), 200, "листинг своего канала");
+  assert.equal(await put(`channels/${CK}/items/i1`, { ...item, comment: "подмена" }), 403, "update запрещён");
+  assert.equal(await del(`channels/${CK}/items/i1`), 200);
+  assert.equal(await get(`channels`), 403, "перечислить каналы нельзя");
+  assert.equal(await put(`channels/short/items/i2`, item), 403);
+});
+
+test("канал: валидация сообщений", async () => {
+  const hw = { type: "homework", lessonId: "l1", by: "student", createdAt: 1, file: { url: "https://res.cloudinary.com/xf4hvf5p/raw/upload/a.pdf", name: "a.pdf" } };
+  assert.equal(await put(`channels/${CK}/items/h1`, hw), 200);
+  assert.equal(await put(`channels/${CK}/items/h2`, { ...hw, file: { url: "javascript:alert(1)", name: "x" } }), 403, "только ссылки Cloudinary");
+  assert.equal(await put(`channels/${CK}/items/h3`, { ...hw, file: { url: "https://evil.example/a.pdf", name: "x" } }), 403);
+  assert.equal(await put(`channels/${CK}/items/h4`, { ...hw, extra: "поле" }), 403, "лишние поля");
+  assert.equal(await put(`channels/${CK}/items/p1`, { type: "paid", lessonId: "l1", by: "parent", createdAt: 1, paid: true }), 200);
+  assert.equal(await put(`channels/${CK}/items/p2`, { type: "paid", lessonId: "l1", by: "parent", createdAt: 1, paid: "да" }), 403);
+  assert.equal(await put(`channels/${CK}/items/r1`, { ...item, newEndMs: item.newStartMs }), 403);
+  assert.equal(await put(`channels/${CK}/items/r2`, { ...item, by: "admin" }), 403);
+  assert.equal(await put(`channels/${CK}/items/r3`, { ...item, comment: "x".repeat(501) }), 403);
+  assert.equal(await put(`channels/${CK}/items/c1`, { type: "cancel", lessonId: "l1", by: "student", createdAt: 1 }), 200);
+});
+
+test("журнал решений по заявкам — только по ключу учителя", async () => {
+  assert.equal(await put(`teacherSpaces/${T}/requests/r1`, { status: "approved" }), 200);
+  assert.equal(await get(`teacherSpaces/${T}/requests`), 200);
+  assert.equal(await get(`teacherSpaces/${OLD_T}/requests`), 403);
+});
+
 test("прочие коллекции закрыты", async () => {
   assert.equal(await put(`random/doc`, { a: 1 }), 403);
   assert.equal(await get(`random/doc`), 403);

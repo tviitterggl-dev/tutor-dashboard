@@ -11,6 +11,10 @@ rules_version = '2';
 //  • studentAccess/{ключ ученика}         его ребёнок + «занято» без имён).
 //    Витрины публикует кабинет учителя. У каждого родителя/ученика свой
 //    ключ; отзыв ключа = удаление витрины.
+//  • channels/{ключ канала}/items          — то, что пишут родитель/ученик
+//    (ДЗ, заявки, «оплачено»). У каждого ученика общий канал (родитель +
+//    ученик) и отдельный родительский (оплата). Учитель проверяет, что
+//    каждое сообщение относится к занятию именно этого ученика.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -28,6 +32,27 @@ service cloud.firestore {
         && d.endMs > d.startMs
         && d.title is string && d.title.size() <= 200
         && d.status in ["planned", "done", "cancelled", "rescheduled"];
+    }
+
+    // Сообщение в канале ученика. Каналы — единственное место, куда пишут
+    // родитель и ученик: загруженное ДЗ, заявки на перенос/отмену, отметка
+    // «оплачено». Только создание (менять чужие сообщения нельзя), состав
+    // полей и размеры ограничены; ссылки на файлы — только Cloudinary.
+    function validItem(d) {
+      return d.keys().hasOnly(["type", "lessonId", "by", "createdAt", "file", "newStartMs", "newEndMs", "comment", "paid"])
+        && d.type in ["homework", "reschedule", "cancel", "paid"]
+        && d.lessonId is string && d.lessonId.size() > 0 && d.lessonId.size() <= 128
+        && d.by in ["parent", "student", "teacher"]
+        && d.createdAt is int
+        && (!("comment" in d) || (d.comment is string && d.comment.size() <= 500))
+        && (d.type != "homework" || (
+              d.file is map
+              && d.file.keys().hasOnly(["url", "name"])
+              && d.file.url is string && d.file.url.size() <= 500
+              && d.file.url.matches("^https://res[.]cloudinary[.]com/.*")
+              && d.file.name is string && d.file.name.size() <= 200))
+        && (d.type != "reschedule" || (d.newStartMs is int && d.newEndMs is int && d.newEndMs > d.newStartMs))
+        && (d.type != "paid" || d.paid is bool);
     }
 
     function validView(d) {
@@ -50,6 +75,20 @@ service cloud.firestore {
 
     match /teacherSpaces/{teacherId}/accessKeys/{accessKey} {
       allow get, list, write: if liveTeacher(teacherId);
+    }
+
+    // Журнал решений по заявкам (подтверждено/отклонено) — только учитель.
+    match /teacherSpaces/{teacherId}/requests/{requestId} {
+      allow get, list, write: if liveTeacher(teacherId);
+    }
+
+    // Каналы учеников: channels/{ключ канала}/items/{id}. Ключ канала знает
+    // учитель и те, кому он выдан в витрине (родитель/ученик ЭТОГО ребёнка).
+    // При отзыве доступа учитель заводит новый канал, старый пустеет.
+    match /channels/{channelKey}/items/{itemId} {
+      allow get, list, delete: if channelKey.size() >= 24;
+      allow create: if channelKey.size() >= 24 && validItem(request.resource.data);
+      allow update: if false;
     }
 
     // Витрины: читать можно только точечно по ключу, перечислять нельзя.

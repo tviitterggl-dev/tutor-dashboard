@@ -12,7 +12,7 @@
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
   import {
     getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where,
-    orderBy, getDocs, writeBatch, FieldPath, deleteField,
+    orderBy, getDocs, writeBatch, FieldPath, deleteField, onSnapshot,
   } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
   const firebaseConfig = {
@@ -65,6 +65,9 @@
       async setPkgOverride(key, value) {
         await updateDoc(stateRef, new FieldPath("pkgOverrides", key), value == null ? deleteField() : value);
       },
+      async setStudentChannels(studentId, value) {
+        await updateDoc(stateRef, new FieldPath("studentChannels", studentId), value == null ? deleteField() : value);
+      },
       async patchState(fields) {
         await setDoc(stateRef, fields, { merge: true });
       },
@@ -113,6 +116,34 @@
       },
       async deleteView(role, key) {
         await deleteDoc(doc(db, viewCol(role), key));
+      },
+
+      // Каналы учеников (то, что пишут родитель/ученик) и журнал решений.
+      watchChannel(channelKey, onItems, onError) {
+        return onSnapshot(collection(db, "channels", channelKey, "items"),
+          (snap) => onItems(snap.docs.map((d) => Object.assign({ id: d.id }, d.data()))),
+          onError);
+      },
+      async listChannel(channelKey) {
+        const snap = await getDocs(query(collection(db, "channels", channelKey, "items")));
+        return snap.docs.map((d) => Object.assign({ id: d.id }, d.data()));
+      },
+      async addChannelItem(channelKey, id, data) {
+        await setDoc(doc(db, "channels", channelKey, "items", id), data);
+      },
+      async deleteChannelItems(channelKey, ids) {
+        for (const part of chunk(ids, 400)) {
+          const b = writeBatch(db);
+          part.forEach((id) => b.delete(doc(db, "channels", channelKey, "items", id)));
+          await b.commit();
+        }
+      },
+      async saveRequestDecision(id, data) {
+        await setDoc(doc(db, "teacherSpaces", teacherId, "requests", id), data);
+      },
+      async listRequestDecisions(sinceMs) {
+        const snap = await getDocs(query(collection(db, "teacherSpaces", teacherId, "requests"), where("decidedAt", ">=", sinceMs), orderBy("decidedAt")));
+        return snap.docs.map((d) => Object.assign({ id: d.id }, d.data()));
       },
     };
   }
@@ -625,6 +656,15 @@
   .png-preview { max-width: 100%; border: 1px solid var(--border); border-radius: 10px; display: block; margin: 8px 0; -webkit-touch-callout: default; }
   .lesson .edit-link { background: none; border: none; color: var(--accent-2); cursor: pointer; font-size: 12px; text-decoration: underline; padding: 0 4px; }
 
+  .count-badge { display: inline-block; min-width: 18px; height: 18px; line-height: 18px; padding: 0 5px; margin-left: 5px; border-radius: 9px; background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; font-family: "Inter", sans-serif; vertical-align: 1px; }
+  .req-alert { display: block; width: 100%; text-align: left; margin: 0 0 10px; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--danger-border); background: var(--danger-bg); color: var(--danger); font-weight: 600; font-size: 13px; cursor: pointer; font-family: inherit; }
+  .req { border: 1px solid var(--border); border-radius: 12px; padding: 11px 12px; margin-bottom: 9px; font-size: 13px; }
+  .req .who { font-weight: 600; font-size: 14px; }
+  .req .what { margin: 4px 0; }
+  .req .comment { white-space: pre-wrap; color: var(--muted); font-style: italic; margin: 4px 0; }
+  .req .warn { color: var(--danger); font-size: 12px; margin: 4px 0; }
+  .req .btn-row { margin: 8px 0 0; }
+  .paid-tag { display: inline-block; font-size: 11px; font-weight: 600; color: var(--done-text); background: var(--done-bg); border: 1px solid var(--done-border); border-radius: 999px; padding: 1px 7px; margin-left: 6px; vertical-align: 1px; }
   .logout-link {
     display: inline-block;
     margin-left: 8px;
@@ -666,6 +706,7 @@
         <span class="badge" id="ratesBadge">Ставки: …</span>
         <button class="logout-link" id="logoutBtn">выйти</button>
       </div>
+      <button class="req-alert" id="reqAlert" type="button" style="display:none"></button>
       <div class="rates-row">
         <div class="meta" id="ratesMeta">Ставки не загружены</div>
         <button class="btn secondary" id="refreshRatesBtn">Обновить цены</button>
@@ -675,6 +716,7 @@
     <div class="tabs">
       <div class="tab" data-tab="lessons">Занятия</div>
       <div class="tab" data-tab="calendar">Календарь</div>
+      <div class="tab" data-tab="requests">Заявки<span class="count-badge" id="reqBadge" style="display:none"></span></div>
       <div class="tab" data-tab="summary">Итоги</div>
       <div class="tab" data-tab="students">Ученики</div>
       <div class="tab" data-tab="schedule">Расписание</div>
@@ -723,6 +765,19 @@
         </div>
         <div id="fcRoot"></div>
         <div class="hint" id="fcHint">Нажми на занятие, чтобы изменить, перенести, отменить, написать отчёт или прикрепить домашку. Пустое место: зажми и выдели время — создастся новое занятие. Перетаскивание занятия = перенос.</div>
+      </div>
+    </div>
+
+    <!-- ЗАЯВКИ от родителей и учеников -->
+    <div class="tabview" id="view-requests" style="display:none">
+      <div class="card">
+        <div class="chart-title">Новые заявки</div>
+        <div id="requestsList"><div class="empty">Загрузка…</div></div>
+        <div class="hint">Родители и ученики не меняют расписание сами — они присылают заявку. «Подтвердить» переносит или отменяет занятие, «Отклонить» оставляет как было; решение сразу видно в их кабинете.</div>
+      </div>
+      <div class="card">
+        <div class="chart-title">Решённые за 60 дней</div>
+        <div id="requestsHistory"><div class="empty">Загрузка…</div></div>
       </div>
     </div>
 
@@ -1312,6 +1367,7 @@
       const r = await importFromCalendar();
       if (activeTab !== "calendar") showTab(activeTab); else refreshCalendar();
       renderSourceCard(`Готово: из Google Календаря найдено ${r.found} занятий, добавлено новых — ${r.added}.`);
+      startChannelWatch();
       publishViewsSoon();
     } catch (e) {
       console.error("Импорт не удался", e);
@@ -1328,6 +1384,7 @@
   async function maybeAutoImport() {
     if (lessonsSource === "firestore" || remoteState.lessonsImportDisabled) {
       renderSourceCard();
+      await startChannelWatch();
       publishViewsSoon(); // раз в заход освежаем «занято» в кабинетах родителей
       return;
     }
@@ -1603,7 +1660,7 @@
       row.innerHTML = `
         <div class="lesson-top">
           <div class="lesson-name">${nameHtml}</div>
-          <div class="lesson-when">${dayStr}, ${timeStr}${ev._lesson ? ' <button class="edit-link" type="button">изменить</button>' : ""}</div>
+          <div class="lesson-when">${dayStr}, ${timeStr}${ev._lesson && ev._lesson.paid && ev._lesson.paid.value ? '<span class="paid-tag">оплачено</span>' : ""}${ev._lesson ? ' <button class="edit-link" type="button">изменить</button>' : ""}</div>
         </div>
         <div class="lesson-bottom">
           <div class="rate-field">
@@ -2287,16 +2344,20 @@
     $("schedTable").innerHTML = html;
   }
 
+  // Один промис на скрипт: повторный вызов во время загрузки ждёт ту же
+  // загрузку, а не считает скрипт уже готовым.
+  const scriptLoads = {};
   function loadScriptOnce(src) {
-    return new Promise((resolve, reject) => {
-      if (document.querySelector(`script[data-src="${src}"]`)) { resolve(); return; }
-      const s = document.createElement("script");
-      s.src = src;
-      s.dataset.src = src;
-      s.onload = () => resolve();
-      s.onerror = () => reject(new Error("script load failed"));
-      document.head.appendChild(s);
-    });
+    if (!scriptLoads[src]) {
+      scriptLoads[src] = new Promise((resolve, reject) => {
+        const s = document.createElement("script");
+        s.src = src;
+        s.onload = () => resolve();
+        s.onerror = () => { delete scriptLoads[src]; reject(new Error("script load failed")); };
+        document.head.appendChild(s);
+      });
+    }
+    return scriptLoads[src];
   }
 
   function showPngModal(dataUrl, canvas) {
@@ -2417,10 +2478,16 @@
 
   async function buildViews(keys) {
     const now = Date.now();
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const busyFrom = today.getTime();
-    const busyTo = busyFrom + BUSY_DAYS * DAY_MS;
+    // Сетка занятости: с понедельника ПРОШЛОЙ недели и на 5 недель вперёд.
+    const prevMonday = mondayOf(new Date(now - 7 * DAY_MS));
+    const busyFrom = prevMonday.getTime();
+    const busyTo = mondayOf(new Date()).getTime() + BUSY_DAYS * DAY_MS;
     const all = await window.TutorFB.listLessons(now - VIEW_PAST_DAYS * DAY_MS, now + VIEW_FUTURE_DAYS * DAY_MS);
+    let decisions = [];
+    try {
+      decisions = await window.TutorFB.listRequestDecisions(now - 60 * DAY_MS);
+    } catch (e) { /* журнал заявок недоступен (старые правила) — без него */ }
+    const channels = studentChannels();
     let personal = [];
     try {
       if (accessToken) personal = await calendarFetch("primary", new Date(busyFrom).toISOString(), new Date(busyTo).toISOString());
@@ -2436,6 +2503,9 @@
         .filter(l => isActiveStatus(l.status) && l.studentId !== k.studentId && l.endMs > busyFrom && l.startMs < busyTo)
         .map(l => ({ s: l.startMs, e: l.endMs }))
         .concat(personalBusy);
+      const ch = channels[k.studentId] || {};
+      // Всё ниже — только про ЭТОГО ученика (фильтр по studentId); чужие
+      // занятия попадают в busy без имён и без id.
       const view = {
         v: 1,
         role: k.role,
@@ -2443,19 +2513,33 @@
         generatedAt: now,
         busyFrom,
         busyTo,
-        lessons: own.map(l => ({
-          startMs: l.startMs,
-          endMs: l.endMs,
-          status: l.status,
-          pkg: pkgSuffix(l.title).trim() || null,
-          report: l.report || "",
-          homework: (Array.isArray(l.homework) ? l.homework : []).map(h => ({ url: h.url, name: h.name || "файл" })),
+        channel: ch.shared || null,
+        lessons: own.map(l => {
+          const out = {
+            id: l.id,
+            startMs: l.startMs,
+            endMs: l.endMs,
+            status: l.status,
+            pkg: pkgSuffix(l.title).trim() || null,
+            report: l.report || "",
+            homework: (Array.isArray(l.homework) ? l.homework : []).map(h => ({ url: h.url, name: h.name || "файл", by: h.by || "teacher" })),
+          };
+          if (k.role === "parent") {
+            out.paid = !!(l.paid && l.paid.value);
+            out.paidAt = (l.paid && l.paid.at) || 0;
+          }
+          return out;
+        }),
+        requests: decisions.filter(d => d.studentId === k.studentId).map(d => ({
+          id: d.id, type: d.type, lessonId: d.lessonId, status: d.status, reason: d.reason || "",
+          newStartMs: d.newStartMs || null, oldStartMs: d.oldStartMs || null, decidedAt: d.decidedAt, by: d.by,
         })),
         busy,
       };
       if (k.role === "parent") {
         const p = pkgs.find(x => x.key === k.studentId);
         view.package = p ? { done: p.doneCount, total: p.total, remaining: p.remaining } : null;
+        view.parentChannel = ch.parent || null;
       }
       return { key: k, view };
     });
@@ -2570,7 +2654,10 @@
         const id = newAccessKey();
         const data = { role, studentId, label, createdAt: Date.now(), active: true, revokedAt: null };
         await window.TutorFB.saveAccessKey(id, data);
-        await publishViews([Object.assign({ id }, data)]);
+        await getAccessKeys(true);
+        await ensureChannels(accessKeysCache);
+        await publishViews(activeKeysOf(studentId));
+        startChannelWatch();
         await loadAccessCard(Object.assign({ id }, data));
       } catch (err) {
         console.error(err);
@@ -2600,6 +2687,10 @@
       try {
         await window.TutorFB.deleteView(k.role, k.id);
         await window.TutorFB.saveAccessKey(k.id, { active: false, revokedAt: Date.now() });
+        await getAccessKeys(true);
+        await rotateChannels(k.studentId);
+        await publishViews(activeKeysOf(k.studentId));
+        startChannelWatch();
         await loadAccessCard();
         msg("Доступ отозван", "ok");
       } catch (err) {
@@ -2608,6 +2699,304 @@
       }
     }
   });
+
+  // ---------- КАНАЛЫ УЧЕНИКОВ: ДЗ, ОПЛАТА, ЗАЯВКИ ----------
+  // У каждого ученика с выданным доступом два канала (случайные ключи):
+  //   shared — родитель + ученик: загруженное ДЗ, заявки на перенос/отмену;
+  //   parent — только родители: отметка «оплачено».
+  // Родитель/ученик только ДОБАВЛЯЮТ сообщения; расписание меняет лишь
+  // учитель. Каждое сообщение проверяется: занятие должно принадлежать
+  // ученику этого канала, иначе оно выбрасывается (и ничего о чужом
+  // занятии никуда не пишется).
+
+  const studentChannels = () => remoteState.studentChannels || {};
+  const channelMeta = {};    // ключ канала → { studentId, kind: "shared" | "parent" }
+  const channelItems = {};   // ключ канала → сообщения
+  const channelWatchers = {}; // ключ канала → функция отписки
+  const channelBusy = {};
+  const REQUEST_TYPES = ["reschedule", "cancel"];
+
+  const activeKeysOf = (studentId) => (accessKeysCache || []).filter(k => k.active && k.studentId === studentId);
+
+  async function ensureChannels(keys) {
+    const need = [...new Set(keys.filter(k => k.active).map(k => k.studentId))];
+    const map = Object.assign({}, studentChannels());
+    for (const sid of need) {
+      if (map[sid] && map[sid].shared && map[sid].parent) continue;
+      map[sid] = { shared: newAccessKey(), parent: newAccessKey(), createdAt: Date.now() };
+      await window.TutorFB.setStudentChannels(sid, map[sid]);
+    }
+    remoteState.studentChannels = map;
+  }
+
+  async function startChannelWatch() {
+    if (!usingFirestoreLessons()) return;
+    let keys;
+    try {
+      keys = await getAccessKeys(true);
+      await ensureChannels(keys);
+    } catch (e) {
+      console.error("Каналы учеников недоступны", e);
+      return;
+    }
+    const want = {};
+    const withKeys = new Set(keys.filter(k => k.active).map(k => k.studentId));
+    Object.entries(studentChannels()).forEach(([sid, ch]) => {
+      if (!withKeys.has(sid)) return;
+      if (ch.shared) want[ch.shared] = { studentId: sid, kind: "shared" };
+      if (ch.parent) want[ch.parent] = { studentId: sid, kind: "parent" };
+    });
+    Object.keys(channelWatchers).forEach(ck => {
+      if (!want[ck]) { channelWatchers[ck](); delete channelWatchers[ck]; delete channelItems[ck]; delete channelMeta[ck]; }
+    });
+    Object.entries(want).forEach(([ck, meta]) => {
+      channelMeta[ck] = meta;
+      if (channelWatchers[ck]) return;
+      channelWatchers[ck] = window.TutorFB.watchChannel(ck,
+        (items) => { channelItems[ck] = items; onChannelChanged(ck); },
+        (err) => console.error("Канал не читается", err));
+    });
+    renderRequestsBadge();
+  }
+
+  function onChannelChanged(ck) {
+    renderRequestsBadge();
+    if (activeTab === "requests") renderRequests();
+    processChannel(ck);
+  }
+
+  function pendingRequests() {
+    const out = [];
+    Object.entries(channelItems).forEach(([ck, items]) => {
+      (items || []).filter(i => REQUEST_TYPES.includes(i.type)).forEach(i => out.push({ ck, item: i, meta: channelMeta[ck] }));
+    });
+    return out.sort((a, b) => a.item.createdAt - b.item.createdAt);
+  }
+
+  function renderRequestsBadge() {
+    const n = pendingRequests().length;
+    const badge = $("reqBadge");
+    badge.textContent = String(n);
+    badge.style.display = n ? "inline-block" : "none";
+    const alertEl = $("reqAlert");
+    alertEl.style.display = n ? "block" : "none";
+    alertEl.textContent = n ? `Новые заявки от родителей/учеников: ${n} — открыть` : "";
+    document.title = (n ? `(${n}) ` : "") + "Учёт занятий";
+  }
+  $("reqAlert").addEventListener("click", () => showTab("requests"));
+
+  // Автоматически: ДЗ → в занятие, «оплачено» → в занятие. Заявки ждут решения.
+  async function processChannel(ck) {
+    if (channelBusy[ck]) { channelBusy[ck] = "again"; return; }
+    channelBusy[ck] = true;
+    try {
+      const meta = channelMeta[ck];
+      const items = channelItems[ck] || [];
+      if (!meta || !items.length) return;
+      const byLesson = {};
+      items.forEach(i => { (byLesson[i.lessonId] = byLesson[i.lessonId] || []).push(i); });
+      const toDelete = [];
+      let changed = false;
+      for (const [lessonId, its] of Object.entries(byLesson)) {
+        const l = await window.TutorFB.getLesson(lessonId);
+        if (!l || l.studentId !== meta.studentId) {
+          // Не существует или занятие ДРУГОГО ученика — ничего не применяем.
+          for (const i of its.filter(x => REQUEST_TYPES.includes(x.type))) {
+            await window.TutorFB.saveRequestDecision(i.id, decisionData(i, meta, null, "rejected", "Занятие не найдено"));
+          }
+          toDelete.push(...its.map(i => i.id));
+          changed = true;
+          continue;
+        }
+        const patch = {};
+        const hws = its.filter(i => i.type === "homework");
+        if (hws.length) {
+          const hw = Array.isArray(l.homework) ? l.homework.slice() : [];
+          hws.forEach(i => {
+            if (!hw.some(h => h.url === i.file.url)) hw.push({ url: i.file.url, name: i.file.name, by: i.by, uploadedAt: i.createdAt });
+          });
+          patch.homework = hw;
+          toDelete.push(...hws.map(i => i.id));
+        }
+        const paids = its.filter(i => i.type === "paid").sort((a, b) => a.createdAt - b.createdAt);
+        if (paids.length) {
+          if (meta.kind !== "parent") {
+            toDelete.push(...paids.map(i => i.id)); // «оплачено» ставит только родитель
+          } else {
+            const latest = paids[paids.length - 1];
+            if (!l.paid || (l.paid.at || 0) < latest.createdAt) patch.paid = { value: latest.paid, by: latest.by, at: latest.createdAt };
+            toDelete.push(...paids.slice(0, -1).map(i => i.id)); // последняя остаётся — её видит родитель
+          }
+        }
+        if (Object.keys(patch).length) {
+          patch.updatedAt = Date.now();
+          await window.TutorFB.updateLesson(l.id, patch);
+          changed = true;
+        }
+      }
+      // Сначала обновляем витрины, потом удаляем сообщения — чтобы файл не
+      // «мигнул» и не пропал из кабинета.
+      if (changed) {
+        await publishViews(activeKeysOf(meta.studentId));
+        if (fc) fc.refetchEvents();
+      }
+      if (toDelete.length) await window.TutorFB.deleteChannelItems(ck, toDelete);
+    } catch (e) {
+      console.error("Не удалось обработать канал", e);
+    } finally {
+      const again = channelBusy[ck] === "again";
+      channelBusy[ck] = false;
+      if (again) processChannel(ck);
+    }
+  }
+
+  function decisionData(item, meta, lesson, status, reason) {
+    return {
+      type: item.type,
+      lessonId: item.lessonId,
+      studentId: meta.studentId,
+      by: item.by,
+      comment: item.comment || "",
+      newStartMs: item.newStartMs || null,
+      newEndMs: item.newEndMs || null,
+      oldStartMs: lesson ? lesson.startMs : null,
+      oldEndMs: lesson ? lesson.endMs : null,
+      createdAt: item.createdAt,
+      status,
+      reason: reason || "",
+      decidedAt: Date.now(),
+    };
+  }
+
+  const ROLE_RU = { parent: "родитель", student: "ученик", teacher: "учитель" };
+  const lessonCache = {};
+
+  async function renderRequests() {
+    const list = $("requestsList");
+    if (!usingFirestoreLessons()) {
+      list.innerHTML = '<div class="empty">Заявки работают, когда занятия ведутся в дашборде.</div>';
+      $("requestsHistory").innerHTML = "";
+      return;
+    }
+    const pend = pendingRequests();
+    for (const p of pend) {
+      if (!(p.item.lessonId in lessonCache)) {
+        try { lessonCache[p.item.lessonId] = await window.TutorFB.getLesson(p.item.lessonId); } catch (e) { lessonCache[p.item.lessonId] = null; }
+      }
+    }
+    const current = pendingRequests(); // могли измениться, пока грузили
+    list.innerHTML = current.length ? current.map(({ ck, item, meta }) => {
+      const l = lessonCache[item.lessonId];
+      const valid = l && meta && l.studentId === meta.studentId;
+      const warn = !valid ? "Занятие не найдено — будет отклонено автоматически."
+        : l.status !== "planned" ? `Занятие уже «${STATUS_RU[l.status]}» — подтвердить нельзя.`
+        : l.startMs < Date.now() ? "Занятие уже прошло." : "";
+      const what = item.type === "reschedule"
+        ? `Перенос: ${valid ? escHtml(fmtWhen(l.startMs, l.endMs)) : "—"} → <b>${escHtml(fmtWhen(item.newStartMs, item.newEndMs))}</b>`
+        : `Отмена: ${valid ? `<b>${escHtml(fmtWhen(l.startMs, l.endMs))}</b>` : "—"}`;
+      return `<div class="req" data-ck="${escHtml(ck)}" data-id="${escHtml(item.id)}">
+          <div class="who">${escHtml(meta ? meta.studentId : "?")} <span class="cls">· ${ROLE_RU[item.by] || escHtml(item.by)} · ${escHtml(new Date(item.createdAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }))}</span></div>
+          <div class="what">${what}</div>
+          ${item.comment ? `<div class="comment">«${escHtml(item.comment)}»</div>` : ""}
+          ${warn ? `<div class="warn">${escHtml(warn)}</div>` : ""}
+          <div class="btn-row">
+            <button class="btn" type="button" data-req="approve" ${valid && l.status === "planned" ? "" : "disabled"}>Подтвердить</button>
+            <button class="btn secondary" type="button" data-req="reject">Отклонить</button>
+          </div>
+        </div>`;
+    }).join("") : '<div class="empty">Новых заявок нет</div>';
+
+    try {
+      const hist = (await window.TutorFB.listRequestDecisions(Date.now() - 60 * DAY_MS)).reverse();
+      $("requestsHistory").innerHTML = hist.length ? hist.map(d => `
+        <div class="session-row">
+          <span class="when">${escHtml(d.studentId)} · ${d.type === "reschedule" ? "перенос" : "отмена"}${d.oldStartMs ? " " + escHtml(fmtWhen(d.oldStartMs)) : ""}${d.type === "reschedule" && d.newStartMs ? " → " + escHtml(fmtWhen(d.newStartMs)) : ""}${d.reason ? ` <span class="cls">(${escHtml(d.reason)})</span>` : ""}</span>
+          <span class="amt">${d.status === "approved" ? "подтверждено" : "отклонено"}</span>
+        </div>`).join("") : '<div class="empty">Пока пусто</div>';
+    } catch (e) {
+      $("requestsHistory").innerHTML = '<div class="empty">Не удалось загрузить</div>';
+    }
+  }
+
+  async function decideRequest(ck, itemId, approve) {
+    const meta = channelMeta[ck];
+    const item = (channelItems[ck] || []).find(i => i.id === itemId);
+    if (!meta || !item) return;
+    const l = await window.TutorFB.getLesson(item.lessonId);
+    const valid = l && l.studentId === meta.studentId;
+    let reason = "";
+    if (approve) {
+      if (!valid || l.status !== "planned") { alert("Это занятие уже нельзя изменить."); return; }
+      if (item.type === "reschedule") {
+        const probe = [{ data: { startMs: item.newStartMs, endMs: item.newEndMs } }];
+        const conflicts = await findConflicts(probe, [l.id]);
+        const q = conflicts.length
+          ? `Новое время пересекается с: ${conflicts.map(x => x.title).join(", ")}.\nВсё равно перенести?`
+          : `Перенести «${l.title}» на ${fmtWhen(item.newStartMs, item.newEndMs)}?`;
+        if (!confirm(q)) return;
+        await rescheduleLesson(l, item.newStartMs, item.newEndMs);
+      } else {
+        if (!confirm(`Отменить «${l.title}», ${fmtWhen(l.startMs, l.endMs)}?`)) return;
+        await setStatusScoped(l, "cancelled", "one", ["planned"]);
+      }
+    } else {
+      const r = prompt("Причина отказа (увидит родитель/ученик, можно оставить пустым):", "");
+      if (r === null) return;
+      reason = r.trim().slice(0, 300);
+    }
+    await window.TutorFB.saveRequestDecision(item.id, decisionData(item, meta, valid ? l : null, approve ? "approved" : "rejected", reason));
+    await publishViews(activeKeysOf(meta.studentId));
+    await window.TutorFB.deleteChannelItems(ck, [item.id]);
+    delete lessonCache[item.lessonId];
+    afterLessonsChanged();
+  }
+
+  $("requestsList").addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-req]");
+    if (!btn) return;
+    const box = btn.closest(".req");
+    box.querySelectorAll("button").forEach(b => { b.disabled = true; });
+    try {
+      await decideRequest(box.dataset.ck, box.dataset.id, btn.dataset.req === "approve");
+    } catch (err) {
+      reportSaveError(err);
+    }
+    renderRequests();
+  });
+
+  // Учитель ставит/снимает «оплачено»: в занятие + в родительский канал,
+  // чтобы родитель увидел сразу, даже без перепубликации витрины.
+  async function setPaidByTeacher(l, value) {
+    const at = Date.now();
+    await window.TutorFB.updateLesson(l.id, { paid: { value, by: "teacher", at }, updatedAt: at });
+    const ch = studentChannels()[l.studentId];
+    if (ch && ch.parent && activeKeysOf(l.studentId).some(k => k.role === "parent")) {
+      await window.TutorFB.addChannelItem(ch.parent, newId("t"), { type: "paid", lessonId: l.id, by: "teacher", createdAt: at, paid: value });
+    }
+    publishViewsSoon();
+  }
+
+  // При отзыве доступа: новые ключи каналов (отозванный больше не читает
+  // и не пишет), нерешённые заявки и последние «оплачено» переносятся.
+  async function rotateChannels(studentId) {
+    const old = studentChannels()[studentId];
+    if (!old) return;
+    const fresh = { shared: newAccessKey(), parent: newAccessKey(), createdAt: Date.now() };
+    for (const [oldKey, newKey] of [[old.shared, fresh.shared], [old.parent, fresh.parent]]) {
+      if (!oldKey) continue;
+      let items = [];
+      try { items = await window.TutorFB.listChannel(oldKey); } catch (e) { /* пусто */ }
+      const keep = items.filter(i => REQUEST_TYPES.includes(i.type) || i.type === "paid" || i.type === "homework");
+      for (const i of keep) {
+        const data = Object.assign({}, i);
+        delete data.id;
+        await window.TutorFB.addChannelItem(newKey, i.id, data);
+      }
+      if (items.length) await window.TutorFB.deleteChannelItems(oldKey, items.map(i => i.id));
+    }
+    await window.TutorFB.setStudentChannels(studentId, fresh);
+    remoteState.studentChannels = Object.assign({}, studentChannels(), { [studentId]: fresh });
+  }
 
   // ---------- МОДАЛЬНОЕ ОКНО ----------
 
@@ -2701,6 +3090,7 @@
     if (fc) return fc;
     await loadScriptOnce(FC_JS);
     await loadScriptOnce(FC_RU);
+    if (fc) return fc; // параллельный вызов уже создал календарь
     const narrow = window.innerWidth < 640;
     fc = new FullCalendar.Calendar($("fcRoot"), {
       locale: "ru",
@@ -3059,6 +3449,8 @@
           <button class="mark-btn ${mark.marked ? "done" : ""}" type="button" id="mMark" ${canMark ? "" : "disabled"}>${mark.marked ? "✓ Провёл (снять)" : "Провёл занятие"}</button>
         </div>
         ${canMark ? "" : '<div class="hint">Ставка не найдена — впиши сумму, тогда можно отметить.</div>'}
+        <label class="check" style="margin-top:10px"><input type="checkbox" id="mPaid" ${l.paid && l.paid.value ? "checked" : ""}> Оплачено${l.paid && l.paid.by === "parent" ? ` <span class="cls">(отметил родитель ${escHtml(new Date(l.paid.at).toLocaleDateString("ru-RU"))})</span>` : ""}</label>
+        <div class="hint" style="margin-top:0">Просто отметка для себя и родителя — родитель видит и может ставить её в своём кабинете.</div>
       </div>` : "";
 
     const editHtml = isPlanned ? `
@@ -3089,9 +3481,9 @@
     const hwHtml = `
       <div class="section">
         <div class="section-title">Домашнее задание (файлы)</div>
-        ${hw.length ? `<ul class="file-list">${hw.map((h, i) => `<li><a href="${escHtml(h.url)}" target="_blank" rel="noopener">${escHtml(h.name || "файл")}</a><button class="link-btn" type="button" data-hw-remove="${i}">убрать</button></li>`).join("")}</ul>` : '<div class="hint" style="margin-top:0">Файлов нет.</div>'}
+        ${hw.length ? `<ul class="file-list">${hw.map((h, i) => `<li><span><a href="${escHtml(h.url)}" target="_blank" rel="noopener">${escHtml(h.name || "файл")}</a>${h.by && h.by !== "teacher" ? ` <span class="cls">(${ROLE_RU[h.by] || escHtml(h.by)})</span>` : ""}</span><button class="link-btn" type="button" data-hw-remove="${i}">убрать</button></li>`).join("")}</ul>` : '<div class="hint" style="margin-top:0">Файлов нет.</div>'}
         <input type="file" id="mHwFile" multiple style="font-size:13px; max-width:100%">
-        <div class="hint">Фото, PDF, документы — до 10 МБ каждый. Хранятся в Cloudinary; родитель и ученик увидят ссылки в своих кабинетах.</div>
+        <div class="hint">Фото, PDF, документы — до 10 МБ каждый. Хранятся в Cloudinary. Родитель и ученик видят эти файлы в своих кабинетах и могут добавлять свои (они появятся здесь с пометкой).</div>
       </div>`;
 
     const exportHtml = `
@@ -3149,6 +3541,13 @@
         l.status = ev._lesson.status;
         renderLessonModal(l, marks[l.id] && marks[l.id].marked ? "Отмечено: проведено" : "Отметка снята");
       });
+    }
+    if (mq("#mPaid")) {
+      mq("#mPaid").addEventListener("change", (e) => busy(e.currentTarget, async () => {
+        const value = e.target.checked;
+        await setPaidByTeacher(l, value);
+        await reopen(value ? "Отмечено: оплачено" : "Отметка «оплачено» снята");
+      }));
     }
     if (mq("#mSave")) {
       mq("#mSave").addEventListener("click", (e) => busy(e.currentTarget, async () => {
@@ -3310,11 +3709,12 @@
   function showTab(tab) {
     activeTab = tab;
     document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === tab));
-    ["lessons", "calendar", "summary", "students", "schedule"].forEach(t => {
+    ["lessons", "calendar", "requests", "summary", "students", "schedule"].forEach(t => {
       $("view-" + t).style.display = t === tab ? "block" : "none";
     });
     if (tab === "lessons") { stopPoll(); loadLessonEvents(); }
     else if (tab === "calendar") { stopPoll(); refreshCalendar(); }
+    else if (tab === "requests") { stopPoll(); renderRequests(); }
     else if (tab === "summary") { stopPoll(); refreshSummary(); loadTrend(); }
     else if (tab === "students") { stopPoll(); renderStudentsRoster(); loadPackages(); loadAccessCard(); }
     else if (tab === "schedule") { stopPoll(); loadSchedule(); }
