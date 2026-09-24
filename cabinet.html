@@ -141,6 +141,25 @@
   .msg { font-size: 12.5px; margin-top: 8px; min-height: 1em; }
   .msg.err { color: var(--danger); }
   .msg.ok { color: var(--done-text); }
+  .ctabs {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; gap: 4px; padding: 4px; margin: 0 -4px 14px;
+    background: var(--accent-soft); border-radius: 12px;
+    box-shadow: 0 4px 12px -8px rgba(90, 55, 20, 0.35);
+  }
+  .ctab {
+    flex: 1; min-width: 0; padding: 9px 4px; border: none; border-radius: 9px;
+    background: transparent; color: var(--accent-2); cursor: pointer;
+    font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 13.5px; white-space: nowrap;
+  }
+  .ctab.active { background: var(--accent); color: #fff8f0; }
+  .ctab .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--danger); margin-left: 4px; vertical-align: 2px; }
+  .seg { display: flex; gap: 4px; background: var(--accent-soft); padding: 3px; border-radius: 10px; margin-bottom: 12px; }
+  .seg button { flex: 1; border: none; background: transparent; color: var(--accent-2); padding: 7px 4px; border-radius: 8px; font-weight: 600; font-size: 12.5px; cursor: pointer; font-family: inherit; }
+  .seg button.active { background: var(--card-bg); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
+  .hw-upload select { width: 100%; padding: 9px; border: 1px solid var(--border); border-radius: 9px; background: var(--card-bg); color: var(--text); font-size: 14px; font-family: inherit; margin-bottom: 8px; }
+  .file-btn { display: inline-block; margin-top: 8px; padding: 6px 11px; border-radius: 9px; background: var(--accent-soft); color: var(--accent-2); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+  .file-btn input { display: none; }
   .forget { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 10px; padding: 8px 12px; font-size: 12.5px; cursor: pointer; }
 </style>
 </head>
@@ -149,18 +168,41 @@
   <h1 id="title">Личный кабинет</h1>
   <div class="sub" id="subtitle">Загрузка…</div>
   <div id="switcher"></div>
+  <nav class="ctabs" id="tabs" style="display:none" role="tablist">
+    <button type="button" class="ctab" data-ctab="lessons" role="tab">Занятия</button>
+    <button type="button" class="ctab" data-ctab="calendar" role="tab">Календарь</button>
+    <button type="button" class="ctab" data-ctab="hw" role="tab">ДЗ</button>
+    <button type="button" class="ctab" data-ctab="more" role="tab">Ещё</button>
+  </nav>
+  <!-- сообщения «нужна ссылка / доступ отозван / загрузка» -->
   <div id="root"></div>
-  <div class="card">
-    <div class="card-title">Если что — пишите</div>
-    <div class="contacts">
-      <a id="tgLink" href="https://t.me/mat_repet" target="_blank" rel="noopener noreferrer">Telegram</a>
-      <a id="telemostLink" href="https://yandex.ru/chat/p/ad9c2706-f36a-940f-7a90-d15f170427e5?utm_source=invite" target="_blank" rel="noopener noreferrer">Яндекс Телемост</a>
+
+  <section class="pane" id="pane-lessons" style="display:none"></section>
+
+  <section class="pane" id="pane-calendar" style="display:none">
+    <div class="card">
+      <div id="cal"></div>
+      <div class="hint">Оранжевые — ваши занятия, серые — время занято, пустое — свободно. Чтобы перенести или отменить занятие, нажмите на него (или перетащите на свободное время) — преподавателю уйдёт заявка, расписание изменится после подтверждения.</div>
     </div>
-  </div>
-  <div style="text-align:center; margin-top:18px">
-    <button class="forget" id="forgetBtn" type="button">Забыть это устройство</button>
-    <div class="hint" id="updatedAt"></div>
-  </div>
+  </section>
+
+  <section class="pane" id="pane-hw" style="display:none"></section>
+
+  <section class="pane" id="pane-more" style="display:none">
+    <div class="card">
+      <div class="card-title">Если что — пишите</div>
+      <div class="contacts">
+        <a id="tgLink" href="https://t.me/mat_repet" target="_blank" rel="noopener noreferrer">Telegram</a>
+        <a id="telemostLink" href="https://yandex.ru/chat/p/ad9c2706-f36a-940f-7a90-d15f170427e5?utm_source=invite" target="_blank" rel="noopener noreferrer">Яндекс Телемост</a>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Это устройство</div>
+      <button class="forget" id="forgetBtn" type="button">Забыть это устройство</button>
+      <div class="hint">Кабинет запоминается в этом браузере. «Забыть» — если это чужой или общий телефон/компьютер; снова войти можно по ссылке от преподавателя.</div>
+      <div class="hint" id="updatedAt"></div>
+    </div>
+  </section>
 </div>
 <div class="modal-back" id="modalBack" style="display:none"><div class="modal" id="modal" role="dialog" aria-modal="true"></div></div>
 
@@ -254,6 +296,10 @@
   let pastLimit = 10;
   let cal = null;
   let openLessonId = null;
+  let activeTab = "lessons";      // lessons | calendar | hw | more
+  let lessonsFilter = "upcoming"; // upcoming | past
+  let hwSelected = null;          // занятие, выбранное для загрузки во вкладке «ДЗ»
+  let uploading = false;          // во время загрузки ленту ДЗ не перерисовываем
 
   function stopWatching() {
     unsubs.forEach((u) => u());
@@ -262,10 +308,17 @@
     parentItems = [];
   }
 
+  function setPanesVisible(on) {
+    $("tabs").style.display = on ? "flex" : "none";
+    $("root").style.display = on ? "none" : "block";
+    document.querySelectorAll(".pane").forEach((p) => { p.style.display = on && p.id === "pane-" + activeTab ? "block" : "none"; });
+  }
+
   function showMessage(text) {
     $("title").textContent = "Личный кабинет";
     $("subtitle").textContent = "";
     $("root").innerHTML = `<div class="card"><div class="empty">${esc(text)}</div></div>`;
+    setPanesVisible(false);
     $("updatedAt").textContent = "";
   }
 
@@ -277,9 +330,14 @@
     stopWatching();
     current = entry;
     view = null;
-    cal = null;
+    if (cal) { cal.destroy(); cal = null; } // другой ребёнок — другой диапазон и события
+    activeTab = "lessons";
+    lessonsFilter = "upcoming";
+    hwSelected = null;
+    pastLimit = 10;
     closeModal();
     $("root").innerHTML = '<div class="card"><div class="empty">Загрузка…</div></div>';
+    setPanesVisible(false);
     let watchedChannel = null, watchedParent = null;
     let unsubChannel = null, unsubParent = null;
     const u = onSnapshot(viewRef(entry), (snap) => {
@@ -388,19 +446,27 @@
       </div>`;
   }
 
-  function render() {
-    if (!view) return;
-    const now = Date.now();
-    const v = view;
-    $("title").textContent = v.role === "parent" ? "Кабинет родителя" : "Кабинет ученика";
-    $("subtitle").textContent = v.studentId || "";
-    const upd = v.generatedAt ? new Date(v.generatedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
-    $("updatedAt").textContent = `Расписание обновлено: ${upd}`;
+  function requestLine(i) {
+    const l = lessonById(i.lessonId);
+    const what = i.type === "reschedule"
+      ? `Перенос${l ? " " + fmtWhen(l.startMs, l.endMs) : ""} → ${fmtWhen(i.newStartMs, i.newEndMs)}`
+      : `Отмена${l ? " " + fmtWhen(l.startMs, l.endMs) : ""}`;
+    return `<div class="req-row"><span>${esc(what)} <span class="who">(${esc(ROLE[i.by] || "")})</span></span><span class="pill pending">ждёт ответа</span></div>`;
+  }
+  function decisionLine(d) {
+    const what = d.type === "reschedule"
+      ? `Перенос${d.oldStartMs ? " " + fmtWhen(d.oldStartMs) : ""}${d.newStartMs ? " → " + fmtWhen(d.newStartMs) : ""}`
+      : `Отмена${d.oldStartMs ? " " + fmtWhen(d.oldStartMs) : ""}`;
+    return `<div class="req-row"><span>${esc(what)}${d.reason ? ` <span class="who">— ${esc(d.reason)}</span>` : ""}</span><span class="pill ${d.status === "approved" ? "approved" : "rejected"}">${d.status === "approved" ? "подтверждено" : "отклонено"}</span></div>`;
+  }
 
+  // Вкладка «Занятия»: пакет (родителю), статус последней заявки, лента
+  // с переключателем «Ближайшие / История».
+  function renderLessonsPane(now) {
+    const v = view;
     const lessons = myLessons().slice().sort((a, b) => a.startMs - b.startMs);
     const upcoming = lessons.filter((l) => l.endMs >= now && l.status === "planned");
     const past = lessons.filter((l) => !(l.endMs >= now && l.status === "planned")).reverse();
-
     let html = "";
     if (v.role === "parent" && v.package) {
       const pk = v.package;
@@ -411,46 +477,134 @@
         <div class="pkg-bar"><div class="pkg-bar-fill" style="width:${pct}%"></div></div>
       </div>`;
     }
-
-    const pend = shared.filter((i) => i.type === "reschedule" || i.type === "cancel");
-    const decided = (v.requests || []).slice().sort((a, b) => b.decidedAt - a.decidedAt).slice(0, 6);
-    if (pend.length || decided.length) {
-      html += `<div class="card" id="requestsCard"><div class="card-title">Заявки на перенос и отмену</div>
-        ${pend.map((i) => {
-          const l = lessonById(i.lessonId);
-          const what = i.type === "reschedule" ? `перенос${l ? " " + fmtWhen(l.startMs, l.endMs) : ""} → ${fmtWhen(i.newStartMs, i.newEndMs)}` : `отмена${l ? " " + fmtWhen(l.startMs, l.endMs) : ""}`;
-          return `<div class="req-row"><span>${esc(what)} <span class="who">(${esc(ROLE[i.by] || "")})</span></span><span class="pill pending">ждёт ответа</span></div>`;
-        }).join("")}
-        ${decided.map((d) => {
-          const what = d.type === "reschedule" ? `перенос${d.oldStartMs ? " " + fmtWhen(d.oldStartMs) : ""}${d.newStartMs ? " → " + fmtWhen(d.newStartMs) : ""}` : `отмена${d.oldStartMs ? " " + fmtWhen(d.oldStartMs) : ""}`;
-          return `<div class="req-row"><span>${esc(what)}${d.reason ? ` <span class="who">— ${esc(d.reason)}</span>` : ""}</span><span class="pill ${d.status === "approved" ? "approved" : "rejected"}">${d.status === "approved" ? "подтверждено" : "отклонено"}</span></div>`;
-        }).join("")}
+    // Ждущие ответа — все (обычно одна); если таких нет — последняя решённая.
+    const pend = shared.filter((i) => i.type === "reschedule" || i.type === "cancel").sort((a, b) => b.createdAt - a.createdAt);
+    const lastDecided = (v.requests || []).slice().sort((a, b) => b.decidedAt - a.decidedAt)[0];
+    if (pend.length || lastDecided) {
+      html += `<div class="card" id="requestsCard"><div class="card-title">${pend.length ? "Заявка на рассмотрении" : "Последняя заявка"}</div>
+        ${pend.length ? pend.map(requestLine).join("") : decisionLine(lastDecided)}
       </div>`;
     }
-
-    html += `<div class="card"><div class="card-title">Расписание</div>
-      <div id="cal"></div>
-      <div class="hint">Оранжевые — ваши занятия, серые — время занято, пустое — свободно. Чтобы перенести или отменить занятие, нажмите на него (или перетащите на свободное время) — преподавателю уйдёт заявка, расписание изменится после подтверждения.</div>
+    const list = lessonsFilter === "upcoming" ? upcoming.slice(0, 30) : past.slice(0, pastLimit);
+    html += `<div class="card">
+      <div class="seg" id="lessonsSeg">
+        <button type="button" data-filter="upcoming" class="${lessonsFilter === "upcoming" ? "active" : ""}">Ближайшие (${upcoming.length})</button>
+        <button type="button" data-filter="past" class="${lessonsFilter === "past" ? "active" : ""}">История (${past.length})</button>
+      </div>
+      ${list.length ? list.map((l) => lessonCard(l, now)).join("") : `<div class="empty">${lessonsFilter === "upcoming" ? "Запланированных занятий нет" : "Пока пусто"}</div>`}
+      ${lessonsFilter === "past" && past.length > pastLimit ? '<button class="more" type="button" id="more">Показать ещё</button>' : ""}
     </div>`;
+    const pane = $("pane-lessons");
+    pane.innerHTML = html;
+    pane.querySelectorAll("[data-filter]").forEach((b) => b.addEventListener("click", () => { lessonsFilter = b.dataset.filter; renderLessonsPane(Date.now()); }));
+    if ($("more")) $("more").addEventListener("click", () => { pastLimit += 20; renderLessonsPane(Date.now()); });
+    wireLessonCards(pane);
+  }
 
-    html += `<div class="card"><div class="card-title">Ближайшие занятия</div>
-      ${upcoming.length ? upcoming.slice(0, 12).map((l) => lessonCard(l, now)).join("") : '<div class="empty">Запланированных занятий нет</div>'}
-    </div>`;
-
-    html += `<div class="card"><div class="card-title">История занятий</div>
-      ${past.length ? past.slice(0, pastLimit).map((l) => lessonCard(l, now)).join("") : '<div class="empty">Пока пусто</div>'}
-      ${past.length > pastLimit ? '<button class="more" type="button" id="more">Показать ещё</button>' : ""}
-    </div>`;
-
-    const keepCalView = cal ? { type: cal.view.type, date: cal.getDate() } : null;
-    if (cal) { cal.destroy(); cal = null; }
-    $("root").innerHTML = html;
-    if ($("more")) $("more").addEventListener("click", () => { pastLimit += 20; render(); });
-    $("root").querySelectorAll("[data-lesson]").forEach((el) => el.addEventListener("click", (e) => {
-      if (e.target.closest("a")) return;
+  function wireLessonCards(container) {
+    container.querySelectorAll("[data-lesson]").forEach((el) => el.addEventListener("click", (e) => {
+      if (e.target.closest("a, label, input, select, button")) return;
       if (el.dataset.lesson) openLessonModal(el.dataset.lesson);
     }));
-    renderCalendar(keepCalView);
+  }
+
+  // Вкладка «ДЗ»: загрузка без поиска по календарю + лента занятий с файлами.
+  const hwCandidates = (now) => myLessons()
+    .filter((l) => l.status === "planned" || l.status === "done")
+    .filter((l) => l.startMs > now - 21 * 86400000 && l.startMs < now + 14 * 86400000)
+    .sort((a, b) => a.startMs - b.startMs);
+
+  function renderHwPane(now) {
+    if (uploading) return;
+    const cands = hwCandidates(now);
+    if (!hwSelected || !cands.some((l) => l.id === hwSelected)) {
+      // по умолчанию — последнее прошедшее занятие (к нему обычно и сдают ДЗ)
+      const lastPast = cands.filter((l) => l.startMs <= now).pop();
+      hwSelected = (lastPast || cands[0] || {}).id || null;
+    }
+    const withFiles = myLessons().filter((l) => homeworkOf(l).length).sort((a, b) => b.startMs - a.startMs);
+    let html = "";
+    if (view.channel && cands.length) {
+      html += `<div class="card hw-upload">
+        <div class="card-title">Загрузить ДЗ</div>
+        <select id="hwLesson">${cands.map((l) => `<option value="${esc(l.id)}"${l.id === hwSelected ? " selected" : ""}>${esc(fmtWhen(l.startMs, l.endMs))}${l.pkg ? " · " + esc(l.pkg) : ""}</option>`).join("")}</select>
+        <label class="btn" style="display:inline-block">Выбрать файлы<input type="file" id="hwFile" multiple style="display:none"></label>
+        <div class="msg" id="hwMsg"></div>
+        <div class="hint">Фото или файл выполненного задания, до 10 МБ. Его сразу увидят преподаватель и ${current.role === "parent" ? "ученик" : "родитель"}.</div>
+      </div>`;
+    } else if (!view.channel) {
+      html += '<div class="card"><div class="hint" style="margin-top:0">Загрузка файлов появится после ближайшего входа преподавателя в свой кабинет.</div></div>';
+    }
+    html += `<div class="card"><div class="card-title">Домашние задания</div>
+      ${withFiles.length ? withFiles.map((l) => `
+        <div class="lesson" data-lesson="${esc(l.id)}">
+          <div class="lesson-top">
+            <div class="lesson-when">${esc(fmtWhen(l.startMs, l.endMs))}${l.pkg ? ` · ${esc(l.pkg)}` : ""}</div>
+            ${lessonPills(l, now)}
+          </div>
+          <ul class="files">${homeworkOf(l).map((h) => `<li><a href="${esc(h.url)}" target="_blank" rel="noopener noreferrer">${esc(h.name || "файл")}</a> <span class="who">(${esc(ROLE[h.by] || ROLE.teacher)})</span></li>`).join("")}</ul>
+          ${view.channel && (l.status === "planned" || l.status === "done") ? `<label class="file-btn">+ добавить файл<input type="file" multiple data-hw-add="${esc(l.id)}"></label>` : ""}
+        </div>`).join("") : '<div class="empty">Пока нет ни заданий, ни загруженных файлов</div>'}
+    </div>`;
+    const pane = $("pane-hw");
+    pane.innerHTML = html;
+    if ($("hwLesson")) $("hwLesson").addEventListener("change", (e) => { hwSelected = e.target.value; });
+    if ($("hwFile")) $("hwFile").addEventListener("change", (e) => {
+      const l = lessonById($("hwLesson").value);
+      if (l) uploadFromPane(l, e.target);
+    });
+    pane.querySelectorAll("[data-hw-add]").forEach((inp) => inp.addEventListener("change", () => {
+      const l = lessonById(inp.dataset.hwAdd);
+      if (l) uploadFromPane(l, inp);
+    }));
+    wireLessonCards(pane);
+  }
+
+  async function uploadFromPane(l, input) {
+    const files = Array.from(input.files || []);
+    if (!files.length) return;
+    const say = (t, kind) => { const el = $("hwMsg"); if (el) { el.textContent = t; el.className = "msg" + (kind ? " " + kind : ""); } };
+    uploading = true;
+    try {
+      await uploadFiles(l, files, say);
+      uploading = false;
+      renderHwPane(Date.now());
+      say(files.length > 1 ? `Загружено файлов: ${files.length} (${fmtWhen(l.startMs)})` : `Файл загружен (${fmtWhen(l.startMs)})`, "ok");
+    } catch (err) {
+      uploading = false;
+      renderHwPane(Date.now());
+      say(errText(err, "Не удалось загрузить. Проверьте интернет."), "err");
+    }
+  }
+
+  function showTab(tab) {
+    activeTab = tab;
+    document.querySelectorAll(".ctab").forEach((b) => b.classList.toggle("active", b.dataset.ctab === tab));
+    document.querySelectorAll(".pane").forEach((p) => { p.style.display = p.id === "pane-" + tab ? "block" : "none"; });
+    if (tab === "calendar") renderCalendar();
+    window.scrollTo(0, 0);
+  }
+  document.querySelectorAll(".ctab").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.ctab)));
+
+  function render() {
+    if (!view) return;
+    const now = Date.now();
+    const v = view;
+    $("title").textContent = v.role === "parent" ? "Кабинет родителя" : "Кабинет ученика";
+    $("subtitle").textContent = v.studentId || "";
+    const upd = v.generatedAt ? new Date(v.generatedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+    $("updatedAt").textContent = `Расписание обновлено: ${upd}`;
+    setPanesVisible(true);
+    document.querySelectorAll(".ctab").forEach((b) => b.classList.toggle("active", b.dataset.ctab === activeTab));
+    // Точка на «Занятиях», пока есть заявка без ответа.
+    const hasPending = shared.some((i) => i.type === "reschedule" || i.type === "cancel");
+    const lessonsTab = document.querySelector('.ctab[data-ctab="lessons"]');
+    lessonsTab.innerHTML = "Занятия" + (hasPending ? '<span class="dot" title="есть заявка без ответа"></span>' : "");
+
+    renderLessonsPane(now);
+    renderHwPane(now);
+    if (cal) updateCalendar();
+    else if (activeTab === "calendar") renderCalendar();
     if (openLessonId && $("modalBack").style.display !== "none") refreshModal();
   }
 
@@ -494,26 +648,49 @@
     return out;
   }
 
-  async function renderCalendar(keep) {
-    const el = $("cal");
-    if (!el) return;
-    try {
-      await loadScript(FC_JS);
-      await loadScript(FC_RU);
-    } catch (e) {
-      el.innerHTML = '<div class="empty">Календарь не загрузился — проверьте интернет.</div>';
-      return;
-    }
-    if (!$("cal") || $("cal") !== el) return;
+  const calRange = () => ({
+    start: new Date(view.busyFrom || mondayOf(Date.now() - 7 * 86400000).getTime()),
+    end: new Date(view.busyTo || Date.now() + 35 * 86400000),
+  });
+
+  // Живые обновления не пересоздают календарь — только меняют события.
+  function updateCalendar() {
+    if (!cal || !view) return;
+    cal.setOption("validRange", calRange());
+    cal.removeAllEventSources();
+    cal.addEventSource(calEvents());
+  }
+
+  // Календарь создаётся при первом открытии вкладки (скрытый контейнер
+  // FullCalendar меряет неправильно).
+  let calLoading = null;
+  async function renderCalendar() {
+    if (cal) { cal.updateSize(); updateCalendar(); return; }
+    if (calLoading) return calLoading;
+    calLoading = (async () => {
+      const el = $("cal");
+      try {
+        await loadScript(FC_JS);
+        await loadScript(FC_RU);
+      } catch (e) {
+        el.innerHTML = '<div class="empty">Календарь не загрузился — проверьте интернет.</div>';
+        return;
+      }
+      if (cal || !view || activeTab !== "calendar") return;
+      createCalendar(el);
+    })();
+    try { await calLoading; } finally { calLoading = null; }
+  }
+
+  function createCalendar(el) {
+    el.innerHTML = "";
     const narrow = window.innerWidth < 640;
-    const from = view.busyFrom || mondayOf(Date.now() - 7 * 86400000).getTime();
-    const to = view.busyTo || Date.now() + 35 * 86400000;
     cal = new FullCalendar.Calendar(el, {
       locale: "ru",
       firstDay: 1,
-      initialView: keep ? keep.type : (narrow ? "timeGridDay" : "timeGridWeek"),
-      initialDate: keep ? keep.date : new Date(),
-      validRange: { start: new Date(from), end: new Date(to) },
+      initialView: narrow ? "timeGridDay" : "timeGridWeek",
+      initialDate: new Date(),
+      validRange: calRange(),
       headerToolbar: narrow
         ? { left: "prev,next today", center: "", right: "timeGridDay,timeGridWeek,listWeek" }
         : { left: "prev,next today", center: "title", right: "timeGridDay,timeGridWeek,listWeek" },
@@ -597,6 +774,21 @@
       throw err;
     }
     return { url: data.secure_url, name: file.name.slice(0, 200) };
+  }
+
+  // Загрузка ДЗ: файл в Cloudinary → сообщение в общий канал ученика.
+  async function uploadFiles(l, files, say) {
+    const big = files.filter((f) => f.size > CLOUDINARY_MAX_BYTES);
+    if (big.length) {
+      const err = new Error("big");
+      err.userText = `Слишком большой файл: ${big.map((f) => f.name).join(", ")} (максимум 10 МБ).`;
+      throw err;
+    }
+    for (let i = 0; i < files.length; i++) {
+      say(`Загружаю ${i + 1} из ${files.length}: ${files[i].name}…`);
+      const file = await uploadToCloudinary(files[i]);
+      await addItem(view.channel, { type: "homework", lessonId: l.id, by: current.role, createdAt: Date.now(), file });
+    }
   }
 
   // ---------- окно занятия ----------
@@ -739,18 +931,16 @@
       mq("#mFile").addEventListener("change", async (e) => {
         const files = Array.from(e.target.files || []);
         if (!files.length) return;
-        const big = files.filter((f) => f.size > CLOUDINARY_MAX_BYTES);
-        if (big.length) { msg(`Слишком большой файл: ${big.map((f) => f.name).join(", ")} (максимум 10 МБ).`, "err"); return; }
         e.target.disabled = true;
+        uploading = true;
         try {
-          for (let i = 0; i < files.length; i++) {
-            msg(`Загружаю ${i + 1} из ${files.length}: ${files[i].name}…`);
-            const file = await uploadToCloudinary(files[i]);
-            await addItem(view.channel, { type: "homework", lessonId: l.id, by: current.role, createdAt: Date.now(), file });
-          }
+          await uploadFiles(l, files, msg);
+          uploading = false;
           modalNote = [files.length > 1 ? `Загружено файлов: ${files.length}` : "Файл загружен", "ok"];
           refreshModal(true);
+          renderHwPane(Date.now());
         } catch (err) {
+          uploading = false;
           e.target.disabled = false;
           msg(errText(err, "Не удалось загрузить. Проверьте интернет."), "err");
         }

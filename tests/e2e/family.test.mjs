@@ -46,6 +46,11 @@ async function openFamily(opts = {}) {
   return app;
 }
 
+async function toCalendar(cab) {
+  await cab.click('.ctab[data-ctab="calendar"]');
+  await cab.waitForSelector("#cal .fc-event.own");
+}
+
 async function openCabinet(app, hash) {
   const cab = await app.context.newPage();
   cab.errors = [];
@@ -73,7 +78,7 @@ test("витрина: прошлая неделя доступна, id заня�
   assert.notEqual(va.parentChannel, v.parentChannel);
 
   const cab = await openCabinet(app, `#p=${PK_T}`);
-  await cab.waitForSelector("#cal .fc-event.own");
+  await toCalendar(cab);
   // Неделя 21–27.09; назад на 14–20.09 можно, дальше — нет
   await cab.click("#cal .fc-prev-button");
   await cab.waitForFunction(() => /14/.test(document.querySelector("#cal .fc-toolbar-title").textContent));
@@ -90,11 +95,12 @@ test("витрина: прошлая неделя доступна, id заня�
 test("«Забыть это устройство» стирает ключ; без ссылки кабинет не открывается", async () => {
   const app = await openFamily();
   const cab = await openCabinet(app, `#s=${SK_T}`);
-  await cab.waitForSelector("#cal .fc-event.own");
+  await cab.waitForSelector("#pane-lessons .lesson");
   assert.equal(new URL(cab.url()).hash, "");
   await cab.reload();
-  await cab.waitForSelector("#cal .fc-event.own"); // запомнился
+  await cab.waitForSelector("#pane-lessons .lesson"); // запомнился
   assert.equal(await cab.textContent("#title"), "Кабинет ученика");
+  await cab.click('.ctab[data-ctab="more"]');
   await cab.click("#forgetBtn");
   await cab.waitForFunction(() => /забыт/.test(document.body.textContent));
   assert.equal(await cab.evaluate(() => localStorage.getItem("cabinetKeys")), null);
@@ -107,8 +113,8 @@ test("заявка на перенос по тапу → бейдж у учит�
   const app = await openFamily();
   const { page } = app;
   const cab = await openCabinet(app, `#p=${PK_T}`);
-  await cab.waitForSelector("#cal .fc-event.own");
-  // Открываем ближайшее занятие из списка (7/8, пн 28.09 10:00)
+  await cab.waitForSelector("#pane-lessons .lesson");
+  // Открываем ближайшее занятие из ленты (7/8, пн 28.09 10:00)
   await cab.locator(".lesson", { hasText: "7/8" }).first().click();
   await cab.waitForSelector("#mMove");
   await cab.click("#mMove");
@@ -122,6 +128,8 @@ test("заявка на перенос по тапу → бейдж у учит�
   await cab.click("#mSend");
   await cab.waitForFunction(() => /Заявка отправлена/.test(document.querySelector("#mMsg").textContent));
   await cab.click("#mClose");
+  await cab.waitForSelector('.ctab[data-ctab="lessons"] .dot'); // точка на вкладке «Занятия»
+  await toCalendar(cab);
   await cab.click("#cal .fc-next-button"); // заявка — на следующей неделе
   await cab.waitForSelector("#cal .fc-event.ghost");
   assert.match(await cab.textContent("#requestsCard"), /ждёт ответа/);
@@ -161,7 +169,7 @@ test("заявка на отмену от ученика → отказ с пр�
   const app = await openFamily({ promptAnswer: "Давай не будем" });
   const { page } = app;
   const cab = await openCabinet(app, `#s=${SK_T}`);
-  await cab.waitForSelector("#cal .fc-event.own");
+  await cab.waitForSelector("#pane-lessons .lesson");
   await cab.locator(".lesson", { hasText: "8/8" }).first().click();
   await cab.click("#mCancel");
   await cab.click("#mSend");
@@ -180,7 +188,7 @@ test("заявка на отмену от ученика → отказ с пр�
 test("перетаскивание в кабинете = заявка, расписание не меняется само", async () => {
   const app = await openFamily();
   const cab = await openCabinet(app, `#p=${PK_T}`);
-  await cab.waitForSelector("#cal .fc-event.own");
+  await toCalendar(cab);
   await cab.click("#cal .fc-next-button"); // неделя 28.09–04.10
   const ev = cab.locator("#cal .fc-event.own", { hasText: "7/8" });
   await ev.waitFor();
@@ -206,14 +214,15 @@ test("ДЗ от ученика сразу видно родителю, а пот
   const app = await openFamily();
   await app.page.goto(app.base + "/cabinet.html"); // учитель пока не в сети (вкладка нужна только читать «базу»)
   const student = await openCabinet(app, `#s=${SK_T}`);
-  await student.waitForSelector("#cal .fc-event.own");
+  await student.waitForSelector("#pane-lessons .lesson");
+  await student.click('[data-filter="past"]'); // 5/8 уже прошло — во вкладке «История»
   await student.locator(".lesson", { hasText: "5/8" }).first().click();
   await student.setInputFiles("#mFile", [{ name: "решение.jpg", mimeType: "image/jpeg", buffer: Buffer.from("jpg") }]);
   await student.waitForFunction(() => /Файл загружен/.test(document.querySelector("#mMsg").textContent));
   assert.equal(app.calls.cloudinary.length, 1);
 
   const parent = await openCabinet(app, `#p=${PK_T}`);
-  await parent.waitForSelector("#cal .fc-event.own");
+  await parent.waitForSelector("#pane-lessons .lesson");
   await parent.waitForFunction(() => /решение\.jpg/.test(document.body.textContent) && /\(ученик\)/.test(document.body.textContent));
 
   // Учитель открывает дашборд — файл переезжает в занятие, канал пустеет
@@ -239,7 +248,7 @@ test("«Оплачено»: родитель ↔ учитель в обе сто
   const app = await openFamily();
   const { page } = app;
   const parent = await openCabinet(app, `#p=${PK_T}`);
-  await parent.waitForSelector("#cal .fc-event.own");
+  await parent.waitForSelector("#pane-lessons .lesson");
   await parent.locator(".lesson", { hasText: "7/8" }).first().click();
   await parent.check("#mPaid");
   await parent.waitForFunction(() => /Отмечено: оплачено/.test(document.querySelector("#mMsg").textContent));
@@ -257,7 +266,7 @@ test("«Оплачено»: родитель ↔ учитель в обе сто
   await parent.waitForFunction(() => !document.querySelector("#mPaid").checked);
 
   const student = await openCabinet(app, `#s=${SK_T}`);
-  await student.waitForSelector("#cal .fc-event.own");
+  await student.waitForSelector("#pane-lessons .lesson");
   await student.locator(".lesson", { hasText: "7/8" }).first().click();
   await student.waitForSelector("#mClose");
   assert.equal(await student.$("#mPaid"), null, "у ученика нет галочки");
@@ -282,7 +291,7 @@ test("приватность: чужое занятие в заявке/опла
 
   // Родитель Анны подделывает сообщения про занятие Теста в своих каналах
   const cab = await openCabinet(app, `#p=${PK_A}`);
-  await cab.waitForSelector("#cal");
+  await cab.waitForSelector("#pane-lessons .lesson");
   const foreign = "serA_20260928T070000Z";
   // Пишем «как будто из кабинета» через вкладку учителя: в стенде общая
   // «база» — localStorage, и параллельные записи из разных вкладок могут
@@ -331,7 +340,7 @@ test("отзыв доступа меняет каналы: отозванный 
   const db0 = await app.db();
   const oldCh = db0[`parentAccess/${PK_T}`].channel;
   const student = await openCabinet(app, `#s=${SK_T}`);
-  await student.waitForSelector("#cal .fc-event.own");
+  await student.waitForSelector("#pane-lessons .lesson");
   await student.locator(".lesson", { hasText: "8/8" }).first().click();
   await student.click("#mCancel");
   await student.click("#mSend");
@@ -357,11 +366,74 @@ test("отзыв доступа меняет каналы: отозванный 
 test("пока правила не обновлены: в кабинете понятное сообщение, а не «проверьте интернет»", async () => {
   const app = await openFamily();
   const cab = await openCabinet(app, `#p=${PK_T}`);
-  await cab.waitForSelector("#cal .fc-event.own");
+  await cab.waitForSelector("#pane-lessons .lesson");
   await cab.evaluate(() => { window.__FAKE_DENY = ["channels/"]; });
   await cab.locator(".lesson", { hasText: "7/8" }).first().click();
   await cab.click("#mCancel");
   await cab.click("#mSend");
   await cab.waitForFunction(() => /ещё не включена у преподавателя/.test(document.querySelector("#mMsg").textContent));
+  await app.close();
+});
+
+
+test("вкладки кабинета: Занятия по умолчанию, фильтр ленты, ДЗ с загрузкой, Ещё", async () => {
+  const app = await openFamily();
+  const cab = await openCabinet(app, `#p=${PK_T}`);
+  await cab.waitForSelector("#pane-lessons .lesson");
+  const visible = async () => cab.$$eval(".pane", (ps) => ps.filter((p) => p.style.display !== "none").map((p) => p.id));
+  assert.deepEqual(await visible(), ["pane-lessons"]);
+  assert.equal(await cab.getAttribute('.ctab[data-ctab="lessons"]', "class"), "ctab active");
+  // Пакет сверху, лента «Ближайшие» ↔ «История»
+  const lessonsText = await cab.textContent("#pane-lessons");
+  assert.ok(lessonsText.indexOf("Пакет занятий") < lessonsText.indexOf("Ближайшие"));
+  assert.match(lessonsText, /Ближайшие \(3\)/);
+  assert.match(lessonsText, /История \(5\)/);
+  assert.equal(await cab.$$eval("#pane-lessons .lesson", (l) => l.length), 3);
+  await cab.click('[data-filter="past"]');
+  assert.equal(await cab.$$eval("#pane-lessons .lesson", (l) => l.length), 5);
+  assert.match(await cab.textContent("#pane-lessons .lesson"), /23 сентября/, "история — от новых к старым");
+
+  // Календарь
+  await toCalendar(cab);
+  assert.deepEqual(await visible(), ["pane-calendar"]);
+
+  // ДЗ: загрузка через выбор занятия, без календаря
+  await cab.click('.ctab[data-ctab="hw"]');
+  assert.deepEqual(await visible(), ["pane-hw"]);
+  assert.match(await cab.textContent("#pane-hw"), /Пока нет ни заданий/);
+  assert.match(await cab.$eval("#hwLesson", (s) => s.options[s.selectedIndex].textContent), /23 сентября/, "по умолчанию — последнее прошедшее");
+  await cab.setInputFiles("#hwFile", [{ name: "дз-сентябрь.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF") }]);
+  await cab.waitForFunction(() => /Файл загружен/.test(document.querySelector("#hwMsg").textContent));
+  await cab.waitForFunction(() => /дз-сентябрь\.pdf/.test(document.querySelector("#pane-hw").textContent));
+  // «+ добавить файл» у карточки в ленте
+  await cab.setInputFiles("#pane-hw [data-hw-add]", [{ name: "фото2.jpg", mimeType: "image/jpeg", buffer: Buffer.from("x") }]);
+  await cab.waitForFunction(() => /фото2\.jpg/.test(document.querySelector("#pane-hw").textContent));
+  const items = Object.values(await app.db()).filter((d) => d && d.type === "homework");
+  const hwInLessons = Object.values(await app.db()).flatMap((d) => (d && d.homework) || []);
+  assert.ok(items.length + hwInLessons.length >= 2, "файлы ушли в канал/занятие");
+  assert.equal(app.calls.cloudinary.length, 2);
+
+  // Ещё
+  await cab.click('.ctab[data-ctab="more"]');
+  assert.deepEqual(await visible(), ["pane-more"]);
+  assert.equal(await cab.isVisible("#tgLink"), true);
+  assert.equal(await cab.isVisible("#forgetBtn"), true);
+  assert.deepEqual(cab.errors, []);
+  await app.close();
+});
+
+test("телефон: вкладки кабинета помещаются, страница не скроллится вбок", async () => {
+  const app = await openFamily();
+  const cab = await app.context.newPage();
+  await cab.setViewportSize({ width: 360, height: 740 });
+  await cab.clock.setFixedTime(new Date(NOW));
+  await cab.goto(app.base + `/cabinet.html#p=${PK_T}`);
+  await cab.waitForSelector("#pane-lessons .lesson");
+  for (const t of ["lessons", "calendar", "hw", "more"]) {
+    await cab.click(`.ctab[data-ctab="${t}"]`);
+    await cab.waitForTimeout(t === "calendar" ? 600 : 100);
+    const over = await cab.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    assert.ok(over <= 1, `вкладка ${t}: горизонтальная прокрутка ${over}px`);
+  }
   await app.close();
 });

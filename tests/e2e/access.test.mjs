@@ -81,15 +81,20 @@ test("выдача ключа родителю → кабинет → отзыв
   cab.on("dialog", async (d) => { alerted = true; await d.dismiss(); });
   await cab.clock.setFixedTime(new Date("2026-09-24T12:00:00+03:00"));
   await cab.goto(link.replace(/^.*\/cabinet\.html/, page.url().replace(/\/index\.html.*$/, "") + "/cabinet.html"));
+  await cab.waitForSelector("#pane-lessons .lesson");
+  await cab.click('.ctab[data-ctab="calendar"]');
   await cab.waitForSelector("#cal .fc-event.own");
   assert.equal(await cab.textContent("#title"), "Кабинет родителя");
   assert.equal(await cab.textContent("#subtitle"), "Тест, 7 класс");
+  await cab.click('.ctab[data-ctab="lessons"]');
+  await cab.click('[data-filter="past"]'); // отчёт — у прошедшего урока, в «Истории»
   const body = await cab.textContent("body");
   assert.match(body, /Проведено 2 из 8/);
   assert.match(body, /Решали уравнения <script>/, "отчёт показан как текст");
   assert.equal(body.includes("Анна"), false);
   assert.equal(await cab.$$eval('a[href^="javascript"]', (a) => a.length), 0, "опасные ссылки отброшены");
-  assert.equal(await cab.$$eval('a[href^="https://res.cloudinary.com"]', (a) => a.length), 1);
+  assert.equal(await cab.$$eval('#pane-lessons a[href^="https://res.cloudinary.com"]', (a) => a.length), 1);
+  assert.equal(await cab.$$eval('#pane-hw a[href^="https://res.cloudinary.com"]', (a) => a.length), 1, "файл виден и во вкладке ДЗ");
   const evs = await cab.$$eval("#cal .fc-event", (els) => els.map((e) => ({ cls: e.className, text: e.textContent })));
   assert.ok(evs.some((e) => /\bown\b/.test(e.cls)), "свои занятия выделены");
   assert.ok(evs.some((e) => /\bbusy\b/.test(e.cls) && /занято/.test(e.text)), "чужие — «занято»");
