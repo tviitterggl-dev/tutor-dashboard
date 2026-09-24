@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { devices } from "playwright";
 import { openApp, shutdown, T, NOW, defaultSeed } from "./harness.mjs";
 
 after(shutdown);
@@ -210,7 +211,7 @@ test("смена класса: если такой ученик уже есть 
   await app.close();
 });
 
-test("веб-приложение: manifest, значки, мета-теги для iPhone", async () => {
+test("веб-приложение: manifest и значки (iPhone и Android)", async () => {
   const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
   for (const tag of [
     '<link rel="manifest" href="manifest.json">',
@@ -218,23 +219,88 @@ test("веб-приложение: manifest, значки, мета-теги д�
     '<meta name="apple-mobile-web-app-capable" content="yes">',
     '<meta name="theme-color"',
     'viewport-fit=cover',
+    'serviceWorker.register("sw.js")',
   ]) assert.ok(html.includes(tag), tag);
   const m = JSON.parse(fs.readFileSync(path.join(ROOT, "manifest.json"), "utf8"));
   assert.equal(m.display, "standalone");
   assert.equal(m.start_url, "./index.html");
-  assert.ok(m.theme_color && m.background_color && m.short_name);
+  assert.ok(m.theme_color && m.background_color && m.short_name && m.name);
   const pngSize = (f) => { const b = fs.readFileSync(path.join(ROOT, f)); return [b.readUInt32BE(16), b.readUInt32BE(20)]; };
   for (const icon of m.icons) {
     const [w, h] = icon.sizes.split("x").map(Number);
     assert.deepEqual(pngSize(icon.src), [w, h], icon.src);
   }
+  // Android требует 192×192 и 512×512; маскируемый — для круглых/каплевидных значков
+  assert.ok(m.icons.some((i) => i.sizes === "192x192"));
+  assert.ok(m.icons.some((i) => i.sizes === "512x512" && i.purpose === "any"));
+  assert.ok(m.icons.some((i) => i.sizes === "512x512" && i.purpose === "maskable"));
   assert.deepEqual(pngSize("icons/apple-touch-icon.png"), [180, 180]);
-  // сайт действительно отдаёт manifest и значок
-  const app = await openApp();
-  const base = app.page.url().replace(/\/index\.html.*$/, "");
-  for (const f of ["manifest.json", "icons/apple-touch-icon.png", "icons/icon-512.png"]) {
-    const r = await app.page.request.get(`${base}/${f}`);
-    assert.equal(r.status(), 200, f);
-  }
+});
+
+test("Android (эмуляция Pixel 7): Chrome считает приложение устанавливаемым, есть кнопка «Установить», работает без сети", async () => {
+  const d = devices["Pixel 7"];
+  const app = await openApp({
+    viewport: d.viewport, userAgent: d.userAgent, deviceScaleFactor: d.deviceScaleFactor, isMobile: true, hasTouch: true,
+    serviceWorkers: "allow",
+    // обычный профиль (не инкогнито) + без «проверки вовлечённости», иначе
+    // Chrome предлагает установку только после нескольких визитов
+    persistent: { channel: "chromium", args: ["--bypass-app-banner-engagement-checks"] },
+  });
+  const { page } = app;
+  await page.waitForSelector("#lessonsList .lesson");
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  // sw.js вызывает clients.claim(), поэтому страница переходит под него без перезагрузки
+  await page.waitForFunction(() => !!navigator.serviceWorker.controller, null, { timeout: 8000 });
+
+  const cdp = await page.context().newCDPSession(page);
+  const { installabilityErrors } = await cdp.send("Page.getInstallabilityErrors");
+  assert.deepEqual(installabilityErrors, [], "Chrome: " + JSON.stringify(installabilityErrors));
+  const man = await cdp.send("Page.getAppManifest");
+  assert.deepEqual(man.errors, []);
+  assert.match(man.url, /manifest\.json$/);
+
+  // Chrome прислал beforeinstallprompt → наша плашка «Установить»
+  await page.waitForSelector("#installBar:not([hidden])");
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "плашка не ломает ширину");
+  await page.click("#installBtn");
+  await page.waitForSelector("#installBar", { state: "hidden" });
+
+  // Без сети оболочка открывается из service worker
+  await page.context().setOffline(true);
+  await page.reload();
+  await page.waitForSelector("h1");
+  assert.match(await page.textContent("h1"), /Учёт занятий/);
+  await page.context().setOffline(false);
+  assert.deepEqual(app.errors.filter((e) => !/net::|Failed to fetch|NetworkError|Нет сети|ERR_INTERNET/i.test(e)), []);
+  await app.close();
+});
+
+test("iPhone (эмуляция iPhone 13): мета-теги Safari, значок 180×180, без плашки «Установить»", async () => {
+  const d = devices["iPhone 13"];
+  const app = await openApp({ viewport: d.viewport, userAgent: d.userAgent, deviceScaleFactor: d.deviceScaleFactor, isMobile: true, hasTouch: true });
+  const { page } = app;
+  await page.waitForSelector("#lessonsList .lesson");
+  const meta = await page.evaluate(() => {
+    const m = (n) => document.querySelector(`meta[name="${n}"]`)?.content;
+    return {
+      capable: m("apple-mobile-web-app-capable"), title: m("apple-mobile-web-app-title"),
+      bar: m("apple-mobile-web-app-status-bar-style"), theme: [...document.querySelectorAll('meta[name="theme-color"]')].map((x) => x.content),
+      icon: document.querySelector('link[rel="apple-touch-icon"]')?.href, manifest: document.querySelector('link[rel="manifest"]')?.href,
+    };
+  });
+  assert.equal(meta.capable, "yes");
+  assert.equal(meta.title, "Занятия");
+  assert.equal(meta.bar, "default");
+  assert.equal(meta.theme.length, 2);
+  // Safari берёт значок отсюда — он должен отдаваться и быть 180×180
+  const r = await page.request.get(meta.icon);
+  assert.equal(r.status(), 200);
+  assert.equal(r.headers()["content-type"], "image/png");
+  const b = await r.body();
+  assert.deepEqual([b.readUInt32BE(16), b.readUInt32BE(20)], [180, 180]);
+  assert.equal((await page.request.get(meta.manifest)).status(), 200);
+  // на iPhone нет beforeinstallprompt — своей плашки быть не должно
+  assert.equal(await page.isVisible("#installBar"), false);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await app.close();
 });

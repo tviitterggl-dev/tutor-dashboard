@@ -697,6 +697,9 @@
   .file-list { list-style: none; padding: 0; margin: 0 0 8px; font-size: 13px; }
   .file-list li { display: flex; justify-content: space-between; gap: 8px; padding: 5px 0; border-bottom: 1px dashed var(--border); }
   .file-list a { color: var(--accent-2); word-break: break-all; }
+  .install-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 14px; padding: 10px 14px; border-radius: 12px; background: var(--card-bg); border: 1px solid var(--border); font-size: 13px; }
+  .install-bar[hidden] { display: none; }
+  .install-bar span { flex: 1 1 220px; }
   .link-btn { background: none; border: none; color: var(--muted); text-decoration: underline; cursor: pointer; font-size: 12px; padding: 0; }
   .msg { font-size: 12.5px; margin-top: 8px; min-height: 1em; }
   .msg.err { color: var(--danger); }
@@ -762,6 +765,11 @@
 <div class="wrap">
   <h1>Учёт занятий и заработка</h1>
   <div class="sub">Занятия, заработок, ученики и кабинеты родителей · отмечай проведённые — сумма считается сама</div>
+  <div class="install-bar" id="installBar" hidden>
+    <span>Поставь кабинет на телефон как приложение — со своим значком и без адресной строки.</span>
+    <button class="btn" type="button" id="installBtn">📲 Установить</button>
+    <button class="link-btn" type="button" id="installLater">Не сейчас</button>
+  </div>
 
   <!-- ВХОД УЧИТЕЛЯ (Firebase Authentication: email + пароль) -->
   <div class="card login-card" id="authCard" style="display:none">
@@ -4147,6 +4155,41 @@
     window.addEventListener("tutor-auth", () => { if (!appStarted) startApp(); });
     startApp();
   })();
+})();
+</script>
+<script>
+// Установка как приложение. Service worker (sw.js) нужен Chrome на Android,
+// чтобы он сам предлагал «Установить приложение». Своя кнопка появляется,
+// только когда браузер готов установить (событие beforeinstallprompt);
+// на iPhone такого события нет — там «Поделиться» → «На экран «Домой»».
+(function () {
+  if ("serviceWorker" in navigator && location.protocol !== "file:") {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch((e) => console.warn("service worker:", e));
+    });
+  }
+  const bar = document.getElementById("installBar");
+  let deferred = null;
+  let later = false;
+  try { later = localStorage.getItem("installLater") === "1"; } catch (e) { /* нет хранилища */ }
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferred = e;
+    if (!later) bar.hidden = false;
+  });
+  window.addEventListener("appinstalled", () => { deferred = null; bar.hidden = true; });
+  document.getElementById("installBtn").addEventListener("click", async () => {
+    if (!deferred) return;
+    const ev = deferred;
+    deferred = null;
+    bar.hidden = true;
+    ev.prompt();
+    try { await ev.userChoice; } catch (e) { /* закрыли окно */ }
+  });
+  document.getElementById("installLater").addEventListener("click", () => {
+    bar.hidden = true;
+    try { localStorage.setItem("installLater", "1"); } catch (e) { /* нет хранилища */ }
+  });
 })();
 </script>
 </body>

@@ -6,6 +6,7 @@ import { chromium } from "playwright";
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -18,7 +19,7 @@ export const TEACHER_EMAIL = "teacher@example.org";
 export const TEACHER_PASSWORD = "correct-horse-1";
 export const NOW = "2026-09-24T12:00:00+03:00"; // четверг
 
-const MIME = { ".html": "text/html; charset=utf-8", ".js": "application/javascript", ".css": "text/css", ".json": "application/json" };
+const MIME = { ".html": "text/html; charset=utf-8", ".js": "application/javascript", ".css": "text/css", ".json": "application/json", ".png": "image/png", ".svg": "image/svg+xml" };
 
 let server = null;
 let baseUrl = null;
@@ -111,15 +112,27 @@ export async function openApp(opts = {}) {
   const url0 = await ensureServer();
   if (!browser) browser = await chromium.launch();
   const calls = { cloudinary: [], unexpected: [] };
-
-  const context = await browser.newContext({
+  const ctxOpts = {
     timezoneId: "Europe/Moscow",
     locale: "ru-RU",
     viewport: opts.viewport || { width: 1100, height: 900 },
     userAgent: opts.userAgent,
     hasTouch: !!opts.hasTouch,
     isMobile: !!opts.isMobile,
-  });
+    deviceScaleFactor: opts.deviceScaleFactor,
+    // service worker (sw.js) выключен во всех тестах, кроме проверки установки
+    serviceWorkers: opts.serviceWorkers || "block",
+  };
+  // opts.persistent: обычный (не «инкогнито») профиль Chrome в отдельном
+  // браузере — только так Chrome соглашается «установить приложение».
+  let profileDir = null;
+  let context;
+  if (opts.persistent) {
+    profileDir = fs.mkdtempSync(path.join(os.tmpdir(), "pw-profile-"));
+    context = await chromium.launchPersistentContext(profileDir, { ...ctxOpts, ...opts.persistent });
+  } else {
+    context = await browser.newContext(ctxOpts);
+  }
   const initState = {
     seed: opts.seed === undefined ? defaultSeed({ lessons: opts.lessons }) : opts.seed,
     // учётная запись учителя существует всегда; вошёл ли он — opts.signedIn
@@ -171,7 +184,7 @@ export async function openApp(opts = {}) {
     return route.abort();
   });
 
-  const page = await context.newPage();
+  const page = opts.persistent ? (context.pages()[0] || await context.newPage()) : await context.newPage();
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => { if (m.type() === "error") errors.push("console: " + m.text()); });
@@ -186,7 +199,7 @@ export async function openApp(opts = {}) {
   return {
     page, calls, errors, context,
     db: () => page.evaluate(() => JSON.parse(localStorage.getItem("__fakeDb") || "{}")),
-    close: () => context.close(),
+    close: async () => { await context.close(); if (profileDir) fs.rmSync(profileDir, { recursive: true, force: true }); },
   };
 }
 
