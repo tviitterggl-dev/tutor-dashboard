@@ -152,6 +152,12 @@
     background: transparent; color: var(--accent-2); cursor: pointer;
     font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 13.5px; white-space: nowrap;
   }
+  @media (max-width: 420px) { .ctab { font-size: 12px; padding: 9px 2px; } }
+  .req-item { border: 1px solid var(--border); border-radius: 12px; padding: 11px 12px; margin-bottom: 8px; font-size: 13.5px; }
+  .req-item .top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+  .req-item .what { font-weight: 600; }
+  .req-item .line { margin-top: 4px; }
+  .req-item .comment { white-space: pre-wrap; color: var(--muted); font-style: italic; margin-top: 4px; }
   .ctab.active { background: var(--accent); color: #fff8f0; }
   .ctab .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--danger); margin-left: 4px; vertical-align: 2px; }
   .seg { display: flex; gap: 4px; background: var(--accent-soft); padding: 3px; border-radius: 10px; margin-bottom: 12px; }
@@ -172,6 +178,7 @@
     <button type="button" class="ctab" data-ctab="lessons" role="tab">Занятия</button>
     <button type="button" class="ctab" data-ctab="calendar" role="tab">Календарь</button>
     <button type="button" class="ctab" data-ctab="hw" role="tab">ДЗ</button>
+    <button type="button" class="ctab" data-ctab="requests" role="tab">Заявки</button>
     <button type="button" class="ctab" data-ctab="more" role="tab">Ещё</button>
   </nav>
   <!-- сообщения «нужна ссылка / доступ отозван / загрузка» -->
@@ -187,6 +194,8 @@
   </section>
 
   <section class="pane" id="pane-hw" style="display:none"></section>
+
+  <section class="pane" id="pane-requests" style="display:none"></section>
 
   <section class="pane" id="pane-more" style="display:none">
     <div class="card">
@@ -296,7 +305,7 @@
   let pastLimit = 10;
   let cal = null;
   let openLessonId = null;
-  let activeTab = "lessons";      // lessons | calendar | hw | more
+  let activeTab = "lessons";      // lessons | calendar | hw | requests | more
   let lessonsFilter = "upcoming"; // upcoming | past
   let hwSelected = null;          // занятие, выбранное для загрузки во вкладке «ДЗ»
   let uploading = false;          // во время загрузки ленту ДЗ не перерисовываем
@@ -446,21 +455,46 @@
       </div>`;
   }
 
-  function requestLine(i) {
-    const l = lessonById(i.lessonId);
-    const what = i.type === "reschedule"
-      ? `Перенос${l ? " " + fmtWhen(l.startMs, l.endMs) : ""} → ${fmtWhen(i.newStartMs, i.newEndMs)}`
-      : `Отмена${l ? " " + fmtWhen(l.startMs, l.endMs) : ""}`;
-    return `<div class="req-row"><span>${esc(what)} <span class="who">(${esc(ROLE[i.by] || "")})</span></span><span class="pill pending">ждёт ответа</span></div>`;
-  }
-  function decisionLine(d) {
-    const what = d.type === "reschedule"
-      ? `Перенос${d.oldStartMs ? " " + fmtWhen(d.oldStartMs) : ""}${d.newStartMs ? " → " + fmtWhen(d.newStartMs) : ""}`
-      : `Отмена${d.oldStartMs ? " " + fmtWhen(d.oldStartMs) : ""}`;
-    return `<div class="req-row"><span>${esc(what)}${d.reason ? ` <span class="who">— ${esc(d.reason)}</span>` : ""}</span><span class="pill ${d.status === "approved" ? "approved" : "rejected"}">${d.status === "approved" ? "подтверждено" : "отклонено"}</span></div>`;
+  // Вкладка «Заявки»: вся история — ждущие ответа (из канала, сразу) и
+  // решённые (из витрины: кто, когда, что просил, чем кончилось).
+  const fmtStamp = (ms) => new Date(ms).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
+  function requestItem(r, pending) {
+    const l = lessonById(r.lessonId);
+    const oldS = r.oldStartMs || (l && l.startMs), oldE = r.oldEndMs || (l && l.endMs);
+    const title = r.type === "reschedule" ? "Перенос занятия" : "Отмена занятия";
+    const status = pending
+      ? '<span class="pill pending">ждёт ответа</span>'
+      : `<span class="pill ${r.status === "approved" ? "approved" : "rejected"}">${r.status === "approved" ? "подтверждено" : "отклонено"}</span>`;
+    const lines = [];
+    if (r.type === "reschedule") {
+      lines.push(`Было: ${oldS ? esc(fmtWhen(oldS, oldE)) : "—"}`);
+      if (r.newStartMs) lines.push(`Просили: <b>${esc(fmtWhen(r.newStartMs, r.newEndMs))}</b>`);
+    } else if (oldS) {
+      lines.push(`Занятие: <b>${esc(fmtWhen(oldS, oldE))}</b>`);
+    }
+    lines.push(`<span class="who">Подал(а): ${esc(ROLE[r.by] || "—")}${r.createdAt ? ", " + esc(fmtStamp(r.createdAt)) : ""}</span>`);
+    if (!pending && r.decidedAt) lines.push(`<span class="who">Ответ: ${esc(fmtStamp(r.decidedAt))}${r.reason ? " — " + esc(r.reason) : ""}</span>`);
+    return `<div class="req-item">
+      <div class="top"><span class="what">${title}</span>${status}</div>
+      ${lines.map((x) => `<div class="line">${x}</div>`).join("")}
+      ${r.comment ? `<div class="comment">«${esc(r.comment)}»</div>` : ""}
+    </div>`;
   }
 
-  // Вкладка «Занятия»: пакет (родителю), статус последней заявки, лента
+  function renderRequestsPane() {
+    const pend = shared.filter((i) => i.type === "reschedule" || i.type === "cancel").sort((a, b) => b.createdAt - a.createdAt);
+    const decided = (view.requests || []).slice().sort((a, b) => (b.decidedAt || 0) - (a.decidedAt || 0));
+    let html = "";
+    if (pend.length) html += `<div class="card"><div class="card-title">Ждут ответа</div>${pend.map((r) => requestItem(r, true)).join("")}</div>`;
+    html += `<div class="card"><div class="card-title">История заявок</div>
+      ${decided.length ? decided.map((r) => requestItem(r, false)).join("") : '<div class="empty">Решённых заявок пока нет</div>'}
+      <div class="hint">Перенести или отменить занятие можно в его карточке (вкладки «Занятия» и «Календарь») — преподаватель подтвердит или откажет, ответ появится здесь.</div>
+    </div>`;
+    $("pane-requests").innerHTML = html;
+  }
+
+  // Вкладка «Занятия»: пакет (родителю) и лента
   // с переключателем «Ближайшие / История».
   function renderLessonsPane(now) {
     const v = view;
@@ -475,14 +509,6 @@
         <div class="card-title">Пакет занятий</div>
         <div>Проведено <b>${esc(pk.done)}</b> из <b>${esc(pk.total)}</b> · осталось <span class="big">${esc(pk.remaining)}</span></div>
         <div class="pkg-bar"><div class="pkg-bar-fill" style="width:${pct}%"></div></div>
-      </div>`;
-    }
-    // Ждущие ответа — все (обычно одна); если таких нет — последняя решённая.
-    const pend = shared.filter((i) => i.type === "reschedule" || i.type === "cancel").sort((a, b) => b.createdAt - a.createdAt);
-    const lastDecided = (v.requests || []).slice().sort((a, b) => b.decidedAt - a.decidedAt)[0];
-    if (pend.length || lastDecided) {
-      html += `<div class="card" id="requestsCard"><div class="card-title">${pend.length ? "Заявка на рассмотрении" : "Последняя заявка"}</div>
-        ${pend.length ? pend.map(requestLine).join("") : decisionLine(lastDecided)}
       </div>`;
     }
     const list = lessonsFilter === "upcoming" ? upcoming.slice(0, 30) : past.slice(0, pastLimit);
@@ -596,12 +622,13 @@
     $("updatedAt").textContent = `Расписание обновлено: ${upd}`;
     setPanesVisible(true);
     document.querySelectorAll(".ctab").forEach((b) => b.classList.toggle("active", b.dataset.ctab === activeTab));
-    // Точка на «Занятиях», пока есть заявка без ответа.
+    // Точка на «Заявках», пока есть заявка без ответа.
     const hasPending = shared.some((i) => i.type === "reschedule" || i.type === "cancel");
-    const lessonsTab = document.querySelector('.ctab[data-ctab="lessons"]');
-    lessonsTab.innerHTML = "Занятия" + (hasPending ? '<span class="dot" title="есть заявка без ответа"></span>' : "");
+    const reqTab = document.querySelector('.ctab[data-ctab="requests"]');
+    reqTab.innerHTML = "Заявки" + (hasPending ? '<span class="dot" title="есть заявка без ответа"></span>' : "");
 
     renderLessonsPane(now);
+    renderRequestsPane();
     renderHwPane(now);
     if (cal) updateCalendar();
     else if (activeTab === "calendar") renderCalendar();
@@ -906,7 +933,7 @@
         btn.disabled = true;
         try {
           await sendRequest(l, mode, extra);
-          modalNote = ["Заявка отправлена. Ответ появится здесь и в разделе «Заявки».", "ok"];
+          modalNote = ["Заявка отправлена. Ответ появится здесь и во вкладке «Заявки».", "ok"];
           refreshModal(true);
         } catch (err) {
           btn.disabled = false;

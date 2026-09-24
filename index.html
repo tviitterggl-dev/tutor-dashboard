@@ -65,6 +65,9 @@
       async setPkgOverride(key, value) {
         await updateDoc(stateRef, new FieldPath("pkgOverrides", key), value == null ? deleteField() : value);
       },
+      async setStudentProfile(studentId, value) {
+        await updateDoc(stateRef, new FieldPath("studentProfiles", studentId), value == null ? deleteField() : value);
+      },
       async setStudentChannels(studentId, value) {
         await updateDoc(stateRef, new FieldPath("studentChannels", studentId), value == null ? deleteField() : value);
       },
@@ -590,7 +593,9 @@
 
   .tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .tab { white-space: nowrap; min-width: 0; }
-  @media (max-width: 520px) { .tab { font-size: 11.5px; padding: 8px 3px; } }
+  /* На узком экране вкладки не сжимаются до наложения подписей — полоса
+     вкладок прокручивается вбок. */
+  @media (max-width: 620px) { .tabs .tab { flex: 1 0 auto; font-size: 12px; padding: 8px 10px; } }
 
   .banner { font-size: 13px; line-height: 1.45; }
   .banner b { color: var(--accent-2); }
@@ -836,6 +841,11 @@
     <!-- УЧЕНИКИ -->
     <div class="tabview" id="view-students" style="display:none">
       <div class="card">
+        <div class="chart-title">Ученики</div>
+        <div id="studentsRosterList"><div class="empty">Загрузка…</div></div>
+        <div class="hint">Нажми на ученика — там постоянная ссылка на созвон, ссылка на материалы/доступ и заметки. Это видишь только ты: в кабинеты родителей и учеников эти поля не попадают. Ссылка на созвон сама подставляется в каждое занятие ученика (для одного занятия её можно заменить в карточке занятия). Список и ставки — из таблицы «Ставки учеников», обновляются кнопкой «Обновить цены».</div>
+      </div>
+      <div class="card">
         <div class="sub" style="margin-bottom:10px">Пакеты (предоплата)</div>
         <div id="packagesList"><div class="empty">Загрузка…</div></div>
         <div class="btn-row" style="margin-top:8px">
@@ -856,10 +866,6 @@
           </div>
         </div>
         <div class="hint">Считается по занятиям с номером пакета в названии («N/M» в конце). «Отработано» — по отметкам «Провёл», остальное — ещё не отработанная предоплата по текущей ставке. Если авто-подсчёт ошибся — жми «Исправить» на карточке.</div>
-      </div>
-      <div class="card">
-        <div id="studentsRosterList"><div class="empty">Загрузка…</div></div>
-        <div class="hint">Список и ставки из таблицы «Ставки учеников». Обновляется кнопкой «Обновить цены» сверху.</div>
       </div>
       <div class="card" id="accessCard">
         <div class="chart-title">Доступы для родителей и учеников</div>
@@ -1660,7 +1666,7 @@
       row.innerHTML = `
         <div class="lesson-top">
           <div class="lesson-name">${nameHtml}</div>
-          <div class="lesson-when">${dayStr}, ${timeStr}${ev._lesson && ev._lesson.paid && ev._lesson.paid.value ? '<span class="paid-tag">оплачено</span>' : ""}${ev._lesson ? ' <button class="edit-link" type="button">изменить</button>' : ""}</div>
+          <div class="lesson-when">${dayStr}, ${timeStr}${ev._lesson && ev._lesson.paid && ev._lesson.paid.value ? '<span class="paid-tag">оплачено</span>' : ""}${ev._lesson && callLinkFor(ev._lesson) ? ` <a class="edit-link" href="${escHtml(callLinkFor(ev._lesson).url)}" target="_blank" rel="noopener">созвон</a>` : ""}${ev._lesson ? ' <button class="edit-link" type="button">изменить</button>' : ""}</div>
         </div>
         <div class="lesson-bottom">
           <div class="rate-field">
@@ -1673,7 +1679,7 @@
       `;
 
       row.querySelector("input").addEventListener("change", (e) => setOverride(ev, e.target.value));
-      const editBtn = row.querySelector(".edit-link");
+      const editBtn = row.querySelector("button.edit-link");
       if (editBtn) editBtn.addEventListener("click", () => openLessonModal(ev.id));
       row.querySelector(".mark-btn").addEventListener("click", () => {
         if (!canMark) return;
@@ -2250,23 +2256,113 @@
     rerenderPackages();
   });
 
+  // ---------- ПРОФИЛИ УЧЕНИКОВ (только для учителя) ----------
+  // state/main.studentProfiles["Имя, N класс"] = { callUrl, accessUrl, notes, updatedAt }.
+  // В витрины родителей/учеников НЕ публикуется.
+  const studentProfiles = () => remoteState.studentProfiles || {};
+  const profileOf = (studentId) => (studentId && studentProfiles()[studentId]) || {};
+  const safeHref = (u) => /^https?:\/\//i.test(u || "");
+  let openProfile = null;
+
+  // Ссылка на созвон для занятия: своя у занятия (разовая) → из профиля ученика.
+  function callLinkFor(l) {
+    if (l && l.callUrl && safeHref(l.callUrl)) return { url: l.callUrl, own: true };
+    const p = profileOf(l && l.studentId);
+    return p.callUrl && safeHref(p.callUrl) ? { url: p.callUrl, own: false } : null;
+  }
+
+  function rosterStudents() {
+    const map = {};
+    rates.forEach(r => {
+      const id = `${r.name}, ${r.cls} класс`;
+      map[id] = { id, label: `${r.name}${r.surname ? " " + r.surname : ""}`, cls: r.cls, rate: r.rate };
+    });
+    Object.keys(studentProfiles()).forEach(id => {
+      if (!map[id]) {
+        const m = id.match(/^(.+?),\s*(\d+)\s*класс$/u);
+        map[id] = { id, label: m ? m[1] : id, cls: m ? m[2] : "", rate: null };
+      }
+    });
+    return Object.values(map).sort((a, b) => a.label.localeCompare(b.label, "ru") || a.cls - b.cls);
+  }
+
   function renderStudentsRoster() {
     const list = $("studentsRosterList");
-    if (!rates.length) {
+    const students = rosterStudents();
+    if (!students.length) {
       list.innerHTML = '<div class="empty">Ставки не загружены</div>';
       return;
     }
-    const sorted = [...rates].sort((a, b) => a.name.localeCompare(b.name, "ru"));
-    list.innerHTML = sorted.map(r => `
-      <div class="student-row">
-        <div>
-          <div class="name">${r.name}${r.surname ? " " + r.surname : ""}</div>
-          <div class="cls">${r.cls} класс</div>
+    list.innerHTML = students.map(st => {
+      const p = profileOf(st.id);
+      const isOpen = openProfile === st.id;
+      const tags = [p.callUrl ? "созвон" : "", p.accessUrl ? "материалы" : "", p.notes ? "заметки" : ""].filter(Boolean).join(" · ");
+      return `
+      <div class="student-card${isOpen ? " open" : ""}" data-student="${escHtml(st.id)}">
+        <div class="student-head">
+          <div>
+            <div class="name">${escHtml(st.label)}</div>
+            <div class="agg">${st.cls ? escHtml(st.cls) + " класс" : ""}${tags ? " · " + escHtml(tags) : ""}</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px">
+            ${st.rate != null ? `<div class="rate" style="font-family:'Space Grotesk',sans-serif;font-weight:700;color:var(--accent-2)">${st.rate.toLocaleString("ru-RU")} ₽</div>` : ""}
+            <div class="chev">▸</div>
+          </div>
         </div>
-        <div class="rate">${r.rate.toLocaleString("ru-RU")} ₽</div>
-      </div>
-    `).join("");
+        <div class="student-body">
+          <div class="field" style="margin-top:10px"><span>Ссылка на созвон (постоянная)</span>
+            <input type="url" class="pf-call" maxlength="500" placeholder="https://telemost.yandex.ru/…" value="${escHtml(p.callUrl || "")}"></div>
+          <div class="field"><span>Ссылка на занятие / доступ (необязательно)</span>
+            <input type="url" class="pf-access" maxlength="500" placeholder="доска, папка с материалами, платформа…" value="${escHtml(p.accessUrl || "")}"></div>
+          <div class="field"><span>Заметки</span>
+            <textarea class="pf-notes" maxlength="10000" placeholder="Что уже прошли, что планируем дальше…">${escHtml(p.notes || "")}</textarea></div>
+          <div class="btn-row" style="margin-bottom:0">
+            <button class="btn" type="button" data-pf-save>Сохранить</button>
+            ${p.callUrl && safeHref(p.callUrl) ? `<a class="btn secondary" href="${escHtml(p.callUrl)}" target="_blank" rel="noopener" style="text-decoration:none;text-align:center">Открыть созвон</a>` : ""}
+            ${p.accessUrl && safeHref(p.accessUrl) ? `<a class="btn secondary" href="${escHtml(p.accessUrl)}" target="_blank" rel="noopener" style="text-decoration:none;text-align:center">Материалы</a>` : ""}
+          </div>
+          <div class="msg pf-msg"></div>
+        </div>
+      </div>`;
+    }).join("");
   }
+
+  $("studentsRosterList").addEventListener("click", async (e) => {
+    const card = e.target.closest(".student-card");
+    if (!card) return;
+    const sid = card.dataset.student;
+    if (e.target.closest(".student-head")) {
+      openProfile = openProfile === sid ? null : sid;
+      card.classList.toggle("open", openProfile === sid);
+      $("studentsRosterList").querySelectorAll(".student-card").forEach(c => { if (c !== card) c.classList.remove("open"); });
+      return;
+    }
+    const saveBtn = e.target.closest("[data-pf-save]");
+    if (!saveBtn) return;
+    const msg = card.querySelector(".pf-msg");
+    const callUrl = card.querySelector(".pf-call").value.trim();
+    const accessUrl = card.querySelector(".pf-access").value.trim();
+    const notes = card.querySelector(".pf-notes").value.trim();
+    for (const u of [callUrl, accessUrl]) {
+      if (u && !safeHref(u)) { msg.textContent = "Ссылка должна начинаться с https:// (или http://)"; msg.className = "msg pf-msg err"; return; }
+    }
+    saveBtn.disabled = true;
+    const value = (callUrl || accessUrl || notes) ? { callUrl, accessUrl, notes, updatedAt: Date.now() } : null;
+    try {
+      await window.TutorFB.setStudentProfile(sid, value);
+      const all = Object.assign({}, studentProfiles());
+      if (value) all[sid] = value; else delete all[sid];
+      remoteState.studentProfiles = all;
+      openProfile = sid;
+      renderStudentsRoster();
+      const m = $("studentsRosterList").querySelector(`.student-card[data-student="${CSS.escape(sid)}"] .pf-msg`);
+      if (m) { m.textContent = "Сохранено"; m.className = "msg pf-msg ok"; }
+    } catch (err) {
+      saveBtn.disabled = false;
+      msg.textContent = "Не сохранилось (нет интернета?)";
+      msg.className = "msg pf-msg err";
+    }
+  });
 
   // ---------- РАСПИСАНИЕ ----------
 
@@ -2485,7 +2581,7 @@
     const all = await window.TutorFB.listLessons(now - VIEW_PAST_DAYS * DAY_MS, now + VIEW_FUTURE_DAYS * DAY_MS);
     let decisions = [];
     try {
-      decisions = await window.TutorFB.listRequestDecisions(now - 60 * DAY_MS);
+      decisions = await window.TutorFB.listRequestDecisions(now - 365 * DAY_MS); // история заявок в кабинете — за год
     } catch (e) { /* журнал заявок недоступен (старые правила) — без него */ }
     const channels = studentChannels();
     let personal = [];
@@ -2530,9 +2626,12 @@
           }
           return out;
         }),
-        requests: decisions.filter(d => d.studentId === k.studentId).map(d => ({
+        requests: decisions.filter(d => d.studentId === k.studentId).slice(-200).map(d => ({
           id: d.id, type: d.type, lessonId: d.lessonId, status: d.status, reason: d.reason || "",
-          newStartMs: d.newStartMs || null, oldStartMs: d.oldStartMs || null, decidedAt: d.decidedAt, by: d.by,
+          comment: d.comment || "", createdAt: d.createdAt || null,
+          newStartMs: d.newStartMs || null, newEndMs: d.newEndMs || null,
+          oldStartMs: d.oldStartMs || null, oldEndMs: d.oldEndMs || null,
+          decidedAt: d.decidedAt, by: d.by,
         })),
         busy,
       };
@@ -3486,6 +3585,22 @@
         <div class="hint">Фото, PDF, документы — до 10 МБ каждый. Хранятся в Cloudinary. Родитель и ученик видят эти файлы в своих кабинетах и могут добавлять свои (они появятся здесь с пометкой).</div>
       </div>`;
 
+    const call = callLinkFor(l);
+    const prof = profileOf(l.studentId);
+    const callHtml = `
+      <div class="section">
+        <div class="section-title">Созвон</div>
+        ${call ? `<div class="btn-row" style="margin:0 0 6px"><a class="btn" id="mCallOpen" href="${escHtml(call.url)}" target="_blank" rel="noopener" style="text-decoration:none">Открыть созвон</a>${prof.accessUrl && safeHref(prof.accessUrl) ? `<a class="btn secondary" href="${escHtml(prof.accessUrl)}" target="_blank" rel="noopener" style="text-decoration:none">Материалы</a>` : ""}</div>
+          <div class="hint" id="mCallSrc" style="margin-top:0">${call.own ? "Разовая ссылка — только для этого занятия." : "Обычная ссылка из профиля ученика (вкладка «Ученики»)."}</div>`
+        : `<div class="hint" style="margin-top:0">${l.studentId ? "У ученика не указана ссылка на созвон — её можно добавить во вкладке «Ученики»." : "Занятие не привязано к ученику — ссылку можно указать только для него ниже."}</div>`}
+        <div class="field" style="margin-top:8px"><span>Другая ссылка только для этого занятия</span>
+          <input type="url" id="mCallUrl" maxlength="500" placeholder="https://…" value="${escHtml(l.callUrl || "")}"></div>
+        <div class="btn-row" style="margin:0">
+          <button class="btn secondary" type="button" id="mCallSave">Сохранить для этого занятия</button>
+          ${l.callUrl ? '<button class="btn secondary" type="button" id="mCallReset">Вернуть обычную</button>' : ""}
+        </div>
+      </div>`;
+
     const exportHtml = `
       <div class="section">
         <div class="section-title">Google Календарь</div>
@@ -3497,6 +3612,7 @@
       <h2>${escHtml(l.title)}</h2>
       <div class="meta">${escHtml(fmtWhen(l.startMs, l.endMs))} · <span class="status-pill ${escHtml(l.status)}">${STATUS_RU[l.status] || escHtml(l.status)}</span>${inSeries ? " · серия" : ""}</div>
       ${history}
+      ${callHtml}
       ${payHtml}
       ${editHtml}
       <div class="section">
@@ -3542,6 +3658,13 @@
         renderLessonModal(l, marks[l.id] && marks[l.id].marked ? "Отмечено: проведено" : "Отметка снята");
       });
     }
+    const saveCall = (value) => busy(null, async () => {
+      if (value && !safeHref(value)) { modalMsg("Ссылка должна начинаться с https:// (или http://)", "err"); return; }
+      await window.TutorFB.updateLesson(l.id, { callUrl: value || null, updatedAt: Date.now() });
+      await reopen(value ? "Разовая ссылка сохранена" : "Вернули обычную ссылку ученика");
+    });
+    mq("#mCallSave").addEventListener("click", () => saveCall(mq("#mCallUrl").value.trim()));
+    if (mq("#mCallReset")) mq("#mCallReset").addEventListener("click", () => saveCall(""));
     if (mq("#mPaid")) {
       mq("#mPaid").addEventListener("change", (e) => busy(e.currentTarget, async () => {
         const value = e.target.checked;

@@ -128,11 +128,14 @@ test("заявка на перенос по тапу → бейдж у учит�
   await cab.click("#mSend");
   await cab.waitForFunction(() => /Заявка отправлена/.test(document.querySelector("#mMsg").textContent));
   await cab.click("#mClose");
-  await cab.waitForSelector('.ctab[data-ctab="lessons"] .dot'); // точка на вкладке «Занятия»
+  await cab.waitForSelector('.ctab[data-ctab="requests"] .dot'); // точка на вкладке «Заявки»
+  assert.equal(await cab.$("#requestsCard"), null, "во вкладке «Занятия» карточки заявки больше нет");
+  assert.equal(/ждёт ответа/.test(await cab.textContent("#pane-lessons")), false);
   await toCalendar(cab);
   await cab.click("#cal .fc-next-button"); // заявка — на следующей неделе
   await cab.waitForSelector("#cal .fc-event.ghost");
-  assert.match(await cab.textContent("#requestsCard"), /ждёт ответа/);
+  assert.match(await cab.textContent("#pane-requests"), /ждёт ответа/);
+  assert.match(await cab.textContent("#pane-requests"), /Можно во вторник\?/);
 
   // У учителя — бейдж
   await page.waitForFunction(() => document.querySelector("#reqBadge").textContent === "1");
@@ -158,7 +161,7 @@ test("заявка на перенос по тапу → бейдж у учит�
   assert.equal(await page.textContent("#reqBadge"), "0");
 
   // Кабинет сам обновился
-  await cab.waitForFunction(() => /подтверждено/.test((document.querySelector("#requestsCard")?.textContent || "")));
+  await cab.waitForFunction(() => /подтверждено/.test((document.querySelector("#pane-requests")?.textContent || "")));
   await cab.waitForFunction(() => /вт, 29 сентября, 12:00/i.test(document.body.textContent) || /Вт, 29 сентября, 12:00/.test(document.body.textContent));
   assert.deepEqual(cab.errors, []);
   assert.deepEqual(app.errors, []);
@@ -181,7 +184,7 @@ test("заявка на отмену от ученика → отказ с пр�
   await page.waitForFunction(() => /Новых заявок нет/.test(document.querySelector("#requestsList").textContent));
   const db = await app.db();
   assert.equal(db[L("serA_20260930T070000Z")].status, "planned", "расписание не изменилось");
-  await cab.waitForFunction(() => /отклонено/.test((document.querySelector("#requestsCard")?.textContent || "")) && /Давай не будем/.test(document.body.textContent));
+  await cab.waitForFunction(() => /отклонено/.test((document.querySelector("#pane-requests")?.textContent || "")) && /Давай не будем/.test(document.body.textContent));
   await app.close();
 });
 
@@ -357,7 +360,7 @@ test("отзыв доступа меняет каналы: отозванный 
   assert.equal(Object.keys(db).some((p) => p.startsWith(`channels/${oldCh}/`)), false, "старый канал пуст");
   assert.ok(Object.entries(db).some(([p, d]) => p.startsWith(`channels/${newCh}/`) && d.type === "cancel"), "заявка переехала");
   // Кабинет ученика продолжает работать на новом канале
-  await student.waitForFunction(() => /ждёт ответа/.test(document.querySelector("#requestsCard")?.textContent || ""));
+  await student.waitForFunction(() => /ждёт ответа/.test(document.querySelector("#pane-requests")?.textContent || ""));
   await page.click('.tab[data-tab="requests"]');
   await page.waitForSelector('#requestsList [data-req="approve"]');
   await app.close();
@@ -408,9 +411,15 @@ test("вкладки кабинета: Занятия по умолчанию, �
   // «+ добавить файл» у карточки в ленте
   await cab.setInputFiles("#pane-hw [data-hw-add]", [{ name: "фото2.jpg", mimeType: "image/jpeg", buffer: Buffer.from("x") }]);
   await cab.waitForFunction(() => /фото2\.jpg/.test(document.querySelector("#pane-hw").textContent));
-  const items = Object.values(await app.db()).filter((d) => d && d.type === "homework");
-  const hwInLessons = Object.values(await app.db()).flatMap((d) => (d && d.homework) || []);
-  assert.ok(items.length + hwInLessons.length >= 2, "файлы ушли в канал/занятие");
+  // Файл лежит либо ещё в канале, либо уже перенесён учителем в занятие.
+  await waitFor(async () => {
+    const all = Object.values(await app.db());
+    const names = new Set([
+      ...all.filter((d) => d && d.type === "homework").map((d) => d.file.name),
+      ...all.flatMap((d) => (d && Array.isArray(d.homework) ? d.homework : [])).map((h) => h.name),
+    ]);
+    return names.has("дз-сентябрь.pdf") && names.has("фото2.jpg");
+  }, "файлы в канале/занятии");
   assert.equal(app.calls.cloudinary.length, 2);
 
   // Ещё
@@ -429,11 +438,56 @@ test("телефон: вкладки кабинета помещаются, ст
   await cab.clock.setFixedTime(new Date(NOW));
   await cab.goto(app.base + `/cabinet.html#p=${PK_T}`);
   await cab.waitForSelector("#pane-lessons .lesson");
-  for (const t of ["lessons", "calendar", "hw", "more"]) {
+  for (const t of ["lessons", "calendar", "hw", "requests", "more"]) {
     await cab.click(`.ctab[data-ctab="${t}"]`);
     await cab.waitForTimeout(t === "calendar" ? 600 : 100);
     const over = await cab.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     assert.ok(over <= 1, `вкладка ${t}: горизонтальная прокрутка ${over}px`);
   }
+  await app.close();
+});
+
+
+test("вкладка «Заявки» в кабинете: полная история — кто, когда, что просил, чем кончилось", async () => {
+  const app = await openFamily({ promptAnswer: "Занято" });
+  const { page } = app;
+  const cab = await openCabinet(app, `#p=${PK_T}`);
+  await cab.waitForSelector("#pane-lessons .lesson");
+  // Две заявки: перенос (подтвердим) и отмена (откажем)
+  await cab.locator(".lesson", { hasText: "7/8" }).first().click();
+  await cab.click("#mMove");
+  await cab.fill("#mTime", "12:00");
+  await cab.fill("#mComment", "после школы");
+  await cab.click("#mSend");
+  await cab.waitForFunction(() => /Заявка отправлена/.test(document.querySelector("#mMsg").textContent));
+  await cab.click("#mClose");
+  await cab.locator(".lesson", { hasText: "8/8" }).first().click();
+  await cab.click("#mCancel");
+  await cab.click("#mSend");
+  await cab.waitForFunction(() => /Заявка отправлена/.test(document.querySelector("#mMsg").textContent));
+  await cab.click("#mClose");
+  await cab.click('.ctab[data-ctab="requests"]');
+  await cab.waitForFunction(() => (document.querySelector("#pane-requests").textContent.match(/ждёт ответа/g) || []).length === 2);
+
+  await page.click('.tab[data-tab="requests"]');
+  await page.waitForFunction(() => document.querySelectorAll("#requestsList .req").length === 2);
+  const reqs = page.locator("#requestsList .req");
+  await reqs.filter({ hasText: "Перенос" }).locator('[data-req="approve"]').click();
+  await page.waitForFunction(() => document.querySelectorAll("#requestsList .req").length === 1);
+  await reqs.filter({ hasText: "Отмена" }).locator('[data-req="reject"]').click();
+  await page.waitForFunction(() => /Новых заявок нет/.test(document.querySelector("#requestsList").textContent));
+
+  await cab.waitForFunction(() => /подтверждено/.test(document.querySelector("#pane-requests").textContent) && /отклонено/.test(document.querySelector("#pane-requests").textContent));
+  const txt = await cab.textContent("#pane-requests");
+  assert.match(txt, /Перенос занятия/);
+  assert.match(txt, /Было: Пн, 28 сентября, 10:00–11:00/);
+  assert.match(txt, /Просили: Пн, 28 сентября, 12:00–13:00/);
+  assert.match(txt, /«после школы»/);
+  assert.match(txt, /Отмена занятия/);
+  assert.match(txt, /Подал\(а\): родитель, 24\.09\.2026/);
+  assert.match(txt, /Ответ: 24\.09\.2026.*— Занято/);
+  assert.equal(/ждёт ответа/.test(txt), false);
+  assert.equal(await cab.$('.ctab[data-ctab="requests"] .dot'), null, "точка погасла");
+  assert.deepEqual(cab.errors, []);
   await app.close();
 });
