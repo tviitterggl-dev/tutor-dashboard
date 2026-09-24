@@ -7,7 +7,7 @@ const HOST = process.env.FIRESTORE_EMULATOR_HOST || "127.0.0.1:8080";
 const BASE = `http://${HOST}/v1/projects/demo-tutor/databases/(default)/documents`;
 const T = "teacherUid0123456789abcdef";   // uid учителя (как выдаёт Firebase Auth)
 const OTHER = "strangerUid0123456789abcd";   // другой зарегистрированный пользователь
-const OLD_T = "79ZneRF_O8s1kMgoq5PwzlGvlc3r8U9I"; // формат старого секретного ключа
+const OLD_T = "legacyKeyForTests_0123456789ab"; // формат старого секретного ключа (вымышленный)
 const PKEY = "parent_key_for_tests_0123456789";
 
 function enc(v) {

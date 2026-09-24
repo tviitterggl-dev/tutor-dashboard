@@ -1092,7 +1092,7 @@
   $("authShowSignIn").addEventListener("click", () => { authMsg(""); authPanel("authSignIn"); });
 
   // Вошли, а данных в учётной записи ещё нет → перенос со старого ключа.
-  async function runMigration(oldKey) {
+  async function runMigration(oldKey, fromDevice) {
     const uid = window.TutorAuth.user.uid;
     authPanel("authMigrate");
     authMsg("Переношу данные… не закрывай страницу.");
@@ -1102,6 +1102,14 @@
       setTimeout(() => startApp(), 800);
     } catch (err) {
       console.error("Перенос не удался", err);
+      if (err.code === "legacy-empty" && fromDevice) {
+        // Ключ, сохранённый на устройстве, устарел (данные переехали) —
+        // забываем его и просим вставить актуальную ссылку.
+        try { localStorage.removeItem("teacherKey"); } catch (e) { /* ничего */ }
+        window.TutorAuth.legacyKey = null;
+        authMsg("Сохранённая на этом устройстве старая ссылка устарела. Вставь актуальную ссылку для переноса.", "err");
+        return;
+      }
       authMsg(err.code === "legacy-empty"
         ? "По этой ссылке данных нет — проверь, что она скопирована целиком."
         : isPermissionDenied(err)
@@ -1163,7 +1171,7 @@
       return;
     }
     if (!has) {
-      if (window.TutorAuth.legacyKey) { setTimeout(() => runMigration(window.TutorAuth.legacyKey), 0); return; }
+      if (window.TutorAuth.legacyKey) { setTimeout(() => runMigration(window.TutorAuth.legacyKey, true), 0); return; }
       authPanel("authMigrate");
       authMsg("");
       return;

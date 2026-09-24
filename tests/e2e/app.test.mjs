@@ -5,6 +5,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import * as nodeCrypto from "node:crypto";
+const require_crypto = () => nodeCrypto;
 import { openApp, shutdown, T, TEACHER_EMAIL, TEACHER_PASSWORD, defaultSeed } from "./harness.mjs";
 
 after(shutdown);
@@ -140,6 +142,21 @@ test("первый вход без старого ключа на устройс
   await app.close();
 });
 
+test("устаревший ключ на устройстве: просьба вставить актуальную ссылку, потом перенос", async () => {
+  const app = await openApp({
+    signedIn: false, users: {}, seed: legacySeed(), rules: "old", nextUid: NEW_UID,
+    localStorage: { teacherKey: "staleKeyWithoutData_000000000000" },
+  });
+  const { page } = app;
+  await signUp(page);
+  await msgIs(page, /устарела/);
+  assert.equal(await page.evaluate(() => localStorage.getItem("teacherKey")), null);
+  await page.fill("#migrateKey", `https://tviitterggl-dev.github.io/tutor-dashboard/#t=${OLD_KEY}`);
+  await page.click("#authMigrateForm button[type=submit]");
+  await page.waitForSelector("#lessonsList .lesson", { timeout: 10000 });
+  await app.close();
+});
+
 test("если новые правила задеплоены раньше переноса — понятное сообщение", async () => {
   const app = await openApp({
     signedIn: false, users: {}, seed: legacySeed(), rules: "new", nextUid: NEW_UID,
@@ -199,5 +216,20 @@ test("в коде нет Google-входа, чтения календаря и �
   const src = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
   for (const bad of ["accounts.google.com", "gsi/client", "oauth2", "googleapis.com/calendar", "sheets.googleapis", "CLIENT_ID", "calendar.readonly", "LESSONS_CALENDAR_ID"]) {
     assert.equal(src.includes(bad), false, bad);
+  }
+});
+
+test("в репозитории нет настоящих ключей (защита от повторения утечки)", () => {
+  // Засвеченные в разное время ключи: теперь недействительны, но появляться
+  // в коде снова не должны. Новые настоящие ключи в репозиторий не кладём.
+  // Сами ключи здесь не пишем — ищем по sha256 всех 32-символьных «слов».
+  const crypto = require_crypto();
+  const leakedSha = new Set([
+    "f8b913da226e6f307beb539f9f2b6556c56a6b92704d69ce41d61882e73e7cc5", // sha256 ключа, засвеченного 2026-09-25
+  ]);
+  const files = ["index.html", "cabinet.html", "DEVLOG.md", "firestore.rules", "tests/rules/rules.test.mjs", "tests/e2e/harness.mjs", "tests/e2e/app.test.mjs"];
+  for (const f of files) {
+    const words = fs.readFileSync(path.join(ROOT, f), "utf8").match(/[A-Za-z0-9_-]{32}/g) || [];
+    for (const w of words) assert.equal(leakedSha.has(crypto.createHash("sha256").update(w).digest("hex")), false, `${f} содержит засвеченный ключ`);
   }
 });
