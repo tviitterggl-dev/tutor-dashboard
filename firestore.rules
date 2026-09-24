@@ -1,25 +1,74 @@
 rules_version = '2';
 
-// Модель доступа: без Firebase Authentication. Доступ разграничен
-// секретным путём в документе — кто знает точный TEACHER_ID (или, в
-// будущем, ключ родителя/ученика), тот может читать и писать. Листинг
-// коллекций специально НЕ разрешён (allow list: if false) — иначе можно
-// было бы перебором получить список всех teacherId/ключей. Разрешён
-// только точечный доступ (get/write) по полному известному пути.
+// Модель доступа — без Firebase Authentication: «ключ = пароль».
+// Кто знает точный ключ в пути документа, тот имеет доступ; без ключа
+// документ не найти, потому что листинг верхних коллекций запрещён.
+//
+//  • teacherSpaces/{ключ учителя}/...   — всё хозяйство тьютора.
+//    Ключ учителя НЕ хранится в коде сайта: он вводится один раз на
+//    устройстве (ссылка .../#t=КЛЮЧ) и живёт в localStorage браузера.
+//  • parentAccess/{ключ родителя}       — витрина для родителя (только
+//  • studentAccess/{ключ ученика}         его ребёнок + «занято» без имён).
+//    Витрины публикует кабинет учителя. У каждого родителя/ученика свой
+//    ключ; отзыв ключа = удаление витрины.
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Личный кабинет тьютора: teacherSpaces/{TEACHER_ID}/state/main
-    match /teacherSpaces/{teacherId}/state/{stateDoc} {
-      allow get, write: if true;
-      allow list: if false;
+    // Первый ключ учителя попал в публичный index.html (сентябрь 2026),
+    // поэтому он выведен из оборота: данные перенесены на новый ключ,
+    // а старый путь закрыт полностью.
+    function liveTeacher(teacherId) {
+      return teacherId != "2Vv0fLQi3MXbEgqpwlmWk5E1KnVRz9-q"
+        && teacherId.size() >= 24;
     }
 
-    // Место для будущих кабинетов родителя/ученика:
-    // match /parentAccess/{key}/{document=**} { allow get, write: if true; allow list: if false; }
-    // match /studentAccess/{key}/{document=**} { allow get, write: if true; allow list: if false; }
+    function validLesson(d) {
+      return d.startMs is int
+        && d.endMs is int
+        && d.endMs > d.startMs
+        && d.title is string && d.title.size() <= 200
+        && d.status in ["planned", "done", "cancelled", "rescheduled"];
+    }
 
-    // Всё остальное — запрещено по умолчанию.
+    function validView(d) {
+      return d.v == 1
+        && d.role in ["parent", "student"]
+        && d.lessons is list && d.lessons.size() <= 500
+        && d.busy is list && d.busy.size() <= 1500;
+    }
+
+    match /teacherSpaces/{teacherId}/state/{stateDoc} {
+      allow get, write: if liveTeacher(teacherId);
+    }
+
+    // Листинг здесь разрешён: чтобы что-то перечислить, всё равно нужно
+    // знать ключ учителя в пути.
+    match /teacherSpaces/{teacherId}/lessons/{lessonId} {
+      allow get, list, delete: if liveTeacher(teacherId);
+      allow create, update: if liveTeacher(teacherId) && validLesson(request.resource.data);
+    }
+
+    match /teacherSpaces/{teacherId}/accessKeys/{accessKey} {
+      allow get, list, write: if liveTeacher(teacherId);
+    }
+
+    // Витрины: читать можно только точечно по ключу, перечислять нельзя.
+    // Писать технически может и владелец ключа (без Auth это не отличить),
+    // но испортить он может только свою же витрину — при следующей
+    // публикации кабинет учителя её перезапишет.
+    match /parentAccess/{accessKey} {
+      allow get: if true;
+      allow create, update: if accessKey.size() >= 24 && validView(request.resource.data);
+      allow delete: if accessKey.size() >= 24;
+    }
+    match /studentAccess/{accessKey} {
+      allow get: if true;
+      allow create, update: if accessKey.size() >= 24 && validView(request.resource.data);
+      allow delete: if accessKey.size() >= 24;
+    }
+
+    // Всё остальное (в т.ч. листинг teacherSpaces, parentAccess,
+    // studentAccess и collection-group запросы) — запрещено.
     match /{document=**} {
       allow read, write: if false;
     }

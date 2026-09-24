@@ -1,0 +1,15 @@
+{
+  "name": "tutor-dashboard-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "npm run test:rules && npm run test:e2e",
+    "test:e2e": "node --test --test-concurrency=1 \"e2e/*.test.mjs\"",
+    "test:rules": "cd .. && firebase emulators:exec --only firestore --project demo-tutor \"node --test tests/rules/*.test.mjs\""
+  },
+  "devDependencies": {
+    "playwright": "1.56.1",
+    "fullcalendar": "6.1.19",
+    "html2canvas": "1.4.1"
+  }
+}

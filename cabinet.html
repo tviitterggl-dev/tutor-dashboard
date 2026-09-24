@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<title>Личный кабинет</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #faf6f0;
+    --card-bg: #fffdfa;
+    --text: #2b211a;
+    --muted: #8a7a6b;
+    --border: #ead9c4;
+    --accent: #c1621f;
+    --accent-2: #8a4a26;
+    --accent-soft: #fbe6cd;
+    --done-bg: #eef1df;
+    --done-border: #c7d0a3;
+    --done-text: #4f6b2a;
+    --pending-bg: #fdecd2;
+    --pending-text: #8a5a1a;
+    --danger: #b3402a;
+    --danger-bg: #fbe6df;
+    --danger-border: #eab7a4;
+    --shadow: 0 1px 2px rgba(90, 55, 20, 0.04), 0 6px 20px -8px rgba(120, 70, 20, 0.18);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1c1712; --card-bg: #251e17; --text: #f2e9dd; --muted: #ab9885;
+      --border: #3c3024; --accent: #e08a3e; --accent-2: #f0a75c; --accent-soft: #3a2a17;
+      --done-bg: #29301c; --done-border: #465228; --done-text: #b8cf85;
+      --pending-bg: #3a2c14; --pending-text: #edc27e;
+      --danger: #e08b74; --danger-bg: #3a231c; --danger-border: #6b3a2a;
+      --shadow: 0 1px 2px rgba(0,0,0,0.2), 0 6px 20px -8px rgba(0,0,0,0.4);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1c1712; --card-bg: #251e17; --text: #f2e9dd; --muted: #ab9885;
+    --border: #3c3024; --accent: #e08a3e; --accent-2: #f0a75c; --accent-soft: #3a2a17;
+    --done-bg: #29301c; --done-border: #465228; --done-text: #b8cf85;
+    --pending-bg: #3a2c14; --pending-text: #edc27e;
+    --danger: #e08b74; --danger-bg: #3a231c; --danger-border: #6b3a2a;
+    --shadow: 0 1px 2px rgba(0,0,0,0.2), 0 6px 20px -8px rgba(0,0,0,0.4);
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Inter", -apple-system, "Segoe UI", Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 20px 16px 44px;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 { font-family: "Space Grotesk", "Inter", sans-serif; font-size: 21px; margin: 0 0 3px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+  .card {
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 16px;
+    padding: 16px; margin-bottom: 14px; box-shadow: var(--shadow);
+  }
+  .card-title { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 14px; margin-bottom: 10px; }
+  .empty { color: var(--muted); font-size: 13px; text-align: center; padding: 18px 0; }
+  .hint { color: var(--muted); font-size: 11.5px; margin-top: 8px; }
+  .pkg-bar { height: 9px; border-radius: 6px; background: var(--border); overflow: hidden; margin: 8px 0; }
+  .pkg-bar-fill { height: 100%; background: var(--accent); border-radius: 6px; }
+  .big { font-family: "Space Grotesk", sans-serif; font-size: 20px; font-weight: 700; color: var(--accent); }
+  .lesson { border: 1px solid var(--border); border-radius: 12px; padding: 11px 12px; margin-bottom: 8px; }
+  .lesson-top { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+  .lesson-when { font-weight: 600; font-size: 14px; }
+  .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 600; border: 1px solid var(--border); }
+  .pill.planned { background: var(--accent-soft); color: var(--accent-2); }
+  .pill.done { background: var(--done-bg); color: var(--done-text); border-color: var(--done-border); }
+  .pill.cancelled, .pill.rescheduled { background: var(--danger-bg); color: var(--danger); border-color: var(--danger-border); }
+  .pill.past { background: transparent; color: var(--muted); }
+  .report { white-space: pre-wrap; font-size: 13.5px; margin-top: 8px; line-height: 1.45; }
+  .files { margin: 8px 0 0; padding: 0; list-style: none; font-size: 13px; }
+  .files li { margin: 3px 0; }
+  .files a { color: var(--accent-2); word-break: break-all; }
+  .week-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+  .week-nav button { border: 1px solid var(--border); background: var(--card-bg); color: var(--accent-2); border-radius: 10px; padding: 6px 12px; font-size: 15px; font-weight: 600; cursor: pointer; }
+  .week-nav button:disabled { opacity: 0.35; cursor: default; }
+  .week-label { font-family: "Space Grotesk", sans-serif; font-weight: 600; font-size: 14px; text-align: center; flex: 1; }
+  .sched-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table.sched { border-collapse: collapse; width: 100%; min-width: 560px; }
+  table.sched th, table.sched td { border: 1px solid var(--border); text-align: center; padding: 4px 2px; font-size: 10.5px; }
+  table.sched thead th { background: var(--accent); color: #fff8f0; font-family: "Space Grotesk", sans-serif; font-weight: 600; padding: 6px 2px; }
+  table.sched td.time-col { background: var(--accent-soft); color: var(--accent-2); font-weight: 600; white-space: nowrap; }
+  table.sched td.busy { background: var(--pending-bg); color: var(--pending-text); }
+  table.sched td.free { background: var(--done-bg); color: var(--done-text); }
+  table.sched td.own { background: var(--accent); color: #fff8f0; font-weight: 600; }
+  .more { background: none; border: none; color: var(--accent-2); text-decoration: underline; cursor: pointer; font-size: 13px; padding: 4px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 id="title">Личный кабинет</h1>
+  <div class="sub" id="subtitle">Загрузка…</div>
+  <div id="root"></div>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
+  import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+
+  // Здесь нет и не должно быть ключа учителя: кабинет читает только свою
+  // «витрину» по ключу из ссылки (#p=… для родителя, #s=… для ученика).
+  const firebaseConfig = {
+    apiKey: "AIzaSyBjf7oN8bZMc7MHnX9C3LGICbE040K1IQU",
+    authDomain: "tutor-cabinet.firebaseapp.com",
+    projectId: "tutor-cabinet",
+    storageBucket: "tutor-cabinet.firebasestorage.app",
+    messagingSenderId: "580713659609",
+    appId: "1:580713659609:web:94eae49a4e74eb679052c8",
+  };
+  const db = getFirestore(initializeApp(firebaseConfig));
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const p2 = (n) => String(n).padStart(2, "0");
+  const DAYS = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+  const MONTHS = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+  const STATUS = { planned: "запланировано", done: "проведено", cancelled: "отменено", rescheduled: "перенесено" };
+  const DAY = 86400000;
+
+  function fmtDay(ms) {
+    const d = new Date(ms);
+    return `${DAYS[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()]}`;
+  }
+  function fmtTime(s, e) {
+    const a = new Date(s), b = new Date(e);
+    return `${p2(a.getHours())}:${p2(a.getMinutes())}–${p2(b.getHours())}:${p2(b.getMinutes())}`;
+  }
+  function mondayOf(ms) {
+    const d = new Date(ms);
+    const day = d.getDay();
+    d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+
+  function parseHash() {
+    const m = location.hash.match(/(?:^#|&)([ps])=([A-Za-z0-9_-]{24,64})/);
+    return m ? { role: m[1] === "p" ? "parent" : "student", key: m[2] } : null;
+  }
+
+  function showError(text) {
+    $("title").textContent = "Личный кабинет";
+    $("subtitle").textContent = "";
+    $("root").innerHTML = `<div class="card"><div class="empty">${esc(text)}</div></div>`;
+  }
+
+  function lessonCard(l, now) {
+    const past = l.endMs < now;
+    let pillCls = l.status, pillText = STATUS[l.status] || l.status;
+    if (l.status === "planned" && past) { pillCls = "past"; pillText = "прошло"; }
+    const files = (l.homework || []).filter(h => /^https:\/\//.test(h.url || ""));
+    return `
+      <div class="lesson">
+        <div class="lesson-top">
+          <div class="lesson-when">${esc(fmtDay(l.startMs))}, ${esc(fmtTime(l.startMs, l.endMs))}${l.pkg ? ` · ${esc(l.pkg)}` : ""}</div>
+          <span class="pill ${esc(pillCls)}">${esc(pillText)}</span>
+        </div>
+        ${l.report ? `<div class="report">${esc(l.report)}</div>` : ""}
+        ${files.length ? `<div class="hint" style="margin-top:8px">Домашнее задание:</div><ul class="files">${files.map(h => `<li><a href="${esc(h.url)}" target="_blank" rel="noopener noreferrer">${esc(h.name || "файл")}</a></li>`).join("")}</ul>` : ""}
+      </div>`;
+  }
+
+  let view = null;
+  let weekStart = null;
+  let pastLimit = 10;
+
+  function render() {
+    const now = Date.now();
+    const v = view;
+    $("title").textContent = v.role === "parent" ? "Кабинет родителя" : "Кабинет ученика";
+    $("subtitle").textContent = v.studentId || "";
+
+    const lessons = (v.lessons || []).slice().sort((a, b) => a.startMs - b.startMs);
+    const upcoming = lessons.filter(l => l.endMs >= now && l.status === "planned");
+    const past = lessons.filter(l => !(l.endMs >= now && l.status === "planned")).reverse();
+
+    let html = "";
+    if (v.role === "parent" && v.package) {
+      const pk = v.package;
+      const pct = pk.total ? Math.max(0, Math.min(100, Math.round((pk.done / pk.total) * 100))) : 0;
+      html += `<div class="card">
+        <div class="card-title">Пакет занятий</div>
+        <div>Проведено <b>${esc(pk.done)}</b> из <b>${esc(pk.total)}</b> · осталось <span class="big">${esc(pk.remaining)}</span></div>
+        <div class="pkg-bar"><div class="pkg-bar-fill" style="width:${pct}%"></div></div>
+      </div>`;
+    }
+
+    html += `<div class="card"><div class="card-title">Ближайшие занятия</div>
+      ${upcoming.length ? upcoming.slice(0, 12).map(l => lessonCard(l, now)).join("") : '<div class="empty">Запланированных занятий нет</div>'}
+    </div>`;
+
+    html += `<div class="card"><div class="card-title">Занятость преподавателя</div>
+      <div class="week-nav"><button type="button" id="wPrev">‹</button><div class="week-label" id="wLabel"></div><button type="button" id="wNext">›</button></div>
+      <div class="sched-wrap"><table class="sched" id="wTable"></table></div>
+      <div class="hint">Выделено — ваши занятия, «занято» — время уже занято, «своб.» — можно договориться о занятии.</div>
+    </div>`;
+
+    html += `<div class="card"><div class="card-title">История занятий</div>
+      ${past.length ? past.slice(0, pastLimit).map(l => lessonCard(l, now)).join("") : '<div class="empty">Пока пусто</div>'}
+      ${past.length > pastLimit ? '<button class="more" type="button" id="more">Показать ещё</button>' : ""}
+    </div>`;
+
+    const upd = v.generatedAt ? new Date(v.generatedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+    html += `<div class="hint" style="text-align:center">Обновлено: ${esc(upd)}</div>`;
+    $("root").innerHTML = html;
+
+    if ($("more")) $("more").addEventListener("click", () => { pastLimit += 20; render(); });
+    $("wPrev").addEventListener("click", () => { weekStart = new Date(weekStart.getTime() - 7 * DAY); renderWeek(); });
+    $("wNext").addEventListener("click", () => { weekStart = new Date(weekStart.getTime() + 7 * DAY); renderWeek(); });
+    renderWeek();
+  }
+
+  function renderWeek() {
+    const v = view;
+    const from = v.busyFrom || Date.now();
+    const to = v.busyTo || from + 35 * DAY;
+    if (!weekStart) weekStart = mondayOf(Date.now());
+    const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(d.getDate() + i); return d; });
+    const sun = days[6];
+    $("wLabel").textContent = `${p2(days[0].getDate())}.${p2(days[0].getMonth() + 1)} – ${p2(sun.getDate())}.${p2(sun.getMonth() + 1)}`;
+    $("wPrev").disabled = weekStart.getTime() <= mondayOf(from).getTime();
+    $("wNext").disabled = weekStart.getTime() + 7 * DAY >= to;
+
+    const own = (v.lessons || []).filter(l => l.status === "planned" || l.status === "done");
+    const busy = v.busy || [];
+    const H0 = 8, H1 = 22;
+    let html = "<thead><tr><th>Время</th>" + days.map(d => `<th>${p2(d.getDate())}.${p2(d.getMonth() + 1)}<br>${DAYS[d.getDay()]}</th>`).join("") + "</tr></thead><tbody>";
+    for (let h = H0; h < H1; h++) {
+      html += `<tr><td class="time-col">${p2(h)}:00</td>`;
+      days.forEach(d => {
+        const hs = new Date(d); hs.setHours(h, 0, 0, 0);
+        const he = new Date(d); he.setHours(h + 1, 0, 0, 0);
+        const a = hs.getTime(), b = he.getTime();
+        const overlaps = (x) => x.s < b && x.e > a;
+        const known = a >= from && a < to;
+        if (own.some(l => overlaps({ s: l.startMs, e: l.endMs }))) html += '<td class="own">урок</td>';
+        else if (!known) html += "<td>—</td>";
+        else if (busy.some(overlaps)) html += '<td class="busy">занято</td>';
+        else html += '<td class="free">своб.</td>';
+      });
+      html += "</tr>";
+    }
+    $("wTable").innerHTML = html + "</tbody>";
+  }
+
+  async function load() {
+    const h = parseHash();
+    if (!h) { showError("Для входа нужна личная ссылка от преподавателя."); return; }
+    try {
+      const snap = await getDoc(doc(db, h.role === "parent" ? "parentAccess" : "studentAccess", h.key));
+      if (!snap.exists()) { showError("Ссылка недействительна или доступ отозван. Попросите у преподавателя новую."); return; }
+      view = snap.data();
+      weekStart = null;
+      render();
+    } catch (e) {
+      console.error(e);
+      showError("Не удалось загрузить кабинет. Проверьте интернет и обновите страницу.");
+    }
+  }
+
+  window.addEventListener("hashchange", load);
+  load();
+</script>
+</body>
+</html>
