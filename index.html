@@ -4,6 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Учёт занятий</title>
+<!-- Установка на экран «Домой» (iPhone/Android): свой значок, запуск без адресной строки -->
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Занятия">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#faf6f0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1c1712" media="(prefers-color-scheme: dark)">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
@@ -699,6 +709,8 @@
   #fcRoot .fc-toolbar.fc-header-toolbar { flex-wrap: wrap; gap: 6px; }
   #fcRoot .fc-event { cursor: pointer; }
   #fcRoot .st-planned { background: var(--accent); border-color: var(--accent); }
+  #fcRoot .st-personal { background: repeating-linear-gradient(135deg, var(--border), var(--border) 6px, var(--accent-soft) 6px, var(--accent-soft) 12px); border: 1px solid var(--muted); }
+  #fcRoot .st-personal .fc-event-main, #fcRoot .fc-list-event.st-personal td { color: var(--text); }
   #fcRoot .st-done { background: var(--done-text); border-color: var(--done-text); }
   #fcRoot .st-cancelled, #fcRoot .st-rescheduled { background: transparent; border: 1px dashed var(--muted); opacity: 0.75; }
   #fcRoot .st-cancelled .fc-event-main, #fcRoot .st-rescheduled .fc-event-main { color: var(--muted); text-decoration: line-through; }
@@ -848,9 +860,10 @@
       <div class="card">
         <div class="btn-row">
           <button class="btn" id="fcAddBtn" type="button">+ Занятие</button>
+          <button class="btn secondary" id="fcPersonalBtn" type="button">+ Личное время</button>
         </div>
         <div id="fcRoot"></div>
-        <div class="hint" id="fcHint">Нажми на занятие, чтобы изменить, перенести, отменить, написать отчёт или прикрепить домашку. Пустое место: зажми и выдели время — создастся новое занятие. Перетаскивание занятия = перенос.</div>
+        <div class="hint" id="fcHint">Нажми на занятие, чтобы изменить, перенести, отменить, написать отчёт или прикрепить домашку. Пустое место: зажми и выдели время — создастся новое занятие. Перетаскивание занятия = перенос. «+ Личное время» — занять время для себя: родители и ученики увидят просто «занято».</div>
       </div>
     </div>
 
@@ -982,7 +995,7 @@
         <div class="btn-row" style="margin-top:10px">
           <button class="btn secondary block" id="schedExportBtn">Сохранить как картинку (PNG)</button>
         </div>
-        <div class="hint">Учтены занятия из дашборда — жёлтое занято, зелёное свободно. Картинку удобно скинуть клиенту, чтобы он выбрал окно.</div>
+        <div class="hint">Учтены занятия и «личное время» — жёлтое занято, зелёное свободно. Картинку удобно скинуть клиенту, чтобы он выбрал окно.</div>
       </div>
     </div>
   </div>
@@ -1341,10 +1354,18 @@
     return e && (e.code === "permission-denied" || /insufficient permissions/i.test(e.message || ""));
   }
 
+  // «Личное время» (kind: "personal") хранится рядом с занятиями, но в
+  // деньги, итоги, пакеты и список занятий не попадает — только в сетку
+  // занятости (opts.includePersonal) и в «занято» кабинетов.
+  const isPersonal = (l) => l && l.kind === "personal";
+
   async function fetchLessons(start, end, opts = {}) {
     const list = await window.TutorFB.listLessons(start.getTime(), end.getTime());
     setBadge($("calBadge"), "Занятия: в дашборде", "ok");
-    return list.filter(l => opts.includeInactive || isActiveStatus(l.status)).map(lessonToEv);
+    return list
+      .filter(l => opts.includeInactive || isActiveStatus(l.status))
+      .filter(l => opts.includePersonal || !isPersonal(l))
+      .map(lessonToEv);
   }
 
   // ---- время в Москве (все занятия ведутся по Москве, UTC+3 без перехода) ----
@@ -2257,8 +2278,12 @@
           </div>
         </div>
         <div class="student-body">
-          <div class="field" style="margin-top:10px; max-width:180px"><span>Ставка за занятие, ₽</span>
-            <input type="number" class="pf-rate" min="0" step="50" value="${st.rate != null ? st.rate : ""}"></div>
+          <div class="field-row" style="margin-top:10px">
+            <div class="field" style="max-width:120px"><span>Класс</span>
+              <input type="number" class="pf-cls" min="1" max="11" value="${escHtml(st.cls)}"></div>
+            <div class="field" style="max-width:180px"><span>Ставка за занятие, ₽</span>
+              <input type="number" class="pf-rate" min="0" step="50" value="${st.rate != null ? st.rate : ""}"></div>
+          </div>
           <div class="field"><span>Ссылка на созвон (постоянная)</span>
             <input type="url" class="pf-call" maxlength="500" placeholder="https://telemost.yandex.ru/…" value="${escHtml(p.callUrl || "")}"></div>
           <div class="field"><span>Ссылка на занятие / доступ (необязательно)</span>
@@ -2302,6 +2327,8 @@
     const callUrl = card.querySelector(".pf-call").value.trim();
     const accessUrl = card.querySelector(".pf-access").value.trim();
     const notes = card.querySelector(".pf-notes").value.trim();
+    const clsNew = parseInt(card.querySelector(".pf-cls").value, 10);
+    if (!(clsNew >= 1 && clsNew <= 11)) { msg.textContent = "Класс — число от 1 до 11"; msg.className = "msg pf-msg err"; return; }
     const rateRaw = card.querySelector(".pf-rate").value.trim();
     const rate = rateRaw === "" ? null : parseFloat(rateRaw);
     if (rate != null && !(rate >= 0)) { msg.textContent = "Ставка — число (или оставь пустой)"; msg.className = "msg pf-msg err"; return; }
@@ -2309,23 +2336,92 @@
       if (u && !safeHref(u)) { msg.textContent = "Ссылка должна начинаться с https:// (или http://)"; msg.className = "msg pf-msg err"; return; }
     }
     saveBtn.disabled = true;
-    const value = Object.assign({}, profileOf(sid), { rate, callUrl, accessUrl, notes, updatedAt: Date.now() });
+    let target = sid;
+    let note = "Сохранено";
     try {
-      await window.TutorFB.setStudentProfile(sid, value);
+      const prof = profileOf(sid);
+      if (clsNew !== Number(prof.cls)) {
+        const n = (await window.TutorFB.listLessonsOfStudent(sid)).length;
+        if (!confirm(`Перевести «${prof.name}» в ${clsNew} класс?\n\nИзменится название у всех занятий ученика (${n}, включая прошедшие), а отметки «Провёл», оплата, пакет, отчёты, ДЗ, заявки и ссылки родителей/ученика сохранятся.`)) {
+          saveBtn.disabled = false;
+          return;
+        }
+        target = await renameStudent(sid, prof.name, clsNew);
+        note = `Сохранено: теперь ${clsNew} класс`;
+      }
+      const value = Object.assign({}, profileOf(target), { rate, callUrl, accessUrl, notes, updatedAt: Date.now() });
+      await window.TutorFB.setStudentProfile(target, value);
       const all = Object.assign({}, studentProfiles());
-      all[sid] = value;
+      all[target] = value;
       remoteState.studentProfiles = all;
-      openProfile = sid;
+      openProfile = target;
       publishViewsSoon(); // ссылка на созвон появится в кабинете ученика
       renderStudentsRoster();
-      const m = $("studentsRosterList").querySelector(`.student-card[data-student="${CSS.escape(sid)}"] .pf-msg`);
-      if (m) { m.textContent = "Сохранено"; m.className = "msg pf-msg ok"; }
+      const m = $("studentsRosterList").querySelector(`.student-card[data-student="${CSS.escape(target)}"] .pf-msg`);
+      if (m) { m.textContent = note; m.className = "msg pf-msg ok"; }
     } catch (err) {
+      console.error(err);
       saveBtn.disabled = false;
-      msg.textContent = "Не сохранилось (нет интернета?)";
+      msg.textContent = err.userText || "Не сохранилось (нет интернета?)";
       msg.className = "msg pf-msg err";
     }
   });
+
+  // Смена класса = новый идентификатор ученика «Имя, N класс». Он записан в
+  // занятиях (название + studentId), профиле, правках пакета, каналах,
+  // ключах доступа и журнале заявок — меняем всё сразу, чтобы связи не
+  // порвались. Отметки «Провёл» привязаны к id занятий и не меняются.
+  async function renameStudent(oldId, name, cls) {
+    const newSid = `${name}, ${cls} класс`;
+    if (newSid === oldId) return oldId;
+    const clash = studentProfiles()[newSid];
+    if (clash && !clash.hidden) {
+      const err = new Error("exists");
+      err.userText = `Ученик «${newSid}» уже есть — сначала переименуй или удали его.`;
+      throw err;
+    }
+    const now = Date.now();
+    const re = /^([А-ЯЁа-яё]+)\s+(\d{1,2})\s*класс/iu;
+    const lessons = await window.TutorFB.listLessonsOfStudent(oldId);
+    await window.TutorFB.saveLessons(lessons.map(l => ({
+      id: l.id, merge: true,
+      data: { title: l.title.replace(re, `${name} ${cls} класс`), studentId: newSid, updatedAt: now },
+    })));
+    const prof = Object.assign({}, profileOf(oldId), { name, cls, updatedAt: now });
+    await window.TutorFB.setStudentProfile(newSid, prof);
+    await window.TutorFB.setStudentProfile(oldId, null);
+    const profs = Object.assign({}, studentProfiles(), { [newSid]: prof });
+    delete profs[oldId];
+    remoteState.studentProfiles = profs;
+    if (packageOverrides[oldId]) {
+      packageOverrides[newSid] = packageOverrides[oldId];
+      delete packageOverrides[oldId];
+      await window.TutorFB.setPkgOverride(newSid, packageOverrides[newSid]);
+      await window.TutorFB.setPkgOverride(oldId, null);
+    }
+    const ch = studentChannels()[oldId];
+    if (ch) {
+      await window.TutorFB.setStudentChannels(newSid, ch);
+      await window.TutorFB.setStudentChannels(oldId, null);
+      const map = Object.assign({}, studentChannels(), { [newSid]: ch });
+      delete map[oldId];
+      remoteState.studentChannels = map;
+    }
+    const keys = (await getAccessKeys(true)).filter(k => k.studentId === oldId);
+    for (const k of keys) await window.TutorFB.saveAccessKey(k.id, { studentId: newSid });
+    const decisions = (await window.TutorFB.listRequestDecisions(0)).filter(d => d.studentId === oldId);
+    for (const d of decisions) {
+      const data = Object.assign({}, d, { studentId: newSid });
+      delete data.id;
+      await window.TutorFB.saveRequestDecision(d.id, data);
+    }
+    if (lastStudentChoice.startsWith(name + " ")) lastStudentChoice = "";
+    await getAccessKeys(true);
+    await startChannelWatch();
+    await publishViews(activeKeysOf(newSid));
+    afterLessonsChanged();
+    return newSid;
+  }
 
   async function addStudentFromForm() {
     const msg = (t, k) => { $("stAddMsg").textContent = t; $("stAddMsg").className = "msg" + (k ? " " + k : ""); };
@@ -2468,7 +2564,7 @@
     $("schedTable").innerHTML = '<tr><td class="empty">Загрузка…</td></tr>';
 
     try {
-      const allEvs = (await fetchLessons(week.mon, week.nextMon)).filter(e => e.start && e.start.dateTime && e.end && e.end.dateTime);
+      const allEvs = (await fetchLessons(week.mon, week.nextMon, { includePersonal: true })).filter(e => e.start && e.start.dateTime && e.end && e.end.dateTime);
       renderSchedule(week, allEvs);
     } catch (e) {
       $("schedTable").innerHTML = '<tr><td class="empty">Не удалось загрузить</td></tr>';
@@ -3200,6 +3296,12 @@
   }
 
   function lessonToFc(l) {
+    if (isPersonal(l)) {
+      return {
+        id: l.id, title: "Личное время" + (l.note ? ": " + l.note : ""), start: l.startMs, end: l.endMs,
+        classNames: ["st-personal"], editable: true, extendedProps: { lesson: l },
+      };
+    }
     const tag = l.status === "cancelled" ? " · отмена" : l.status === "rescheduled" ? " · перенос" : "";
     return {
       id: l.id,
@@ -3263,7 +3365,7 @@
       eventResize: onFcResize,
       eventDidMount: (info) => {
         const l = info.event.extendedProps.lesson;
-        if (l) info.el.title = `${l.title} — ${STATUS_RU[l.status] || l.status}`;
+        if (l) info.el.title = isPersonal(l) ? "Личное время" + (l.note ? ": " + l.note : "") : `${l.title} — ${STATUS_RU[l.status] || l.status}`;
       },
     });
     fc.render();
@@ -3293,6 +3395,18 @@
     if (!l) { info.revert(); return; }
     const startMs = info.event.start.getTime();
     const endMs = info.event.end ? info.event.end.getTime() : startMs + (l.endMs - l.startMs);
+    if (isPersonal(l)) {
+      // личное время просто сдвигаем, без истории «перенесено»
+      try {
+        await window.TutorFB.updateLesson(l.id, lessonData({ title: l.title, startMs, endMs, status: l.status, recurrenceId: l.recurrenceId, source: l.source }));
+      } catch (e) {
+        info.revert();
+        reportSaveError(e);
+        return;
+      }
+      afterLessonsChanged();
+      return;
+    }
     if (!confirm(`Перенести «${l.title}» на ${fmtWhen(startMs, endMs)}?\nВ истории останется отметка «перенесено».`)) { info.revert(); return; }
     try {
       await rescheduleLesson(l, startMs, endMs);
@@ -3438,17 +3552,17 @@
     if (v === "__other") return mq("#mCustom").value.trim();
     return v;
   }
-  function durationSelectHtml(minutes) {
-    const opts = [30, 45, 60, 90, 120];
+  function durationSelectHtml(minutes, longer) {
+    const opts = longer ? [30, 45, 60, 90, 120, 180, 240, 360, 480] : [30, 45, 60, 90, 120];
     if (!opts.includes(minutes)) opts.push(minutes);
     return `<select id="mDur">${opts.sort((a, b) => a - b).map(m => `<option value="${m}"${m === minutes ? " selected" : ""}>${m} мин</option>`).join("")}</select>`;
   }
-  function whenFieldsHtml(startMs, durMin) {
+  function whenFieldsHtml(startMs, durMin, longer) {
     const d = new Date(startMs);
     return `<div class="field-row">
         <div class="field"><span>Дата</span><input type="date" id="mDate" value="${toDateInputValue(d)}"></div>
         <div class="field"><span>Начало</span><input type="time" id="mTime" step="300" value="${hhmm(d)}"></div>
-        <div class="field"><span>Длительность</span>${durationSelectHtml(durMin)}</div>
+        <div class="field"><span>Длительность</span>${durationSelectHtml(durMin, longer)}</div>
       </div>`;
   }
   function readWhen() {
@@ -3469,6 +3583,7 @@
     if (durMin <= 30) durMin = 60;
     openModal(`
       <h2>Новое занятие</h2>
+      <div class="btn-row" style="margin:0 0 10px"><button class="btn secondary" type="button" id="mToPersonal">Это не занятие — отметить «Личное время»</button></div>
       ${studentSelectHtml(lastStudentChoice)}
       ${whenFieldsHtml(startMs, durMin)}
       <label class="check"><input type="checkbox" id="mRepeat"> Повторять каждую неделю</label>
@@ -3486,6 +3601,10 @@
         <button class="btn secondary" type="button" id="mClose">Закрыть</button>
       </div>`);
     wireStudentSelect();
+    mq("#mToPersonal").addEventListener("click", () => {
+      const w = readWhen();
+      openPersonalModal(w.ok ? new Date(w.startMs) : start, w.ok ? new Date(w.startMs + w.durMin * 60000) : end);
+    });
     const syncCount = () => {
       if (mq("#mPkg").checked && mq("#mRepeat").checked) {
         const from = parseInt(mq("#mPkgFrom").value, 10) || 1;
@@ -3532,6 +3651,82 @@
     });
   }
 
+  // ---- «Личное время»: занято без ученика, комментарий видит только учитель ----
+  function openPersonalModal(start, end, block) {
+    const editing = !!block;
+    let startMs = editing ? block.startMs : (start ? start.getTime() : null);
+    if (startMs == null) { const d = new Date(); d.setHours(d.getHours() + 1, 0, 0, 0); startMs = d.getTime(); }
+    let durMin = editing ? Math.round((block.endMs - block.startMs) / 60000) : (end ? Math.round((end.getTime() - startMs) / 60000) : 60);
+    if (!editing && durMin <= 30) durMin = 60;
+    const inSeries = editing && !!block.recurrenceId;
+    openModal(`
+      <h2>${editing ? "Личное время" : "Отметить «Личное время»"}</h2>
+      <div class="meta">Время станет занятым. Родители и ученики увидят просто «занято» — без пометки, что это личное, и без комментария.</div>
+      ${whenFieldsHtml(startMs, durMin, true)}
+      <div class="field"><span>Комментарий (только для тебя)</span><input type="text" id="mNote" maxlength="200" placeholder="Например: врач, дорога" value="${editing ? escHtml(block.note || "") : ""}"></div>
+      ${editing ? (inSeries ? `<div class="field"><span>Применить к</span><select id="mScope"><option value="one">только этому блоку</option><option value="following">этому и всем следующим</option></select></div>` : "") : `
+      <label class="check"><input type="checkbox" id="mRepeat"> Повторять каждую неделю</label>
+      <div class="field-row" id="mRepeatRow" style="display:none">
+        <div class="field"><span>Сколько недель</span><input type="number" id="mCount" min="2" max="104" value="8"></div>
+      </div>`}
+      <div class="msg" id="mMsg"></div>
+      <div class="btn-row">
+        <button class="btn" type="button" id="mPersonalSave">${editing ? "Сохранить" : "Отметить занятым"}</button>
+        ${editing ? '<button class="btn danger" type="button" id="mPersonalDelete">Удалить</button>' : ""}
+        <button class="btn secondary" type="button" id="mClose">Закрыть</button>
+      </div>`);
+    mq("#mClose").addEventListener("click", closeModal);
+    if (mq("#mRepeat")) mq("#mRepeat").addEventListener("change", () => { mq("#mRepeatRow").style.display = mq("#mRepeat").checked ? "flex" : "none"; });
+    const scope = () => (mq("#mScope") ? mq("#mScope").value : "one");
+    mq("#mPersonalSave").addEventListener("click", async (e) => {
+      const when = readWhen();
+      const note = mq("#mNote").value.trim();
+      if (!when.ok) { modalMsg("Проверь дату и время.", "err"); return; }
+      e.currentTarget.disabled = true;
+      try {
+        if (editing) {
+          const delta = when.startMs - block.startMs;
+          const targets = scope() === "following" ? await scopeTargets(block, "following") : [block];
+          await window.TutorFB.saveLessons(targets.map(x => {
+            const s = x.startMs + delta;
+            return { id: x.id, merge: true, data: lessonData({ title: "Личное время", startMs: s, endMs: s + when.durMin * 60000, status: "planned", recurrenceId: x.recurrenceId, source: "app", extra: { kind: "personal", note } }) };
+          }));
+        } else {
+          const count = mq("#mRepeat").checked ? Math.min(104, Math.max(2, parseInt(mq("#mCount").value, 10) || 2)) : 1;
+          const items = buildSeries({ base: "Личное время", startMs: when.startMs, durMin: when.durMin, count, pkg: null });
+          items.forEach(it => Object.assign(it.data, { kind: "personal", note, studentId: null }));
+          const conflicts = (await findConflicts(items)).filter(x => !isPersonal(x));
+          if (conflicts.length && !confirm(`В это время уже есть занятия:\n${conflicts.slice(0, 4).map(x => `• ${x.title}, ${fmtWhen(x.startMs, x.endMs)}`).join("\n")}\n\nВсё равно отметить личное время?`)) {
+            e.currentTarget.disabled = false;
+            return;
+          }
+          await window.TutorFB.saveLessons(items);
+        }
+        closeModal();
+        afterLessonsChanged();
+      } catch (err) {
+        console.error(err);
+        e.currentTarget.disabled = false;
+        modalMsg("Не удалось сохранить (нет интернета?). Попробуй ещё раз.", "err");
+      }
+    });
+    if (mq("#mPersonalDelete")) {
+      mq("#mPersonalDelete").addEventListener("click", async (e) => {
+        const sc = scope();
+        if (!confirm(sc === "following" ? "Удалить этот и все следующие блоки личного времени?" : "Удалить этот блок личного времени?")) return;
+        e.currentTarget.disabled = true;
+        try {
+          await deleteScoped(block, sc);
+          closeModal();
+          afterLessonsChanged();
+        } catch (err) {
+          e.currentTarget.disabled = false;
+          modalMsg("Не удалось удалить (нет интернета?).", "err");
+        }
+      });
+    }
+  }
+
   async function openLessonModal(id) {
     let l;
     try {
@@ -3541,6 +3736,7 @@
       return;
     }
     if (!l) { alert("Занятие не найдено — возможно, его удалили на другом устройстве."); afterLessonsChanged(); return; }
+    if (isPersonal(l)) { openPersonalModal(null, null, l); return; }
     renderLessonModal(l);
   }
 
@@ -3857,6 +4053,7 @@
   }
 
   $("fcAddBtn").addEventListener("click", () => openCreateModal());
+  $("fcPersonalBtn").addEventListener("click", () => openPersonalModal());
 
   // ---------- НАВИГАЦИЯ ПО ВКЛАДКАМ ----------
 

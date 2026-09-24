@@ -52,6 +52,7 @@ test("учитель после входа: state, lessons, ключи дост�
   assert.equal(await get(`teacherSpaces/${T}/lessons/l1`), 200);
   assert.equal(await get(`teacherSpaces/${T}/lessons`), 200, "листинг занятий при известном ключе");
   assert.equal(await del(`teacherSpaces/${T}/lessons/l1`), 200);
+  assert.equal(await put(`teacherSpaces/${T}/lessons/p1`, { ...lesson, title: "Личное время", kind: "personal", note: "врач", studentId: null }), 200, "личное время");
   assert.equal(await put(`teacherSpaces/${T}/accessKeys/${PKEY}`, { role: "parent" }), 200);
   assert.equal(await get(`teacherSpaces/${T}/accessKeys`), 200);
 }));
