@@ -96,14 +96,16 @@ test("«Забыть это устройство» стирает ключ; бе
   const app = await openFamily();
   const cab = await openCabinet(app, `#s=${SK_T}`);
   await cab.waitForSelector("#pane-lessons .lesson");
-  assert.equal(new URL(cab.url()).hash, "");
-  await cab.reload();
+  assert.equal(new URL(cab.url()).hash, `#s=${SK_T}`, "ключ остаётся в адресе");
+  await cab.goto(app.base + "/cabinet.html"); // без ключа в ссылке — из памяти устройства
+  await cab.waitForSelector("#pane-lessons .lesson");
   await cab.waitForSelector("#pane-lessons .lesson"); // запомнился
   assert.equal(await cab.textContent("#title"), "Кабинет ученика");
   await cab.click('.ctab[data-ctab="more"]');
   await cab.click("#forgetBtn");
   await cab.waitForFunction(() => /забыт/.test(document.body.textContent));
   assert.equal(await cab.evaluate(() => localStorage.getItem("cabinetKeys")), null);
+  assert.equal(new URL(cab.url()).hash, "", "и из адреса ключ убран");
   await cab.reload();
   await cab.waitForFunction(() => /нужна личная ссылка/.test(document.body.textContent));
   await app.close();
@@ -491,6 +493,47 @@ test("вкладка «Заявки» в кабинете: полная исто
   assert.match(txt, /Ответ: 24\.09\.2026.*— Занято/);
   assert.equal(/ждёт ответа/.test(txt), false);
   assert.equal(await cab.$('.ctab[data-ctab="requests"] .dot'), null, "точка погасла");
+  assert.deepEqual(cab.errors, []);
+  await app.close();
+});
+
+test("«На экран «Домой»»: адрес всегда с ключом открытого кабинета; значок открывает кабинет на «чистом» устройстве", async () => {
+  const app = await openFamily();
+  const cab = await openCabinet(app, `#p=${PK_A}`);
+  await cab.waitForSelector("#pane-lessons .lesson");
+  await cab.goto(app.base + "/cabinet.html#p=" + PK_T);
+  await cab.waitForFunction(() => /Проведено/.test(document.body.innerText));
+  assert.equal(new URL(cab.url()).hash, `#p=${PK_T}`);
+  // переключатель детей меняет и ключ в адресе
+  await cab.waitForSelector("#switchSel");
+  await cab.selectOption("#switchSel", PK_A);
+  await cab.waitForFunction((k) => location.hash === "#p=" + k, PK_A);
+  // открыли без ключа (закладка) — кабинет из памяти, ключ снова в адресе
+  await cab.goto(app.base + "/cabinet.html");
+  await cab.waitForSelector("#pane-lessons .lesson");
+  assert.match(new URL(cab.url()).hash, /^#p=/);
+  // теги для экрана «Домой»; manifest нарочно нет (иначе сохранится ссылка из него, без ключа)
+  const tags = await cab.evaluate(() => ({
+    capable: document.querySelector('meta[name="apple-mobile-web-app-capable"]')?.content,
+    title: document.querySelector('meta[name="apple-mobile-web-app-title"]')?.content,
+    icon: document.querySelector('link[rel="apple-touch-icon"]')?.href,
+    manifest: !!document.querySelector('link[rel="manifest"]'),
+  }));
+  assert.equal(tags.capable, "yes");
+  assert.equal(tags.title, "Кабинет");
+  assert.equal(tags.manifest, false);
+  assert.equal((await cab.request.get(tags.icon)).status(), 200);
+  const saved = cab.url();
+
+  // Установленное на iPhone приложение начинает с пустого хранилища:
+  // стираем сохранённые кабинеты и открываем сохранённую ссылку — кабинет открывается
+  await cab.evaluate(() => localStorage.removeItem("cabinetKeys"));
+  await cab.goto(app.base + "/cabinet.html");
+  await cab.waitForFunction(() => /нужна личная ссылка/.test(document.body.textContent), null, { timeout: 5000 });
+  await cab.goto(saved);
+  await cab.reload(); // настоящая загрузка страницы по сохранённой ссылке
+  await cab.waitForSelector("#pane-lessons .lesson");
+  assert.equal(cab.url(), saved);
   assert.deepEqual(cab.errors, []);
   await app.close();
 });

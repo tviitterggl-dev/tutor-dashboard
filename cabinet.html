@@ -5,6 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
 <meta name="robots" content="noindex, nofollow">
+<!-- «На экран «Домой»»: значок и полноэкранный режим. Manifest нарочно нет:
+     без него Safari и Chrome сохраняют текущую ссылку — вместе с ключом. -->
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Кабинет">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#faf6f0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1c1712" media="(prefers-color-scheme: dark)">
 <title>Личный кабинет</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -283,8 +293,11 @@
   }
 
   // ---------- ключи на этом устройстве ----------
-  // Ссылка #p=… / #s=… сохраняется в браузере и убирается из адресной
-  // строки. «Забыть это устройство» стирает всё сохранённое.
+  // Ссылка #p=… / #s=… сохраняется в браузере и ОСТАЁТСЯ в адресной строке:
+  // «На экран «Домой»» запоминает именно её, и значок открывает этот кабинет
+  // (у установленного на iPhone приложения своё хранилище, без ключа в ссылке
+  // оно пустое). Адрес всегда показывает открытый сейчас кабинет.
+  // «Забыть это устройство» стирает всё сохранённое и ключ из адреса.
   function loadSaved() {
     try { return JSON.parse(localStorage.getItem(STORE) || "[]").filter((x) => x && x.key && x.role); } catch (e) { return []; }
   }
@@ -298,7 +311,6 @@
     const list = loadSaved().filter((x) => x.key !== entry.key);
     list.unshift(entry);
     saveSaved(list);
-    history.replaceState(null, "", location.pathname + location.search);
     return entry;
   }
 
@@ -341,9 +353,16 @@
     return doc(db, entry.role === "parent" ? "parentAccess" : "studentAccess", entry.key);
   }
 
+  function hashOf(entry) { return "#" + (entry.role === "parent" ? "p" : "s") + "=" + entry.key; }
+  function showInAddress(entry) {
+    const url = location.pathname + location.search + (entry ? hashOf(entry) : "");
+    try { history.replaceState(null, "", url); } catch (e) { /* не страшно */ }
+  }
+
   function open(entry) {
     stopWatching();
     current = entry;
+    if (location.hash !== hashOf(entry)) showInAddress(entry); // replaceState не вызывает hashchange
     view = null;
     if (cal) { cal.destroy(); cal = null; } // другой ребёнок — другой диапазон и события
     activeTab = "lessons";
@@ -993,6 +1012,7 @@
     if (!confirm("Забыть кабинет на этом устройстве? Чтобы снова войти, понадобится ссылка от преподавателя.")) return;
     stopWatching();
     try { localStorage.removeItem(STORE); } catch (e) { /* ничего */ }
+    showInAddress(null);
     current = null;
     view = null;
     closeModal();

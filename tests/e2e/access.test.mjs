@@ -98,7 +98,7 @@ test("выдача ключа родителю → кабинет → отзыв
   assert.ok(evs.some((e) => /\bown\b/.test(e.cls)), "свои занятия выделены");
   assert.ok(evs.some((e) => /\bbusy\b/.test(e.cls) && /занято/.test(e.text)), "чужие — «занято»");
   assert.ok(evs.filter((e) => /\bbusy\b/.test(e.cls)).every((e) => !/Анна|Борис|Пробное/.test(e.text)), "без имён");
-  assert.equal(new URL(cab.url()).hash, "", "ключ убран из адресной строки");
+  assert.equal(new URL(cab.url()).hash, `#p=${key}`, "ключ остаётся в адресе — для «На экран «Домой»»");
   assert.equal(alerted, false);
   assert.deepEqual(cabErrors, []);
 
