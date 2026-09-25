@@ -7,6 +7,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -122,6 +123,7 @@ export async function openApp(opts = {}) {
     deviceScaleFactor: opts.deviceScaleFactor,
     // service worker (sw.js) выключен во всех тестах, кроме проверки установки
     serviceWorkers: opts.serviceWorkers || "block",
+    colorScheme: opts.colorScheme || "light",
   };
   // opts.persistent: обычный (не «инкогнито») профиль Chrome в отдельном
   // браузере — только так Chrome соглашается «установить приложение».
@@ -170,6 +172,17 @@ export async function openApp(opts = {}) {
     if (u.hostname === "www.gstatic.com" && u.pathname.endsWith("/firebase-app.js")) return file(path.join(STUBS, "firebase-app.js"));
     if (u.hostname === "www.gstatic.com" && u.pathname.endsWith("/firebase-firestore.js")) return file(path.join(STUBS, "firebase-firestore.js"));
     if (u.hostname === "www.gstatic.com" && u.pathname.endsWith("/firebase-auth.js")) return file(path.join(STUBS, "firebase-auth.js"));
+    if (u.hostname.startsWith("fonts.") && opts.fontDir) {
+      // Скачанные заранее шрифты Google (для скриншотов; см. tests/screens.mjs)
+      if (u.hostname === "fonts.googleapis.com") {
+        const h = crypto.createHash("sha1").update(req.url()).digest("hex").slice(0, 16);
+        const f = path.join(opts.fontDir, `css_${h}.css`);
+        if (fs.existsSync(f)) return route.fulfill({ status: 200, contentType: "text/css", body: fs.readFileSync(f, "utf8") });
+      } else {
+        const f = path.join(opts.fontDir, "gstatic", u.pathname);
+        if (fs.existsSync(f)) return route.fulfill({ status: 200, contentType: "font/woff2", body: fs.readFileSync(f) });
+      }
+    }
     if (u.hostname.startsWith("fonts.")) return route.fulfill({ status: 200, contentType: "text/css", body: "" });
     if (u.hostname === "cdn.jsdelivr.net" && u.pathname.includes("/fullcalendar@")) return file(path.join(NM, "fullcalendar/index.global.min.js"));
     if (u.hostname === "cdn.jsdelivr.net" && u.pathname.includes("/locales/ru.global")) return file(path.join(NM, "@fullcalendar/core/locales/ru.global.min.js"));

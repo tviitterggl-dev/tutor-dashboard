@@ -1,0 +1,174 @@
+/* Дизайн-система кабинетов (учитель, родитель, ученик) по стиль-гайду:
+   графит / индиго / золото / бордо / светло-серый; Spectral — заголовки,
+   Manrope — текст и интерфейс. Здесь только токены, база и общие мелочи
+   (анимации, переключатель темы); компоненты — в <style> каждой страницы.
+
+   Тема: по умолчанию как в системе; ручной выбор — <html data-theme="…">
+   (ставит theme.js). Золото — только главные кнопки и активные элементы. */
+
+:root {
+  --font-heading: "Spectral", Georgia, "Times New Roman", serif;
+  --font-body: "Manrope", "Helvetica Neue", Arial, sans-serif;
+
+  /* скругления: мелкие элементы / вложенные карточки / карточки / модалки / таблетки */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-inner: 14px;
+  --r-card: 16px;
+  --r-modal: 20px;
+  --r-pill: 999px;
+
+  /* отступы */
+  --pad-card: 20px;
+  --gap-block: 18px;
+
+  /* движение: сдержанно, 200–250 мс */
+  --dur: 220ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  /* ---- светлая тема (по умолчанию) ---- */
+  --bg: #F7F5F0;             /* кремовый — фон страницы */
+  --bg-grad: none;
+  --card-bg: #FFFFFF;        /* белый — карточки */
+  --surface-2: #FAF9F6;      /* вложенные блоки внутри карточек */
+  --text: #1C1D21;           /* графит — текст, заголовки */
+  --muted: #55585F;          /* вторичный текст */
+  --border: #E4E2DC;         /* нейтраль — границы, разделители */
+  --accent: #A9822F;         /* тёмное золото — главные кнопки, активное */
+  --accent-hover: #977329;
+  --on-accent: #FFFFFF;
+  --accent-2: #2B3A67;       /* индиго — второстепенный акцент (суммы, ссылки) */
+  --accent-soft: #EFEDE7;    /* нейтральная подложка (полосы вкладок, плитки) */
+  --indigo-soft: #E9ECF4;    /* мягкое индиго (запланировано) */
+  --today: rgba(43, 58, 103, 0.05); /* подсветка «сегодня» в календаре */
+  --maroon: #5C2A2A;         /* бордо — второй акцент */
+  --event: #2B3A67;          /* занятия в календаре */
+  --on-event: #FFFFFF;
+  --done-solid: #3E6B4B;
+  --done-bg: #EAF2EC;
+  --done-border: #C8DDCD;
+  --done-text: #35603F;
+  --pending-bg: #F6EEDC;
+  --pending-border: #E6D2A5;
+  --pending-text: #74531A;
+  --danger: #8E3434;
+  --danger-bg: #F7E8E6;
+  --danger-border: #E6C4C0;
+  --busy: #DAD8D2;
+  --shadow: 0 1px 2px rgba(28, 29, 33, 0.04), 0 8px 24px rgba(28, 29, 33, 0.06);
+  --shadow-sm: 0 1px 2px rgba(28, 29, 33, 0.05), 0 2px 8px rgba(28, 29, 33, 0.05);
+  --shadow-lg: 0 24px 60px rgba(28, 29, 33, 0.18);
+  --backdrop: rgba(28, 29, 33, 0.42);
+  --focus: 0 0 0 3px rgba(169, 130, 47, 0.28);
+  color-scheme: light;
+}
+
+/* ---- тёмная тема: по системе (если не выбрана светлая вручную) и вручную ---- */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1C1D21; --card-bg: #24262C; --surface-2: #2A2C33;
+    --text: #EDEEF0; --muted: #B8BCC4; --border: #343849;
+    --accent: #C9A24B; --accent-hover: #D5B266; --on-accent: #1C1D21;
+    --accent-2: #AEB9DE; --accent-soft: #2B2E38; --indigo-soft: #2B3A67; --today: rgba(174, 185, 222, 0.06);
+    --event: #3B4D86; --on-event: #FFFFFF;
+    --done-solid: #3F6E4E; --done-bg: #1E2A23; --done-border: #2F4A39; --done-text: #9CCBA8;
+    --pending-bg: #2D2718; --pending-border: #4C4026; --pending-text: #E3C27C;
+    --danger: #E7A49E; --danger-bg: #36201F; --danger-border: #5C2A2A;
+    --busy: #3A3D47;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 10px 30px rgba(0, 0, 0, 0.28);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2);
+    --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.55);
+    --backdrop: rgba(8, 8, 10, 0.62);
+    --focus: 0 0 0 3px rgba(201, 162, 75, 0.35);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #1C1D21; --card-bg: #24262C; --surface-2: #2A2C33;
+  --text: #EDEEF0; --muted: #B8BCC4; --border: #343849;
+  --accent: #C9A24B; --accent-hover: #D5B266; --on-accent: #1C1D21;
+  --accent-2: #AEB9DE; --accent-soft: #2B2E38; --indigo-soft: #2B3A67; --today: rgba(174, 185, 222, 0.06);
+  --event: #3B4D86; --on-event: #FFFFFF;
+  --done-solid: #3F6E4E; --done-bg: #1E2A23; --done-border: #2F4A39; --done-text: #9CCBA8;
+  --pending-bg: #2D2718; --pending-border: #4C4026; --pending-text: #E3C27C;
+  --danger: #E7A49E; --danger-bg: #36201F; --danger-border: #5C2A2A;
+  --busy: #3A3D47;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 10px 30px rgba(0, 0, 0, 0.28);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), 0 2px 8px rgba(0, 0, 0, 0.2);
+  --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.55);
+  --backdrop: rgba(8, 8, 10, 0.62);
+  --focus: 0 0 0 3px rgba(201, 162, 75, 0.35);
+  color-scheme: dark;
+}
+
+/* ---- база ---- */
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+h1, h2, h3, .heading { font-family: var(--font-heading); font-weight: 600; letter-spacing: -0.005em; }
+input, select, textarea, button { font-family: inherit; }
+a { color: var(--accent-2); }
+:focus-visible { outline: none; box-shadow: var(--focus); }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent) !important; box-shadow: var(--focus); }
+
+/* плавные состояния у всего, что нажимается */
+button, .btn, .tab, .subtab, .ctab, .mark-btn, .link-btn, .file-btn, a.btn, .contacts a, .seg button, .lesson, .student-head, .fc-button {
+  transition: background-color var(--dur) var(--ease), color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
+    transform var(--dur) var(--ease), opacity var(--dur) var(--ease);
+}
+button:not(:disabled):active, .btn:not(:disabled):active, .tab:active, .subtab:active,
+.ctab:active, .mark-btn:not(:disabled):active, .file-btn:active, .contacts a:active, .seg button:active {
+  transform: scale(0.97);
+}
+
+/* появление модалок и вкладок */
+@keyframes ds-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ds-rise { from { opacity: 0; transform: translateY(12px) scale(0.985); } to { opacity: 1; transform: none; } }
+/* вкладки — только проявление, без сдвига: элементы сразу на своих местах,
+   ввод не «уезжает» из-под пальца */
+@keyframes ds-in { from { opacity: 0; } to { opacity: 1; } }
+.modal-back { animation: ds-fade var(--dur) var(--ease); }
+.modal-back > .modal { animation: ds-rise 250ms var(--ease); }
+.tabview, .pane { animation: ds-in var(--dur) var(--ease); }
+
+/* мягкая смена цветов в момент переключения темы */
+.theme-anim, .theme-anim *, .theme-anim *::before, .theme-anim *::after {
+  transition: background-color 250ms var(--ease), color 250ms var(--ease), border-color 250ms var(--ease), fill 250ms var(--ease) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
+}
+
+/* ---- переключатель темы (вкладка «Ещё») ---- */
+.theme-switch { display: flex; align-items: center; justify-content: space-between; gap: 14px; cursor: pointer; user-select: none; }
+.theme-switch-text { display: flex; flex-direction: column; gap: 2px; }
+.theme-switch-title { font-weight: 600; font-size: 15px; color: var(--text); }
+.theme-switch-state { font-size: 12.5px; color: var(--muted); }
+.theme-switch input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.theme-switch-track {
+  position: relative; flex: none; width: 52px; height: 30px; border-radius: var(--r-pill);
+  background: var(--border); transition: background-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.theme-switch-thumb {
+  position: absolute; top: 3px; left: 3px; width: 24px; height: 24px; border-radius: 50%;
+  background: #FFFFFF; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform var(--dur) var(--ease);
+}
+.theme-switch input:checked + .theme-switch-track { background: var(--accent); }
+.theme-switch input:checked + .theme-switch-track .theme-switch-thumb { transform: translateX(22px); }
+.theme-switch input:focus-visible + .theme-switch-track { box-shadow: var(--focus); }
+.theme-system {
+  margin-top: 12px; background: none; border: none; padding: 0; cursor: pointer;
+  color: var(--muted); font-size: 12.5px; text-decoration: underline; text-underline-offset: 3px;
+}
+.theme-system[hidden] { display: none; }

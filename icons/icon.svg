@@ -1,11 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- Фон во весь квадрат: iOS и Android сами скругляют углы значка. -->
-  <rect width="512" height="512" fill="#c1621f"/>
+  <!-- Фон во весь квадрат: iOS и Android сами скругляют углы значка.
+       Палитра стиль-гайда: графит, кремовый, золото, индиго. -->
+  <rect width="512" height="512" fill="#1C1D21"/>
   <!-- Календарь с галочкой (в «безопасной зоне» ~70% для маскируемых значков) -->
-  <rect x="126" y="150" width="260" height="226" rx="30" fill="#fff8f0"/>
-  <rect x="126" y="150" width="260" height="62" rx="30" fill="#8a4a26"/>
-  <rect x="126" y="186" width="260" height="26" fill="#8a4a26"/>
-  <rect x="176" y="124" width="24" height="56" rx="12" fill="#fff8f0"/>
-  <rect x="312" y="124" width="24" height="56" rx="12" fill="#fff8f0"/>
-  <path d="M190 292 l44 42 l92 -92" fill="none" stroke="#c1621f" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="126" y="150" width="260" height="226" rx="30" fill="#F7F5F0"/>
+  <rect x="126" y="150" width="260" height="62" rx="30" fill="#C9A24B"/>
+  <rect x="126" y="186" width="260" height="26" fill="#C9A24B"/>
+  <rect x="176" y="124" width="24" height="56" rx="12" fill="#F7F5F0"/>
+  <rect x="312" y="124" width="24" height="56" rx="12" fill="#F7F5F0"/>
+  <path d="M190 292 l44 42 l92 -92" fill="none" stroke="#2B3A67" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

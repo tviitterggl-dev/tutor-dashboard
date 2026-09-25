@@ -3,8 +3,8 @@
 // Стратегия «сначала сеть»: всегда берём свежую версию с сайта, а сохранённую
 // копию отдаём, только если сети нет. Поэтому обновления приходят сразу.
 // Чужие адреса (Firebase, CDN, Cloudinary) не трогаем вообще.
-const CACHE = "tutor-shell-v1";
-const SHELL = ["./", "./index.html", "./manifest.json", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/apple-touch-icon.png"];
+const CACHE = "tutor-shell-v2";
+const SHELL = ["./", "./index.html", "./design.css", "./theme.js", "./manifest.json", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).catch(() => {}).then(() => self.skipWaiting()));
