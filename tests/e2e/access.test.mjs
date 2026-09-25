@@ -109,7 +109,8 @@ test("выдача ключа родителю → кабинет → отзыв
   assert.equal(db2[`parentAccess/${key}`], undefined);
   assert.equal(db2[`teacherSpaces/${T}/accessKeys/${key}`].active, false);
   assert.ok(db2[`teacherSpaces/${T}/accessKeys/${key}`].revokedAt);
-  assert.match(await page.textContent("table.keys"), /отозван/);
+  // отозванного доступа в списке больше нет
+  await page.waitForFunction((k) => !document.querySelector(`[data-key-item="${k}"]`), key);
   await cab.reload();
   await cab.waitForFunction(() => /доступ отозван/.test(document.body.textContent));
   assert.deepEqual(app.errors, []);
@@ -183,5 +184,54 @@ test("телефон: календарь открывается в виде «д
   await page.waitForSelector("#fcRoot .fc-timeGridDay-view");
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert.ok(overflow <= 1, "нет горизонтальной прокрутки страницы: " + overflow);
+  await app.close();
+});
+
+test("выданные доступы: только действующие; ссылку можно показать и скопировать заново в любой момент", async () => {
+  const PK = "parent_key_test_student_0000000001";
+  const PK2 = "parent_key_test_student_second_0002";
+  const SK = "student_key_test_student_000000002";
+  const OLD = "parent_key_valya_revoked_000000003";
+  const seed = (await import("./harness.mjs")).defaultSeed();
+  const k = (role, studentId, label, createdAt, active = true) => ({ role, studentId, label, createdAt, active, revokedAt: active ? null : createdAt + 1 });
+  const D = Date.parse("2026-09-20T10:00:00+03:00");
+  seed[`teacherSpaces/${T}/accessKeys/${PK}`] = k("parent", "Тест, 7 класс", "мама", D);
+  seed[`teacherSpaces/${T}/accessKeys/${PK2}`] = k("parent", "Тест, 7 класс", "папа", D + 1);
+  seed[`teacherSpaces/${T}/accessKeys/${SK}`] = k("student", "Тест, 7 класс", "", D + 2);
+  seed[`teacherSpaces/${T}/accessKeys/${OLD}`] = k("parent", "Валя, 6 класс", "Мама", D + 3, false);
+  const app = await openApp({ seed });
+  const { page } = app;
+  // подменяем буфер обмена, чтобы проверить, что именно скопировано
+  await page.evaluate(() => {
+    window.__copied = [];
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (t) => { window.__copied.push(t); } } });
+  });
+  await page.click('.tab[data-tab="students"]');
+  await page.waitForSelector(`[data-key-item="${PK}"]`);
+  const ids = await page.$$eval("[data-key-item]", (els) => els.map((e) => e.dataset.keyItem));
+  assert.deepEqual(ids.sort(), [PK, PK2, SK].sort(), "только действующие");
+  const body = await page.innerText("#accessBody");
+  assert.equal(/Валя|отозван/.test(body), false, "отозванных строк нет");
+  assert.match(await page.textContent("#accessBody .ak-title"), /Выданные доступы \(3\)/);
+
+  const base = page.url().replace(/\/index\.html.*$/, "");
+  const item = page.locator(`[data-key-item="${PK2}"]`);
+  assert.match(await item.innerText(), /папа/);
+  // «Показать ссылку»
+  assert.equal(await item.locator("[data-key-url]").isVisible(), false);
+  await item.locator("[data-key-show]").click();
+  assert.equal(await item.locator("[data-key-url]").innerText(), `${base}/cabinet.html#p=${PK2}`);
+  assert.equal(await item.locator("[data-key-show]").innerText(), "Скрыть ссылку");
+  // «Скопировать ссылку»
+  await page.locator(`[data-key-item="${SK}"] [data-key-copy]`).click();
+  await page.waitForFunction(() => window.__copied.length === 1, null, { timeout: 4000 });
+  assert.deepEqual(await page.evaluate(() => window.__copied), [`${base}/cabinet.html#s=${SK}`]);
+  assert.match(await page.locator(`[data-key-item="${SK}"] [data-key-copy]`).innerText(), /Скопировано/);
+  // Ссылка по-прежнему рабочая: кабинет открывается
+  await waitFor(async () => (await app.db())[`parentAccess/${PK2}`], "витрина второго родителя");
+  const cab = await app.context.newPage();
+  await cab.goto(`${base}/cabinet.html#p=${PK2}`);
+  await cab.waitForFunction(() => /Кабинет родителя/.test(document.body.innerText));
+  assert.deepEqual(app.errors, []);
   await app.close();
 });

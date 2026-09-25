@@ -696,6 +696,18 @@
   table.keys tr.revoked td { color: var(--muted); }
   .key-link { font-family: ui-monospace, Menlo, monospace; font-size: 11px; word-break: break-all; background: var(--accent-soft); padding: 10px; border-radius: var(--r-sm); margin: 10px 0; }
 
+  .ak-title { font-weight: 700; font-size: 11.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 22px 0 10px; }
+  .ak-item { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-inner); padding: 14px 16px; margin-bottom: 10px; }
+  .ak-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .ak-who { font-weight: 700; font-size: 14.5px; }
+  .ak-label { font-weight: 500; color: var(--muted); }
+  .ak-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .ak-role { display: inline-block; padding: 1px 9px; border-radius: var(--r-pill); background: var(--indigo-soft); color: var(--accent-2); font-weight: 700; font-size: 11px; }
+  .ak-revoke { color: var(--danger); white-space: nowrap; }
+  .ak-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .ak-actions .btn { flex: 1 1 auto; padding: 9px 10px; font-size: 12.5px; }
+  .ak-item .key-link { margin: 12px 0 0; user-select: all; -webkit-user-select: all; }
+  .key-link[hidden] { display: none; }
   .png-preview { max-width: 100%; border: 1px solid var(--border); border-radius: var(--r-md); display: block; margin: 10px 0; -webkit-touch-callout: default; }
   .lesson .edit-link { background: none; border: none; color: var(--accent-2); cursor: pointer; font-size: 12px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; padding: 0 4px; }
 
@@ -2928,14 +2940,27 @@
           ${navigator.share ? `<button class="btn secondary" type="button" data-key-share="${escHtml(fresh.id)}">Поделиться…</button>` : ""}
         </div>
       </div>` : "";
-    const rows = keys.map(k => `
-      <tr class="${k.active ? "" : "revoked"}">
-        <td>${escHtml(k.studentId)}${k.label ? `<br><span class="cls">${escHtml(k.label)}</span>` : ""}</td>
-        <td>${k.role === "parent" ? "родитель" : "ученик"}</td>
-        <td>${k.createdAt ? fmtD(k.createdAt) : "—"}</td>
-        <td>${k.active ? "активен" : "отозван" + (k.revokedAt ? " " + fmtD(k.revokedAt) : "")}</td>
-        <td>${k.active ? `<button class="link-btn" type="button" data-key-copy="${escHtml(k.id)}">ссылка</button><br><button class="link-btn" type="button" data-key-revoke="${escHtml(k.id)}">отозвать</button>` : ""}</td>
-      </tr>`).join("");
+    // Показываем только действующие доступы: у каждого ссылку можно открыть
+    // и скопировать заново в любой момент. Отозванные в списке не нужны
+    // (запись о них остаётся в базе, но ссылка уже не работает).
+    const active = keys.filter(k => k.active)
+      .sort((a, b) => String(a.studentId).localeCompare(String(b.studentId), "ru") || (a.createdAt || 0) - (b.createdAt || 0));
+    const items = active.map(k => `
+      <div class="ak-item" data-key-item="${escHtml(k.id)}">
+        <div class="ak-head">
+          <div>
+            <div class="ak-who">${escHtml(k.studentId)}${k.label ? ` · <span class="ak-label">${escHtml(k.label)}</span>` : ""}</div>
+            <div class="ak-meta"><span class="ak-role">${k.role === "parent" ? "родитель" : "ученик"}</span>${k.createdAt ? ` · выдан ${fmtD(k.createdAt)}` : ""}</div>
+          </div>
+          <button class="link-btn ak-revoke" type="button" data-key-revoke="${escHtml(k.id)}">Отозвать</button>
+        </div>
+        <div class="key-link" data-key-url hidden>${escHtml(cabinetUrl(k.role, k.id))}</div>
+        <div class="ak-actions">
+          <button class="btn" type="button" data-key-copy="${escHtml(k.id)}">Скопировать ссылку</button>
+          <button class="btn secondary" type="button" data-key-show="${escHtml(k.id)}">Показать ссылку</button>
+          ${navigator.share ? `<button class="btn secondary" type="button" data-key-share="${escHtml(k.id)}">Поделиться…</button>` : ""}
+        </div>
+      </div>`).join("");
     el.innerHTML = `
       ${freshHtml}
       <div class="field-row">
@@ -2949,8 +2974,9 @@
       <div class="field"><span>Пометка (необязательно)</span><input type="text" id="akLabel" maxlength="60" placeholder="например: мама"></div>
       <div class="btn-row"><button class="btn" type="button" id="akIssue" ${students.length ? "" : "disabled"}>Выдать доступ</button></div>
       <div class="msg" id="akMsg"></div>
-      ${keys.length ? `<div style="overflow-x:auto"><table class="keys"><thead><tr><th>Кому</th><th>Роль</th><th>Выдан</th><th>Статус</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>` : '<div class="hint">Ключей пока нет.</div>'}
-      <div class="hint">Родитель видит занятия своего ребёнка, остаток пакета, отчёты и файлы домашки, а в сетке занятости — чужие слоты как «занято» без имён. Ученик видит то же, кроме пакета. У каждого свой ключ; «отозвать» — ссылка сразу перестаёт работать. Кабинеты обновляются сами после изменений в дашборде.</div>`;
+      <div class="ak-title">Выданные доступы${active.length ? ` (${active.length})` : ""}</div>
+      ${active.length ? `<div class="ak-list">${items}</div>` : '<div class="hint" style="margin-top:0">Действующих доступов пока нет.</div>'}
+      <div class="hint">Родитель видит занятия своего ребёнка, остаток пакета, отчёты и файлы домашки, а в сетке занятости — чужие слоты как «занято» без имён. Ученик видит то же, кроме пакета. У каждого свой ключ; ссылку любого действующего доступа можно в любой момент показать или скопировать заново (например, для второго родителя). «Отозвать» — ссылка сразу перестаёт работать и пропадает из списка. Кабинеты обновляются сами после изменений в дашборде.</div>`;
   }
 
   $("accessBody").addEventListener("click", async (e) => {
@@ -2987,6 +3013,25 @@
       if (!k) return;
       const ok = await copyText(cabinetUrl(k.role, k.id));
       msg(ok ? "Ссылка скопирована" : "Не удалось скопировать — выдели ссылку вручную", ok ? "ok" : "err");
+      const item = copyBtn.closest(".ak-item");
+      if (item) {
+        // отклик прямо на кнопке (сообщение наверху карточки на телефоне не видно)
+        if (ok) {
+          copyBtn.textContent = "Скопировано ✓";
+          setTimeout(() => { if (copyBtn.isConnected) copyBtn.textContent = "Скопировать ссылку"; }, 2000);
+        } else {
+          const show = item.querySelector("[data-key-show]");
+          if (show && item.querySelector("[data-key-url]").hidden) show.click(); // покажем — скопировать вручную
+        }
+      }
+      return;
+    }
+    const showBtn = e.target.closest("[data-key-show]");
+    if (showBtn) {
+      const box = showBtn.closest(".ak-item").querySelector("[data-key-url]");
+      box.hidden = !box.hidden;
+      showBtn.textContent = box.hidden ? "Показать ссылку" : "Скрыть ссылку";
+      if (!box.hidden) { const r = document.createRange(); r.selectNodeContents(box); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); }
       return;
     }
     const shareBtn = e.target.closest("[data-key-share]");
