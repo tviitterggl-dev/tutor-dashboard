@@ -145,6 +145,10 @@
   .mark-btn.paid-btn.paid { background: var(--done-bg); border: 2px solid var(--done-solid); color: var(--done-text); font-weight: 700; }
   .pkg-note { font-size: 13px; font-weight: 700; color: var(--pending-text); background: var(--pending-bg); border: 1px solid var(--pending-border); border-radius: var(--r-md); padding: 10px 14px; margin-top: 10px; }
   .pkg-note.over { color: var(--danger); background: var(--danger-bg); border-color: var(--danger-border); }
+  .lesson.next { background: var(--card-bg); border: 2px solid var(--accent); box-shadow: var(--shadow); }
+  .next-label { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin-bottom: 6px; }
+  .lesson-links { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+  .note-line { font-size: 13px; margin-top: 8px; color: var(--text); white-space: pre-wrap; }
   .call-link { display: inline-block; margin-top: 8px; font-size: 13px; font-weight: 700; color: var(--accent-2); }
   .forget { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: var(--r-pill); padding: 9px 16px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
   .forget:hover { color: var(--danger); border-color: var(--danger-border); }
@@ -356,7 +360,9 @@
       view = snap.data();
       const list = loadSaved();
       const me = list.find((x) => x.key === entry.key);
-      if (me && me.studentId !== view.studentId) { me.studentId = view.studentId; saveSaved(list); }
+      // для переключателя детей: «Имя Фамилия, N класс», если фамилия есть
+      const lbl = view.studentLabel || view.studentId;
+      if (me && me.studentId !== lbl) { me.studentId = lbl; saveSaved(list); }
       // Каналы могут смениться (после отзыва чужого доступа) — переподписываемся.
       // Старую подписку обязательно отключаем: иначе опустевший старый канал
       // затрёт данные нового.
@@ -419,6 +425,18 @@
     });
     return list.filter((h) => safeUrl(h.url));
   }
+  // «Пояснение» к занятию от родителя/ученика: последнее из канала (видно
+  // сразу) или уже перенесённое учителем в занятие — что новее.
+  function noteOf(l) {
+    const items = shared.filter((i) => i.type === "note" && i.lessonId === l.id).sort((a, b) => a.createdAt - b.createdAt);
+    const latest = items[items.length - 1];
+    const saved = l.familyNote || null;
+    if (latest && (!saved || latest.createdAt >= (saved.at || 0))) return { text: latest.comment || "", by: latest.by, at: latest.createdAt };
+    return saved && saved.text ? saved : null;
+  }
+  const canNote = (l) => l.status === "planned" && l.endMs >= Date.now() && !!view.channel;
+  const httpUrl = (u) => (typeof u === "string" && /^https?:\/\//i.test(u) ? u : null);
+
   function paidOf(l) {
     if (current.role !== "parent") return null;
     const items = parentItems.filter((i) => i.type === "paid" && i.lessonId === l.id).sort((a, b) => a.createdAt - b.createdAt);
@@ -437,15 +455,27 @@
     return `<div class="pills">${pills.join("")}</div>`;
   }
 
-  function lessonCard(l, now) {
+  // rank: 0 — ближайшее занятие (выделено), 1 — следующее за ним; только у
+  // них ссылки «Подключиться» и «Доска», у остальных в списке — нет.
+  function lessonCard(l, now, rank) {
     const files = homeworkOf(l);
+    const note = noteOf(l);
+    const live = l.startMs <= now && l.endMs >= now;
+    const links = rank === 0 || rank === 1;
+    const call = links && l.status === "planned" && l.endMs >= now ? httpUrl(l.callUrl) : null;
+    const board = links && l.status === "planned" && l.endMs >= now ? httpUrl(view.boardUrl) : null;
     return `
-      <div class="lesson" data-lesson="${esc(l.id || "")}">
+      <div class="lesson${rank === 0 ? " next" : ""}" data-lesson="${esc(l.id || "")}">
+        ${rank === 0 ? `<div class="next-label">${live ? "Идёт сейчас" : "Ближайшее занятие"}</div>` : ""}
         <div class="lesson-top">
           <div class="lesson-when">${esc(fmtWhen(l.startMs, l.endMs))}${l.pkg ? ` · ${esc(l.pkg)}` : ""}</div>
           ${lessonPills(l, now)}
         </div>
-        ${l.callUrl && /^https?:\/\//i.test(l.callUrl) && l.status === "planned" && l.endMs >= now ? `<a class="call-link" href="${esc(l.callUrl)}" target="_blank" rel="noopener noreferrer">Подключиться к занятию →</a>` : ""}
+        ${call || board ? `<div class="lesson-links">
+          ${call ? `<a class="call-link" href="${esc(call)}" target="_blank" rel="noopener noreferrer">Подключиться к занятию →</a>` : ""}
+          ${board ? `<a class="call-link board-link" href="${esc(board)}" target="_blank" rel="noopener noreferrer">Доска →</a>` : ""}
+        </div>` : ""}
+        ${note && note.text ? `<div class="note-line"><span class="who">Пояснение:</span> ${esc(note.text.length > 140 ? note.text.slice(0, 140) + "…" : note.text)}</div>` : ""}
         ${l.report ? `<div class="report">${esc(l.report)}</div>` : ""}
         ${files.length ? `<ul class="files">${files.map((h) => `<li><a href="${esc(h.url)}" target="_blank" rel="noopener noreferrer">${esc(h.name || "файл")}</a> <span class="who">(${esc(ROLE[h.by] || ROLE.teacher)})</span></li>`).join("")}</ul>` : ""}
       </div>`;
@@ -515,7 +545,7 @@
         <button type="button" data-filter="upcoming" class="${lessonsFilter === "upcoming" ? "active" : ""}">Ближайшие (${upcoming.length})</button>
         <button type="button" data-filter="past" class="${lessonsFilter === "past" ? "active" : ""}">История (${past.length})</button>
       </div>
-      ${list.length ? list.map((l) => lessonCard(l, now)).join("") : `<div class="empty">${lessonsFilter === "upcoming" ? "Запланированных занятий нет" : "Пока пусто"}</div>`}
+      ${list.length ? list.map((l, i) => lessonCard(l, now, lessonsFilter === "upcoming" ? i : -1)).join("") : `<div class="empty">${lessonsFilter === "upcoming" ? "Запланированных занятий нет" : "Пока пусто"}</div>`}
       ${lessonsFilter === "past" && past.length > pastLimit ? '<button class="more" type="button" id="more">Показать ещё</button>' : ""}
     </div>`;
     const pane = $("pane-lessons");
@@ -615,7 +645,7 @@
     const now = Date.now();
     const v = view;
     $("title").textContent = v.role === "parent" ? "Кабинет родителя" : "Кабинет ученика";
-    $("subtitle").textContent = v.studentId || "";
+    $("subtitle").textContent = v.studentLabel || v.studentId || "";
     const upd = v.generatedAt ? new Date(v.generatedAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
     $("updatedAt").textContent = `Расписание обновлено: ${upd}`;
     setPanesVisible(true);
@@ -847,6 +877,7 @@
   // сейчас что-то вводит (формы переноса/отмены).
   function refreshModal(force) {
     if (!force && mq("#reqForm") && mq("#reqForm").style.display !== "none") return;
+    if (!force && mq("#mNote") && (document.activeElement === mq("#mNote") || mq("#mNote").value !== mq("#mNote").defaultValue)) return;
     const l = lessonById(openLessonId);
     if (!l) { closeModal(); return; }
     const now = Date.now();
@@ -883,13 +914,24 @@
       <div class="section"><button class="mark-btn paid-btn ${paid ? "paid" : ""}" type="button" id="mPaid" aria-pressed="${paid ? "true" : "false"}">${paid ? "✓ Оплачено (снять)" : "Отметить оплату"}</button>
         <div class="hint">Просто отметка — её сразу видит преподаватель. Деньги через сайт не передаются.</div></div>` : "";
 
-    const callOk = l.callUrl && /^https?:\/\//i.test(l.callUrl) && (l.status === "planned" || l.status === "done");
-    const callHtml = callOk ? `<div class="section"><div class="section-title">Созвон</div>
-        <a class="btn" id="mCall" href="${esc(l.callUrl)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none; display:inline-block">Подключиться к занятию</a></div>` : "";
+    const call = (l.status === "planned" || l.status === "done") ? httpUrl(l.callUrl) : null;
+    const board = l.status !== "cancelled" && l.status !== "rescheduled" ? httpUrl(view.boardUrl) : null;
+    const callHtml = call || board ? `<div class="section"><div class="section-title">Созвон и доска</div>
+        <div class="btn-row" style="margin-top:0">
+          ${call ? `<a class="btn" id="mCall" href="${esc(call)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none; display:inline-block">Подключиться к занятию</a>` : ""}
+          ${board ? `<a class="btn secondary" id="mBoard" href="${esc(board)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none; display:inline-block">Открыть доску</a>` : ""}
+        </div></div>` : "";
+    const note = noteOf(l);
+    const noteHtml = canNote(l) ? `<div class="section"><div class="section-title">Пояснение к занятию</div>
+        <div class="field" style="margin-bottom:0"><textarea id="mNote" maxlength="1000" placeholder="Пожелания, вопросы, что разобрать, ссылки на материалы…">${esc(note ? note.text : "")}</textarea></div>
+        <div class="btn-row"><button class="btn secondary" type="button" id="mNoteSave">Сохранить пояснение</button></div>
+        <div class="hint">${note && note.text ? `Последняя правка: ${esc(ROLE[note.by] || "—")}${note.at ? ", " + esc(fmtStamp(note.at)) : ""}. ` : ""}Увидят преподаватель и ${current.role === "parent" ? "ученик" : "родитель"}.</div></div>`
+      : note && note.text ? `<div class="section"><div class="section-title">Пояснение к занятию</div><div class="report" style="margin-top:0">${esc(note.text)}</div></div>` : "";
     openModal(`
       <h2>${esc(fmtWhen(l.startMs, l.endMs))}</h2>
       <div class="meta">${l.pkg ? `Занятие ${esc(l.pkg)} · ` : ""}${lessonPills(l, now)}</div>
       ${callHtml}
+      ${noteHtml}
       ${l.report ? `<div class="section"><div class="section-title">Отчёт преподавателя</div><div class="report" style="margin-top:0">${esc(l.report)}</div></div>` : ""}
       <div class="section"><div class="section-title">Домашнее задание</div>
         ${files.length ? `<ul class="files">${files.map((h) => `<li><a href="${esc(h.url)}" target="_blank" rel="noopener noreferrer">${esc(h.name || "файл")}</a> <span class="who">(${esc(ROLE[h.by] || ROLE.teacher)})</span></li>`).join("")}</ul>` : '<div class="hint" style="margin-top:0">Файлов пока нет.</div>'}
@@ -941,6 +983,22 @@
           btn.disabled = false;
           msg(errText(err, "Не удалось отправить. Проверьте интернет и попробуйте ещё раз."), "err");
         }
+      });
+    }
+    if (mq("#mNoteSave")) {
+      mq("#mNoteSave").addEventListener("click", async (e) => {
+        const text = mq("#mNote").value.trim().slice(0, 1000);
+        const cur = noteOf(l);
+        if (text === ((cur && cur.text) || "")) { msg("Изменений нет."); return; }
+        e.currentTarget.disabled = true;
+        try {
+          await addItem(view.channel, { type: "note", lessonId: l.id, by: current.role, createdAt: Date.now(), comment: text });
+          modalNote = [text ? "Пояснение сохранено — преподаватель его увидит." : "Пояснение убрано.", "ok"];
+        } catch (err) {
+          modalNote = [errText(err, "Не сохранилось — проверьте интернет."), "err"];
+        }
+        refreshModal(true);
+        renderLessonsPane(Date.now());
       });
     }
     if (mq("#mPaid")) {

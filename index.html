@@ -176,6 +176,17 @@
         const snap = await getDocs(query(collection(db, "teacherSpaces", teacherId, "requests"), where("decidedAt", ">=", sinceMs), orderBy("decidedAt")));
         return snap.docs.map((d) => Object.assign({ id: d.id }, d.data()));
       },
+      // Резервная копия: всё хозяйство учителя целиком (для кнопки «Скачать»).
+      async exportAll() {
+        const all = async (col) => (await getDocs(col)).docs.map((d) => Object.assign({ id: d.id }, d.data()));
+        const stateSnap = await getDoc(stateRef);
+        return {
+          state: stateSnap.exists() ? stateSnap.data() : null,
+          lessons: await all(lessonsCol),
+          accessKeys: await all(keysCol),
+          requests: await all(collection(db, "teacherSpaces", teacherId, "requests")),
+        };
+      },
     };
   }
 
@@ -727,6 +738,8 @@
   .req .warn { color: var(--danger); font-size: 12px; margin: 6px 0; }
   .req .btn-row { margin: 12px 0 0; }
   .paid-tag { display: inline-block; font-size: 11px; font-weight: 700; color: var(--done-text); background: var(--done-bg); border: 1px solid var(--done-border); border-radius: var(--r-pill); padding: 2px 9px; margin-left: 6px; vertical-align: 1px; }
+  .note-tag { color: var(--accent-2); background: var(--indigo-soft); border-color: transparent; }
+  .family-note { white-space: pre-wrap; font-size: 14px; line-height: 1.5; background: var(--indigo-soft); border-radius: var(--r-sm); padding: 10px 12px; }
   .auth-form { display: flex; flex-direction: column; gap: 10px; max-width: 340px; margin: 0 auto; }
   .auth-form .pkg-input { font-size: 15px; padding: 12px; }
   .auth-links { display: flex; flex-direction: column; gap: 10px; align-items: center; margin-top: 14px; }
@@ -937,7 +950,7 @@
       <div class="card">
         <div class="chart-title">Ученики</div>
         <div id="studentsRosterList"><div class="empty">Загрузка…</div></div>
-        <div class="hint">Нажми на ученика — там постоянная ссылка на созвон, ссылка на материалы/доступ и заметки. Ссылка на созвон сама подставляется в каждое занятие ученика (для одного занятия её можно заменить в карточке занятия) и видна родителю и ученику в их кабинетах. Заметки и ссылку на материалы видишь только ты.</div>
+        <div class="hint">Нажми на ученика — там постоянная ссылка на созвон, ссылка на материалы/доступ и заметки. Ссылка на созвон сама подставляется в каждое занятие ученика (для одного занятия её можно заменить в карточке занятия) и видна родителю и ученику в их кабинетах. Ссылка на доску/материалы тоже видна им — кнопкой «Доска» у ближайших занятий. Заметки видишь только ты.</div>
       </div>
       <div class="card">
         <div class="chart-title">Пакеты (предоплата)</div>
@@ -948,6 +961,7 @@
         <div id="pkgAddForm" style="display:none; margin-top:8px;">
           <div style="display:flex; gap:6px; margin-bottom:6px;">
             <input type="text" class="pkg-input" id="pkgAddName" placeholder="Имя" style="flex:2">
+            <input type="text" class="pkg-input" id="pkgAddSurname" placeholder="Фамилия (необяз.)" style="flex:2">
             <input type="number" class="pkg-input" id="pkgAddCls" placeholder="Класс" style="flex:1">
           </div>
           <div style="display:flex; gap:6px; margin-bottom:6px;">
@@ -993,8 +1007,17 @@
       </div>
     </div>
 
-    <!-- ЕЩЁ: оформление -->
+    <!-- ЕЩЁ: резервная копия, оформление -->
     <div class="tabview" id="view-more" style="display:none">
+      <div class="card">
+        <div class="chart-title">Резервная копия</div>
+        <div class="btn-row" style="margin-bottom:0">
+          <button class="btn" type="button" id="backupJsonBtn">Скачать резервную копию данных</button>
+          <button class="btn secondary" type="button" id="backupCsvBtn">Занятия для Excel (CSV)</button>
+        </div>
+        <div class="msg" id="backupMsg"></div>
+        <div class="hint">«Резервная копия» — один файл со всем: занятия (с отчётами, ДЗ, оплатой, пояснениями), ученики и ставки, отметки «Провёл», пакеты, доступы родителей/учеников и история заявок. Из него при необходимости всё можно восстановить. Раз в месяц достаточно нажать и сохранить файл (в «Файлы» на iPhone, на диск, себе в почту). В файле есть ссылки-ключи доступа родителей — не пересылай его посторонним. «Для Excel» — просто таблица занятий, чтобы посмотреть глазами.</div>
+      </div>
       <div class="card">
         <div class="chart-title">Оформление</div>
         <div id="themeToggle"></div>
@@ -1299,22 +1322,77 @@
     return { start: prevStart, end: prevEnd, label: "" };
   }
 
+  // Ученик = «Имя, N класс» или, если при добавлении указали фамилию,
+  // «Имя Фамилия, N класс» — так можно завести двух «Маш, 7 класс».
+  // Занятия называются «Имя N класс …» / «Имя Фамилия N класс …».
+  // У старых учеников фамилия (если есть) — только для показа, в названия
+  // занятий и в идентификатор она не входит.
+  function makeStudentId(name, cls, surname) { return `${name}${surname ? " " + surname : ""}, ${cls} класс`; }
+  function splitStudentId(id) {
+    const m = String(id || "").match(/^([А-ЯЁа-яё]+)(?:\s+([А-ЯЁа-яё][А-ЯЁа-яё-]*))?,\s*(\d{1,2})\s*класс$/u);
+    return m ? { name: m[1], surname: m[2] || "", cls: parseInt(m[3], 10) } : null;
+  }
+  // Профиль по идентификатору без учёта регистра («сева 7 класс» → «Сева, 7 класс»).
+  function profileIdCI(id) {
+    const profs = remoteState.studentProfiles || {};
+    if (profs[id]) return id;
+    const want = String(id).toLowerCase();
+    return Object.keys(profs).find(k => k.toLowerCase() === want) || null;
+  }
   function parseLesson(summary) {
-    const m = (summary || "").match(/^([А-ЯЁа-яё]+)\s+(\d{1,2})\s*класс/iu);
+    const s = summary || "";
+    // «Имя Фамилия N класс» — только если такой ученик с фамилией заведён
+    // (иначе «Мама Маши 7 класс» и т.п. не превратятся в «ученика»).
+    const two = s.match(/^([А-ЯЁа-яё]+)\s+([А-ЯЁа-яё][А-ЯЁа-яё-]*)\s+(\d{1,2})\s*класс/iu);
+    if (two) {
+      const pid = profileIdCI(makeStudentId(two[1], parseInt(two[3], 10), two[2]));
+      const sp = pid && splitStudentId(pid);
+      if (sp && sp.surname) return Object.assign(sp, { prefixLen: two[0].length });
+    }
+    const m = s.match(/^([А-ЯЁа-яё]+)\s+(\d{1,2})\s*класс/iu);
     if (!m) return null;
-    return { name: m[1], cls: parseInt(m[2], 10) };
+    return { name: m[1], surname: "", cls: parseInt(m[2], 10), prefixLen: m[0].length };
+  }
+  // Как показывать ученика: «Имя Фамилия, N класс» (фамилия — если заполнена).
+  function studentLabel(id) {
+    if (!id) return "";
+    const pid = profileIdCI(id);
+    const p = pid ? (remoteState.studentProfiles || {})[pid] : null;
+    const sp = splitStudentId(pid || id);
+    if (!sp) return String(id);
+    const surname = sp.surname || (p && p.surname) || "";
+    return `${(p && p.name) || sp.name}${surname ? " " + surname : ""}, ${sp.cls} класс`;
+  }
+  // Название занятия для показа: «Маша 7 класс 3/8» → «Маша Иванова 7 класс 3/8»,
+  // если у ученика заполнена фамилия (само название в базе не меняется).
+  function displayTitle(title) {
+    const parsed = parseLesson(title);
+    if (!parsed || parsed.surname) return title || "";
+    const pid = profileIdCI(makeStudentId(parsed.name, parsed.cls, ""));
+    const surname = pid && (remoteState.studentProfiles || {})[pid] ? (remoteState.studentProfiles || {})[pid].surname : "";
+    if (!surname) return title;
+    return `${parsed.name} ${surname} ${parsed.cls} класс` + String(title).slice(parsed.prefixLen);
   }
   // Ставка — из профиля ученика (вкладка «Ученики»). Имя сравниваем без
   // учёта регистра: в названиях занятий бывает «сева 7 класс».
-  function findRate(name, cls) {
+  function findRate(name, cls, surname) {
     const profs = remoteState.studentProfiles || {};
-    const nlow = name.toLowerCase();
-    const p = Object.values(profs).find(x => x && x.name && !x.hidden && x.name.toLowerCase() === nlow && Number(x.cls) === cls);
+    let p;
+    if (surname) {
+      const pid = profileIdCI(makeStudentId(name, cls, surname));
+      p = pid ? profs[pid] : null;
+      if (p && p.hidden) p = null;
+    } else {
+      // ученик без фамилии в идентификаторе (у «Маши Ивановой» — своя ставка)
+      const nlow = name.toLowerCase();
+      const hit = Object.entries(profs).find(([k, x]) => x && x.name && !x.hidden && x.name.toLowerCase() === nlow && Number(x.cls) === cls && !(splitStudentId(k) || {}).surname);
+      p = hit ? hit[1] : null;
+    }
     return p && typeof p.rate === "number" ? p.rate : null;
   }
   function studentKey(ev) {
     const parsed = parseLesson(ev.summary || "");
-    return parsed ? `${parsed.name}, ${parsed.cls} класс` : (ev.summary || "Без названия");
+    return parsed ? makeStudentId(parsed.name, parsed.cls, parsed.surname) : (ev.summary || "Без названия");
   }
   // Номер занятия в пакете: заголовок вида "Имя 7 класс 3/8" -> {current:3, total:8}
   function parsePackage(summary) {
@@ -1334,7 +1412,7 @@
     if (m.overrideAmount != null) return m.overrideAmount;
     if (m.marked && m.lockedRate != null) return m.lockedRate;
     const parsed = parseLesson(ev.summary || "");
-    return parsed ? findRate(parsed.name, parsed.cls) : null;
+    return parsed ? findRate(parsed.name, parsed.cls, parsed.surname) : null;
   }
 
   function setBadge(el, text, cls) {
@@ -1380,7 +1458,7 @@
   }
   function studentIdFromTitle(title) {
     const parsed = parseLesson(title || "");
-    return parsed ? `${parsed.name}, ${parsed.cls} класс` : null;
+    return parsed ? makeStudentId(parsed.name, parsed.cls, parsed.surname) : null;
   }
   // Полная запись занятия для Firestore (поля из плана платформы: date,
   // time, studentId, status, packageId, recurrenceId + служебные).
@@ -1466,7 +1544,7 @@
     if (!wasMarked) {
       if (overrideAmount == null) {
         const parsed = parseLesson(ev.summary || "");
-        lockedRate = parsed ? findRate(parsed.name, parsed.cls) : null;
+        lockedRate = parsed ? findRate(parsed.name, parsed.cls, parsed.surname) : null;
       }
     }
 
@@ -1534,7 +1612,7 @@
       const start = new Date(ev.start.dateTime || ev.start.date);
       const end = ev.end ? new Date(ev.end.dateTime || ev.end.date) : null;
       const parsed = parseLesson(ev.summary || "");
-      const baseRate = parsed ? findRate(parsed.name, parsed.cls) : null;
+      const baseRate = parsed ? findRate(parsed.name, parsed.cls, parsed.surname) : null;
       const mark = marks[ev.id] || { marked: false, overrideAmount: null, lockedRate: null };
       const effectiveAmount = effectiveAmountFor(ev, mark);
       const canMark = effectiveAmount != null && !Number.isNaN(effectiveAmount);
@@ -1548,13 +1626,13 @@
       const dayStr = fmtDayLabel(start);
 
       const nameHtml = parsed
-        ? `${parsed.name}, ${parsed.cls} класс` + (baseRate == null && !mark.marked ? ' <span class="unmatched">(ставка не найдена)</span>' : "")
+        ? escHtml(studentLabel(makeStudentId(parsed.name, parsed.cls, parsed.surname))) + (baseRate == null && !mark.marked ? ' <span class="unmatched">(ставка не найдена)</span>' : "")
         : `${escHtml(ev.summary || "Без названия")} <span class="unmatched">(не распознано)</span>`;
 
       row.innerHTML = `
         <div class="lesson-top">
           <div class="lesson-name">${nameHtml}</div>
-          <div class="lesson-when">${dayStr}, ${timeStr}${ev._lesson && ev._lesson.paid && ev._lesson.paid.value ? '<span class="paid-tag">оплачено</span>' : ""}${ev._lesson && callLinkFor(ev._lesson) ? ` <a class="edit-link" href="${escHtml(callLinkFor(ev._lesson).url)}" target="_blank" rel="noopener">созвон</a>` : ""}${ev._lesson ? ' <button class="edit-link" type="button">изменить</button>' : ""}</div>
+          <div class="lesson-when">${dayStr}, ${timeStr}${ev._lesson && ev._lesson.paid && ev._lesson.paid.value ? '<span class="paid-tag">оплачено</span>' : ""}${ev._lesson && ev._lesson.familyNote && ev._lesson.familyNote.text ? '<span class="paid-tag note-tag" title="Есть пояснение от родителя/ученика">пояснение</span>' : ""}${ev._lesson && callLinkFor(ev._lesson) ? ` <a class="edit-link" href="${escHtml(callLinkFor(ev._lesson).url)}" target="_blank" rel="noopener">созвон</a>` : ""}${ev._lesson ? ' <button class="edit-link" type="button">изменить</button>' : ""}</div>
         </div>
         <div class="lesson-bottom">
           <div class="rate-field">
@@ -1729,7 +1807,7 @@
       head.className = "student-head";
       head.innerHTML = `
         <div>
-          <div class="name">${key}</div>
+          <div class="name">${escHtml(studentLabel(key))}</div>
           <div class="agg">${s.count} зан. · ${fmtHours(s.minutes / 60)} ч · ${s.sum.toLocaleString("ru-RU")} ₽</div>
         </div>
         <div class="chev">▸</div>
@@ -1773,7 +1851,7 @@
     const p = (n) => String(n).padStart(2, "0");
     const dates = (list) => list.sort((a, b) => a.start - b.start).map(x => `${p(x.start.getDate())}.${p(x.start.getMonth() + 1)}`).join(", ");
     const sum = (list) => list.reduce((t, x) => t + x.amount, 0);
-    const line = (r, list) => `<div class="session-row"><span class="when">${escHtml(r.key)}</span><span>${list.length} зан. · <b>${sum(list).toLocaleString("ru-RU")} ₽</b><br><span class="cls">${escHtml(dates(list))}</span></span></div>`;
+    const line = (r, list) => `<div class="session-row"><span class="when">${escHtml(studentLabel(r.key))}</span><span>${list.length} зан. · <b>${sum(list).toLocaleString("ru-RU")} ₽</b><br><span class="cls">${escHtml(dates(list))}</span></span></div>`;
     const unpaid = rows.filter(r => r.unpaid.length);
     const paid = rows.filter(r => r.paid.length);
     el.innerHTML = `
@@ -1793,7 +1871,7 @@
     const keys = Object.keys(stats.byStudent).sort((a, b) => stats.byStudent[b].sum - stats.byStudent[a].sum);
     keys.forEach(key => {
       const s = stats.byStudent[key];
-      lines.push(`${key}: ${s.count} зан., ${fmtHours(s.minutes / 60)} ч, ${s.sum.toLocaleString("ru-RU")} ₽`);
+      lines.push(`${studentLabel(key)}: ${s.count} зан., ${fmtHours(s.minutes / 60)} ч, ${s.sum.toLocaleString("ru-RU")} ₽`);
     });
     return lines.join("\n");
   }
@@ -1970,7 +2048,7 @@
 
       const activeCycle = cycles[cycles.length - 1];
       const total = Math.max(...activeCycle.map(i => i.pkg.total));
-      const rate = findRate(activeCycle[0].parsed.name, activeCycle[0].parsed.cls);
+      const rate = findRate(activeCycle[0].parsed.name, activeCycle[0].parsed.cls, activeCycle[0].parsed.surname);
 
       let doneCount = 0, doneSum = 0;
       activeCycle.forEach(item => {
@@ -2013,8 +2091,8 @@
 
       let rate = base ? base.rate : null;
       if (rate == null) {
-        const m = key.match(/^(.+?),\s*(\d+)\s*класс$/u);
-        if (m) rate = findRate(m[1], parseInt(m[2], 10));
+        const sp = splitStudentId(key);
+        if (sp) rate = findRate(sp.name, sp.cls, sp.surname);
       }
       const doneSum = ov.doneOverride != null
         ? (rate != null ? doneCount * rate : 0)
@@ -2050,7 +2128,7 @@
     const ending = packages.filter(p => pkgEnding(p));
     const el = $("pkgAlert");
     el.style.display = ending.length ? "block" : "none";
-    el.textContent = ending.length ? "Пакет заканчивается: " + ending.map(p => `${p.key} (${pkgEnding(p).short})`).join(", ") : "";
+    el.textContent = ending.length ? "Пакет заканчивается: " + ending.map(p => `${studentLabel(p.key)} (${pkgEnding(p).short})`).join(", ") : "";
   }
   let pkgAlertTimer = null;
   function refreshPackageAlertsSoon() {
@@ -2086,7 +2164,7 @@
       return `
         <div class="pkg-card${ending ? " " + ending.cls : ""}" data-key="${escAttr(p.key)}">
           <div class="pkg-head">
-            <div class="pkg-name">${escHtml(p.key)}${p.isManual ? ' <span class="unmatched">(вручную)</span>' : ""}</div>
+            <div class="pkg-name">${escHtml(studentLabel(p.key))}${p.isManual ? ' <span class="unmatched">(вручную)</span>' : ""}</div>
             <div class="pkg-progress-text">${p.doneCount} из ${p.total}, осталось ${p.remaining}</div>
           </div>
           ${ending ? `<div class="pkg-ending">${escHtml(ending.text)}</div>` : ""}
@@ -2114,7 +2192,7 @@
 
     const hiddenHtml = hiddenKeys.length ? `
       <div class="hint" style="margin-top:2px">Скрытые пакеты:
-        ${hiddenKeys.map(k => `<button type="button" class="pkg-unhide-btn" data-key="${escAttr(k)}" style="background:none;border:none;color:var(--accent-2);text-decoration:underline;cursor:pointer;font-size:11.5px;padding:0 4px;">${k} ×</button>`).join("")}
+        ${hiddenKeys.map(k => `<button type="button" class="pkg-unhide-btn" data-key="${escAttr(k)}" style="background:none;border:none;color:var(--accent-2);text-decoration:underline;cursor:pointer;font-size:11.5px;padding:0 4px;">${escHtml(studentLabel(k))} ×</button>`).join("")}
       </div>` : "";
 
     list.innerHTML = cardsHtml + emptyHtml + hiddenHtml;
@@ -2201,15 +2279,20 @@
   });
   $("pkgAddCancelBtn").addEventListener("click", () => { $("pkgAddForm").style.display = "none"; });
   $("pkgAddSaveBtn").addEventListener("click", () => {
-    const name = $("pkgAddName").value.trim();
+    const nameRaw = $("pkgAddName").value.trim();
+    const name = nameRaw ? nameRaw[0].toUpperCase() + nameRaw.slice(1) : "";
+    const surnameRaw = $("pkgAddSurname").value.trim();
     const cls = parseInt($("pkgAddCls").value, 10);
     const total = parseInt($("pkgAddTotal").value, 10) || 8;
     const done = parseInt($("pkgAddDone").value, 10) || 0;
     if (!name || Number.isNaN(cls)) { alert("Укажи имя и класс"); return; }
-    const key = `${name}, ${cls} класс`;
+    if (surnameRaw && !SURNAME_RE.test(surnameRaw)) { alert("Фамилия — одним словом, русскими буквами"); return; }
+    // С фамилией — отдельный пакет («Маша Иванова, 7 класс»), без — как раньше.
+    const key = makeStudentId(name, cls, fixSurname(surnameRaw));
+    if (packageOverrides[key] && packageOverrides[key].manual && !packageOverrides[key].hidden) { alert("Такой пакет уже есть. Если это другой ученик с тем же именем — укажи фамилию."); return; }
     packageOverrides[key] = { manual: true, totalOverride: total, doneOverride: done, hidden: false };
     savePackageOverride(key);
-    $("pkgAddName").value = ""; $("pkgAddCls").value = ""; $("pkgAddTotal").value = "8"; $("pkgAddDone").value = "0";
+    $("pkgAddName").value = ""; $("pkgAddSurname").value = ""; $("pkgAddCls").value = ""; $("pkgAddTotal").value = "8"; $("pkgAddDone").value = "0";
     $("pkgAddForm").style.display = "none";
     rerenderPackages();
   });
@@ -2230,16 +2313,24 @@
   }
 
   // Все ученики = профили с именем и классом (удалённые не показываем).
+  // id — ключ профиля («Имя, N класс» или «Имя Фамилия, N класс»);
+  // idSurname — фамилия, входящая в id (и в названия занятий);
+  // surname — фамилия для показа (из id или просто заполненная в профиле).
   function studentList() {
-    return Object.values(studentProfiles())
-      .filter(p => p && p.name && p.cls && !p.hidden)
-      .map(p => ({ name: p.name, surname: p.surname || "", cls: Number(p.cls), rate: typeof p.rate === "number" ? p.rate : null }))
-      .sort((a, b) => a.name.localeCompare(b.name, "ru") || a.cls - b.cls);
+    return Object.entries(studentProfiles())
+      .filter(([, p]) => p && p.name && p.cls && !p.hidden)
+      .map(([id, p]) => {
+        const idSurname = (splitStudentId(id) || {}).surname || "";
+        return { id, name: p.name, idSurname, surname: idSurname || p.surname || "", cls: Number(p.cls), rate: typeof p.rate === "number" ? p.rate : null };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, "ru") || a.cls - b.cls || a.surname.localeCompare(b.surname, "ru"));
   }
+  // Начало названия занятия для ученика: «Маша 7 класс» / «Маша Иванова 7 класс».
+  const titleBaseOf = (st) => `${st.name}${st.idSurname ? " " + st.idSurname : ""} ${st.cls} класс`;
 
   function rosterStudents() {
     return studentList().map(st => ({
-      id: `${st.name}, ${st.cls} класс`,
+      id: st.id,
       label: `${st.name}${st.surname ? " " + st.surname : ""}`,
       cls: st.cls,
       rate: st.rate,
@@ -2251,8 +2342,8 @@
   // при этом стиралось бы. Перед перерисовкой запоминаем изменённые поля
   // (значение ≠ исходному), фокус и курсор, после — возвращаем. Если данные
   // поля успели измениться (например, только что сохранили) — берём новые.
-  const PF_FIELDS = [".pf-cls", ".pf-rate", ".pf-call", ".pf-access", ".pf-notes"];
-  const ADD_FIELDS = ["#stAddName", "#stAddCls", "#stAddRate"];
+  const PF_FIELDS = [".pf-surname", ".pf-cls", ".pf-rate", ".pf-call", ".pf-access", ".pf-notes"];
+  const ADD_FIELDS = ["#stAddName", "#stAddSurname", "#stAddCls", "#stAddRate"];
   function captureRosterDrafts(list) {
     const cards = {};
     list.querySelectorAll(".student-card").forEach(card => {
@@ -2317,6 +2408,7 @@
       <div id="stAddForm" style="display:none; margin-bottom:10px">
         <div class="field-row">
           <div class="field"><span>Имя (одним словом)</span><input type="text" id="stAddName" maxlength="30" placeholder="Например: Маша"></div>
+          <div class="field"><span>Фамилия (необяз.)</span><input type="text" id="stAddSurname" maxlength="40" placeholder="Нужна, если уже есть Маша этого класса"></div>
           <div class="field" style="max-width:110px"><span>Класс</span><input type="number" id="stAddCls" min="1" max="11"></div>
           <div class="field" style="max-width:140px"><span>Ставка, ₽ (необяз.)</span><input type="number" id="stAddRate" min="0" step="50"></div>
         </div>
@@ -2345,7 +2437,9 @@
           </div>
         </div>
         <div class="student-body">
-          <div class="field-row" style="margin-top:10px">
+          <div class="field" style="margin-top:10px"><span>Фамилия (необязательно)</span>
+            <input type="text" class="pf-surname" maxlength="40" placeholder="Например: Иванова" value="${escHtml(st.surname || "")}"></div>
+          <div class="field-row">
             <div class="field" style="max-width:120px"><span>Класс</span>
               <input type="number" class="pf-cls" min="1" max="11" value="${escHtml(st.cls)}"></div>
             <div class="field" style="max-width:180px"><span>Ставка за занятие, ₽</span>
@@ -2353,7 +2447,7 @@
           </div>
           <div class="field"><span>Ссылка на созвон (постоянная)</span>
             <input type="url" class="pf-call" maxlength="500" placeholder="https://telemost.yandex.ru/…" value="${escHtml(p.callUrl || "")}"></div>
-          <div class="field"><span>Ссылка на занятие / доступ (необязательно)</span>
+          <div class="field"><span>Ссылка на доску / материалы (видна родителю и ученику)</span>
             <input type="url" class="pf-access" maxlength="500" placeholder="доска, папка с материалами, платформа…" value="${escHtml(p.accessUrl || "")}"></div>
           <div class="field"><span>Заметки</span>
             <textarea class="pf-notes" maxlength="10000" placeholder="Что уже прошли, что планируем дальше…">${escHtml(p.notes || "")}</textarea></div>
@@ -2397,6 +2491,9 @@
     const notes = card.querySelector(".pf-notes").value.trim();
     const clsNew = parseInt(card.querySelector(".pf-cls").value, 10);
     if (!(clsNew >= 1 && clsNew <= 11)) { msg.textContent = "Класс — число от 1 до 11"; msg.className = "msg pf-msg err"; return; }
+    const surnameRaw = card.querySelector(".pf-surname").value.trim();
+    if (surnameRaw && !SURNAME_RE.test(surnameRaw)) { msg.textContent = "Фамилия — одним словом, русскими буквами (можно через дефис)"; msg.className = "msg pf-msg err"; return; }
+    const surnameNew = fixSurname(surnameRaw);
     const rateRaw = card.querySelector(".pf-rate").value.trim();
     const rate = rateRaw === "" ? null : parseFloat(rateRaw);
     if (rate != null && !(rate >= 0)) { msg.textContent = "Ставка — число (или оставь пустой)"; msg.className = "msg pf-msg err"; return; }
@@ -2408,16 +2505,22 @@
     let note = "Сохранено";
     try {
       const prof = profileOf(sid);
-      if (clsNew !== Number(prof.cls)) {
+      // Фамилия в идентификаторе (ученик заведён с фамилией) — её смена, как
+      // и смена класса, переименовывает занятия; иначе фамилия только для показа.
+      const idSurname = (splitStudentId(sid) || {}).surname || "";
+      const surnameInId = idSurname ? surnameNew : "";
+      const clsChanged = clsNew !== Number(prof.cls);
+      if (clsChanged || surnameInId !== idSurname) {
         const n = (await window.TutorFB.listLessonsOfStudent(sid)).length;
-        if (!confirm(`Перевести «${prof.name}» в ${clsNew} класс?\n\nИзменится название у всех занятий ученика (${n}, включая прошедшие), а отметки «Провёл», оплата, пакет, отчёты, ДЗ, заявки и ссылки родителей/ученика сохранятся.`)) {
+        const what = clsChanged ? `Перевести «${prof.name}» в ${clsNew} класс?` : `Сменить фамилию «${studentLabel(sid)}» на «${surnameNew || "без фамилии"}»?`;
+        if (!confirm(`${what}\n\nИзменится название у всех занятий ученика (${n}, включая прошедшие), а отметки «Провёл», оплата, пакет, отчёты, ДЗ, заявки и ссылки родителей/ученика сохранятся.`)) {
           saveBtn.disabled = false;
           return;
         }
-        target = await renameStudent(sid, prof.name, clsNew);
-        note = `Сохранено: теперь ${clsNew} класс`;
+        target = await renameStudent(sid, prof.name, clsNew, surnameInId);
+        note = clsChanged ? `Сохранено: теперь ${clsNew} класс` : "Сохранено";
       }
-      const value = Object.assign({}, profileOf(target), { rate, callUrl, accessUrl, notes, updatedAt: Date.now() });
+      const value = Object.assign({}, profileOf(target), { surname: surnameNew, rate, callUrl, accessUrl, notes, updatedAt: Date.now() });
       await window.TutorFB.setStudentProfile(target, value);
       const all = Object.assign({}, studentProfiles());
       all[target] = value;
@@ -2439,8 +2542,8 @@
   // занятиях (название + studentId), профиле, правках пакета, каналах,
   // ключах доступа и журнале заявок — меняем всё сразу, чтобы связи не
   // порвались. Отметки «Провёл» привязаны к id занятий и не меняются.
-  async function renameStudent(oldId, name, cls) {
-    const newSid = `${name}, ${cls} класс`;
+  async function renameStudent(oldId, name, cls, surname) {
+    const newSid = makeStudentId(name, cls, surname || "");
     if (newSid === oldId) return oldId;
     const clash = studentProfiles()[newSid];
     if (clash && !clash.hidden) {
@@ -2449,13 +2552,17 @@
       throw err;
     }
     const now = Date.now();
-    const re = /^([А-ЯЁа-яё]+)\s+(\d{1,2})\s*класс/iu;
+    // Начало названия у занятий этого ученика: «Имя N класс» / «Имя Фамилия N класс».
+    const old = splitStudentId(oldId) || { name, surname: "", cls: 0 };
+    const escRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`^${escRe(old.name)}${old.surname ? "\\s+" + escRe(old.surname) : ""}\\s+${old.cls}\\s*класс`, "iu");
+    const newBase = `${name}${surname ? " " + surname : ""} ${cls} класс`;
     const lessons = await window.TutorFB.listLessonsOfStudent(oldId);
     await window.TutorFB.saveLessons(lessons.map(l => ({
       id: l.id, merge: true,
-      data: { title: l.title.replace(re, `${name} ${cls} класс`), studentId: newSid, updatedAt: now },
+      data: { title: re.test(l.title) ? l.title.replace(re, newBase) : l.title, studentId: newSid, updatedAt: now },
     })));
-    const prof = Object.assign({}, profileOf(oldId), { name, cls, updatedAt: now });
+    const prof = Object.assign({}, profileOf(oldId), { name, cls, updatedAt: now }, surname ? { surname } : {});
     await window.TutorFB.setStudentProfile(newSid, prof);
     await window.TutorFB.setStudentProfile(oldId, null);
     const profs = Object.assign({}, studentProfiles(), { [newSid]: prof });
@@ -2483,7 +2590,7 @@
       delete data.id;
       await window.TutorFB.saveRequestDecision(d.id, data);
     }
-    if (lastStudentChoice.startsWith(name + " ")) lastStudentChoice = "";
+    if (lastStudentChoice.toLowerCase().startsWith(name.toLowerCase() + " ")) lastStudentChoice = "";
     await getAccessKeys(true);
     await startChannelWatch();
     await publishViews(activeKeysOf(newSid));
@@ -2491,23 +2598,31 @@
     return newSid;
   }
 
+  const SURNAME_RE = /^[А-ЯЁа-яё]+(-[А-ЯЁа-яё]+)?$/;
+  const fixSurname = (s) => s ? s.split("-").map(w => w[0].toUpperCase() + w.slice(1)).join("-") : "";
+
   async function addStudentFromForm() {
     const msg = (t, k) => { $("stAddMsg").textContent = t; $("stAddMsg").className = "msg" + (k ? " " + k : ""); };
     const name = $("stAddName").value.trim();
+    const surnameRaw = $("stAddSurname").value.trim();
     const cls = parseInt($("stAddCls").value, 10);
     const rateRaw = $("stAddRate").value.trim();
     const rate = rateRaw === "" ? null : parseFloat(rateRaw);
     // Имя одним русским словом — иначе занятия «Имя N класс» не распознаются.
     if (!/^[А-ЯЁа-яё]+$/.test(name)) { msg("Имя — одним словом, русскими буквами (так его узнают занятия: «Маша 7 класс»).", "err"); return; }
+    if (surnameRaw && !SURNAME_RE.test(surnameRaw)) { msg("Фамилия — одним словом, русскими буквами (можно через дефис).", "err"); return; }
     if (!(cls >= 1 && cls <= 11)) { msg("Класс — число от 1 до 11.", "err"); return; }
     if (rate != null && !(rate >= 0)) { msg("Ставка — число (или оставь пустой).", "err"); return; }
     const nameFixed = name[0].toUpperCase() + name.slice(1);
-    const id = `${nameFixed}, ${cls} класс`;
-    const exists = studentList().some(st => `${st.name}, ${st.cls} класс`.toLowerCase() === id.toLowerCase());
-    if (exists) { msg("Такой ученик уже есть в списке.", "err"); return; }
-    const prev = profileOf(id);
+    const surname = fixSurname(surnameRaw);
+    // С фамилией она входит в идентификатор и в названия занятий:
+    // «Маша Иванова, 7 класс» — отдельный ученик от «Маша, 7 класс».
+    const id = makeStudentId(nameFixed, cls, surname);
+    const exists = studentList().some(st => st.id.toLowerCase() === id.toLowerCase());
+    if (exists) { msg(surname ? "Такой ученик уже есть в списке." : "Такой ученик уже есть в списке. Если это другой ученик с тем же именем — укажи фамилию.", "err"); return; }
+    const prev = profileOf(profileIdCI(id) || id);
     const value = Object.assign({}, prev.hidden ? {} : prev, {
-      hidden: false, name: nameFixed, cls, rate, createdAt: Date.now(), updatedAt: Date.now(),
+      hidden: false, name: nameFixed, surname: surname || (prev.hidden ? "" : prev.surname || ""), cls, rate, createdAt: Date.now(), updatedAt: Date.now(),
     });
     try {
       await window.TutorFB.setStudentProfile(id, value);
@@ -2530,7 +2645,7 @@
     const future = lessons.filter(l => l.startMs >= now && l.status !== "done");
     const past = lessons.filter(l => !(l.startMs >= now && l.status !== "done"));
     openModal(`
-      <h2>Удалить ученика «${escHtml(sid)}»?</h2>
+      <h2>Удалить ученика «${escHtml(studentLabel(sid))}»?</h2>
       <div class="banner" style="margin-top:8px">
         <div>Будет удалено:</div>
         <ul style="margin:6px 0 0; padding-left:18px">
@@ -2836,10 +2951,14 @@
         v: 1,
         role: k.role,
         studentId: k.studentId,
+        studentLabel: studentLabel(k.studentId), // «Имя Фамилия, N класс» для заголовка кабинета
         generatedAt: now,
         busyFrom,
         busyTo,
         channel: ch.shared || null,
+        // Ссылка на доску/материалы из профиля ученика (поле «Ссылка на
+        // занятие / доступ») — видна родителю и ученику у ближайших занятий.
+        boardUrl: (() => { const u = profileOf(k.studentId).accessUrl; return u && safeHref(u) ? u : null; })(),
         lessons: own.map(l => {
           const out = {
             id: l.id,
@@ -2854,6 +2973,7 @@
             // «материалы» остаются только у учителя.
             callUrl: isActiveStatus(l.status) && callLinkFor(l) ? callLinkFor(l).url : null,
           };
+          if (l.familyNote && l.familyNote.text) out.familyNote = { text: String(l.familyNote.text).slice(0, 1000), by: l.familyNote.by || null, at: l.familyNote.at || 0 };
           if (k.role === "parent") {
             out.paid = !!(l.paid && l.paid.value);
             out.paidAt = (l.paid && l.paid.at) || 0;
@@ -2933,7 +3053,7 @@
     const students = studentList();
     const fmtD = (ms) => new Date(ms).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric" });
     const freshHtml = fresh ? `
-      <div class="banner" style="margin-bottom:10px">Ссылка для <b>${escHtml(fresh.studentId)}</b> (${fresh.role === "parent" ? "родитель" : "ученик"}). Отправь её — по ней откроется личный кабинет:
+      <div class="banner" style="margin-bottom:10px">Ссылка для <b>${escHtml(studentLabel(fresh.studentId))}</b> (${fresh.role === "parent" ? "родитель" : "ученик"}). Отправь её — по ней откроется личный кабинет:
         <div class="key-link" id="freshLink">${escHtml(cabinetUrl(fresh.role, fresh.id))}</div>
         <div class="btn-row" style="margin:0">
           <button class="btn" type="button" data-key-copy="${escHtml(fresh.id)}">Скопировать ссылку</button>
@@ -2949,7 +3069,7 @@
       <div class="ak-item" data-key-item="${escHtml(k.id)}">
         <div class="ak-head">
           <div>
-            <div class="ak-who">${escHtml(k.studentId)}${k.label ? ` · <span class="ak-label">${escHtml(k.label)}</span>` : ""}</div>
+            <div class="ak-who">${escHtml(studentLabel(k.studentId))}${k.label ? ` · <span class="ak-label">${escHtml(k.label)}</span>` : ""}</div>
             <div class="ak-meta"><span class="ak-role">${k.role === "parent" ? "родитель" : "ученик"}</span>${k.createdAt ? ` · выдан ${fmtD(k.createdAt)}` : ""}</div>
           </div>
           <button class="link-btn ak-revoke" type="button" data-key-revoke="${escHtml(k.id)}">Отозвать</button>
@@ -2965,7 +3085,7 @@
       ${freshHtml}
       <div class="field-row">
         <div class="field"><span>Ученик</span>
-          <select id="akStudent">${students.map(r => { const id = `${r.name}, ${r.cls} класс`; return `<option value="${escHtml(id)}">${escHtml(`${r.name}${r.surname ? " " + r.surname : ""}, ${r.cls} класс`)}</option>`; }).join("")}</select>
+          <select id="akStudent">${students.map(r => { const id = r.id; return `<option value="${escHtml(id)}">${escHtml(`${r.name}${r.surname ? " " + r.surname : ""}, ${r.cls} класс`)}</option>`; }).join("")}</select>
         </div>
         <div class="field"><span>Кому</span>
           <select id="akRole"><option value="parent">родителю</option><option value="student">ученику</option></select>
@@ -3177,6 +3297,21 @@
           patch.homework = hw;
           toDelete.push(...hws.map(i => i.id));
         }
+        // «Пояснение» от родителя/ученика: последнее → в занятие (familyNote);
+        // последнее сообщение остаётся в канале, старые удаляются.
+        const notes = its.filter(i => i.type === "note").sort((a, b) => a.createdAt - b.createdAt);
+        if (notes.length) {
+          if (meta.kind !== "shared") {
+            toDelete.push(...notes.map(i => i.id));
+          } else {
+            const latest = notes[notes.length - 1];
+            const cur = l.familyNote;
+            if (!cur || (cur.at || 0) < latest.createdAt || ((cur.at || 0) === latest.createdAt && cur.text !== (latest.comment || ""))) {
+              patch.familyNote = { text: String(latest.comment || "").slice(0, 1000), by: latest.by, at: latest.createdAt };
+            }
+            toDelete.push(...notes.slice(0, -1).map(i => i.id));
+          }
+        }
         const paids = its.filter(i => i.type === "paid").sort((a, b) => a.createdAt - b.createdAt);
         if (paids.length) {
           if (meta.kind !== "parent") {
@@ -3249,7 +3384,7 @@
         ? `Перенос: ${valid ? escHtml(fmtWhen(l.startMs, l.endMs)) : "—"} → <b>${escHtml(fmtWhen(item.newStartMs, item.newEndMs))}</b>`
         : `Отмена: ${valid ? `<b>${escHtml(fmtWhen(l.startMs, l.endMs))}</b>` : "—"}`;
       return `<div class="req" data-ck="${escHtml(ck)}" data-id="${escHtml(item.id)}">
-          <div class="who">${escHtml(meta ? meta.studentId : "?")} <span class="cls">· ${ROLE_RU[item.by] || escHtml(item.by)} · ${escHtml(new Date(item.createdAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }))}</span></div>
+          <div class="who">${escHtml(meta ? studentLabel(meta.studentId) : "?")} <span class="cls">· ${ROLE_RU[item.by] || escHtml(item.by)} · ${escHtml(new Date(item.createdAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }))}</span></div>
           <div class="what">${what}</div>
           ${item.comment ? `<div class="comment">«${escHtml(item.comment)}»</div>` : ""}
           ${warn ? `<div class="warn">${escHtml(warn)}</div>` : ""}
@@ -3264,7 +3399,7 @@
       const hist = (await window.TutorFB.listRequestDecisions(Date.now() - 60 * DAY_MS)).reverse();
       $("requestsHistory").innerHTML = hist.length ? hist.map(d => `
         <div class="session-row">
-          <span class="when">${escHtml(d.studentId)} · ${d.type === "reschedule" ? "перенос" : "отмена"}${d.oldStartMs ? " " + escHtml(fmtWhen(d.oldStartMs)) : ""}${d.type === "reschedule" && d.newStartMs ? " → " + escHtml(fmtWhen(d.newStartMs)) : ""}${d.reason ? ` <span class="cls">(${escHtml(d.reason)})</span>` : ""}</span>
+          <span class="when">${escHtml(studentLabel(d.studentId))} · ${d.type === "reschedule" ? "перенос" : "отмена"}${d.oldStartMs ? " " + escHtml(fmtWhen(d.oldStartMs)) : ""}${d.type === "reschedule" && d.newStartMs ? " → " + escHtml(fmtWhen(d.newStartMs)) : ""}${d.reason ? ` <span class="cls">(${escHtml(d.reason)})</span>` : ""}</span>
           <span class="amt">${d.status === "approved" ? "подтверждено" : "отклонено"}</span>
         </div>`).join("") : '<div class="empty">Пока пусто</div>';
     } catch (e) {
@@ -3340,7 +3475,7 @@
       if (!oldKey) continue;
       let items = [];
       try { items = await window.TutorFB.listChannel(oldKey); } catch (e) { /* пусто */ }
-      const keep = items.filter(i => REQUEST_TYPES.includes(i.type) || i.type === "paid" || i.type === "homework");
+      const keep = items.filter(i => REQUEST_TYPES.includes(i.type) || i.type === "paid" || i.type === "homework" || i.type === "note");
       for (const i of keep) {
         const data = Object.assign({}, i);
         delete data.id;
@@ -3406,7 +3541,7 @@
     const tag = l.status === "cancelled" ? " · отмена" : l.status === "rescheduled" ? " · перенос" : "";
     return {
       id: l.id,
-      title: l.title + tag,
+      title: displayTitle(l.title) + tag,
       start: l.startMs,
       end: l.endMs,
       classNames: ["st-" + l.status],
@@ -3466,7 +3601,7 @@
       eventResize: onFcResize,
       eventDidMount: (info) => {
         const l = info.event.extendedProps.lesson;
-        if (l) info.el.title = isPersonal(l) ? "Личное время" + (l.note ? ": " + l.note : "") : `${l.title} — ${STATUS_RU[l.status] || l.status}`;
+        if (l) info.el.title = isPersonal(l) ? "Личное время" + (l.note ? ": " + l.note : "") : `${displayTitle(l.title)} — ${STATUS_RU[l.status] || l.status}`;
       },
     });
     fc.render();
@@ -3540,7 +3675,7 @@
     const moved = lessonData({
       title: l.title, startMs, endMs, status: "planned",
       packageId: l.packageId, recurrenceId: l.recurrenceId, source: "app",
-      extra: { rescheduledFrom: l.id, createdAt: Date.now(), report: l.report || "", homework: l.homework || [] },
+      extra: Object.assign({ rescheduledFrom: l.id, createdAt: Date.now(), report: l.report || "", homework: l.homework || [] }, l.familyNote ? { familyNote: l.familyNote } : {}),
     });
     await window.TutorFB.saveLessons([
       { id: nid, data: moved },
@@ -3628,7 +3763,7 @@
 
   function studentSelectHtml(currentBase) {
     const sorted = studentList();
-    const values = sorted.map(r => `${r.name} ${r.cls} класс`);
+    const values = sorted.map(titleBaseOf);
     const known = values.includes(currentBase);
     const opts = sorted.map((r, i) => {
       const v = values[i];
@@ -3847,7 +3982,7 @@
     const ev = lessonToEv(l);
     const amount = effectiveAmountFor(ev, mark);
     const parsed = parseLesson(l.title);
-    const baseRate = parsed ? findRate(parsed.name, parsed.cls) : null;
+    const baseRate = parsed ? findRate(parsed.name, parsed.cls, parsed.surname) : null;
     const canMark = amount != null && !Number.isNaN(amount);
     const isPlanned = l.status === "planned";
     const scopeHtml = inSeries ? `
@@ -3931,9 +4066,12 @@
       </div>`;
 
     openModal(`
-      <h2>${escHtml(l.title)}</h2>
+      <h2>${escHtml(displayTitle(l.title))}</h2>
       <div class="meta">${escHtml(fmtWhen(l.startMs, l.endMs))} · <span class="status-pill ${escHtml(l.status)}">${STATUS_RU[l.status] || escHtml(l.status)}</span>${inSeries ? " · серия" : ""}</div>
       ${history}
+      ${l.familyNote && l.familyNote.text ? `<div class="section"><div class="section-title">Пояснение от ${({ parent: "родителя", student: "ученика" })[l.familyNote.by] || "родителя/ученика"}</div>
+        <div class="family-note">${escHtml(l.familyNote.text)}</div>
+        ${l.familyNote.at ? `<div class="hint" style="margin-top:6px">${escHtml(new Date(l.familyNote.at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }))}</div>` : ""}</div>` : ""}
       ${callHtml}
       ${payHtml}
       ${editHtml}
@@ -4110,7 +4248,7 @@
       `DTSTAMP:${icsDate(Date.now())}`,
       `DTSTART:${icsDate(l.startMs)}`,
       `DTEND:${icsDate(l.endMs)}`,
-      `SUMMARY:${icsEscape(l.title)}`,
+      `SUMMARY:${icsEscape(displayTitle(l.title))}`,
       desc ? `DESCRIPTION:${icsEscape(desc)}` : null,
       call ? `URL:${call.url}` : null,
       "BEGIN:VALARM", "ACTION:DISPLAY", "DESCRIPTION:Занятие", "TRIGGER:-PT30M", "END:VALARM",
@@ -4176,6 +4314,78 @@
     tab.addEventListener("click", () => showTab(tab.dataset.tab));
   });
   if (window.appTheme) window.appTheme.mount($("themeToggle"));
+
+  // ---------- РЕЗЕРВНАЯ КОПИЯ ----------
+  function downloadFile(name, text, type) {
+    const blob = new Blob([text], { type });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+  const backupStamp = () => { const d = mskParts(Date.now()); return `${d.date}_${d.time.replace(":", "-")}`; };
+  async function backupData() {
+    const data = await window.TutorFB.exportAll();
+    data.lessons.sort((a, b) => (a.startMs || 0) - (b.startMs || 0));
+    return data;
+  }
+  function backupMsg(t, kind) { const m = $("backupMsg"); m.textContent = t; m.className = "msg" + (kind ? " " + kind : ""); }
+  $("backupJsonBtn").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    backupMsg("Собираю данные…");
+    try {
+      const data = await backupData();
+      const out = Object.assign({
+        app: "tutor-dashboard",
+        format: 1,
+        exportedAt: new Date().toISOString(),
+        account: ($("userBadge") && $("userBadge").textContent.trim()) || null,
+      }, data);
+      downloadFile(`zanyatiya-backup_${backupStamp()}.json`, JSON.stringify(out, null, 2), "application/json");
+      backupMsg(`Готово: занятий ${data.lessons.length}, учеников ${Object.keys((data.state && data.state.studentProfiles) || {}).length}. Файл сохранён в «Загрузки».`, "ok");
+    } catch (err) {
+      console.error(err);
+      backupMsg("Не получилось собрать копию (нет интернета?)", "err");
+    }
+    btn.disabled = false;
+  });
+  $("backupCsvBtn").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    backupMsg("Собираю таблицу…");
+    try {
+      const data = await backupData();
+      const marksAll = (data.state && data.state.marks) || {};
+      const cell = (v) => { const t = v == null ? "" : String(v); return /[";\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+      const rows = [["Дата", "Время", "Минут", "Ученик", "Название", "Статус", "Провёл", "Сумма, ₽", "Оплачено", "Отчёт", "Пояснение", "Файлы ДЗ"]];
+      data.lessons.forEach(l => {
+        const when = mskParts(l.startMs || 0);
+        const m = marksAll[l.id] || {};
+        const amount = m.overrideAmount != null ? m.overrideAmount : (m.marked && m.lockedRate != null ? m.lockedRate : "");
+        rows.push([
+          when.date, when.time, l.durationMin || Math.round(((l.endMs || 0) - (l.startMs || 0)) / 60000),
+          l.kind === "personal" ? "(личное время)" : studentLabel(l.studentId) || "",
+          l.kind === "personal" ? (l.note || "Личное время") : displayTitle(l.title),
+          STATUS_RU[l.status] || l.status || "", m.marked ? "да" : "", amount,
+          l.paid && l.paid.value ? "да" : "", l.report || "", (l.familyNote && l.familyNote.text) || "",
+          (Array.isArray(l.homework) ? l.homework : []).map(h => h.url).join(" "),
+        ]);
+      });
+      // «;» и BOM — чтобы русский Excel сразу открыл по столбцам и с кириллицей
+      const csv = "\ufeff" + rows.map(r => r.map(cell).join(";")).join("\r\n");
+      downloadFile(`zanyatiya_${backupStamp()}.csv`, csv, "text/csv;charset=utf-8");
+      backupMsg(`Готово: ${data.lessons.length} занятий в таблице.`, "ok");
+    } catch (err) {
+      console.error(err);
+      backupMsg("Не получилось собрать таблицу (нет интернета?)", "err");
+    }
+    btn.disabled = false;
+  });
 
   document.querySelectorAll('.subtab[data-lessonmode]').forEach(tab => {
     tab.addEventListener("click", () => {

@@ -131,6 +131,12 @@ test("канал: валидация сообщений", async () => {
   assert.equal(await put(`channels/${CK}/items/r2`, { ...item, by: "admin" }), 403);
   assert.equal(await put(`channels/${CK}/items/r3`, { ...item, comment: "x".repeat(501) }), 403);
   assert.equal(await put(`channels/${CK}/items/c1`, { type: "cancel", lessonId: "l1", by: "student", createdAt: 1 }), 200);
+  // «Пояснение» к занятию: до 1000 символов, пустое — убрать; без текста — нельзя
+  assert.equal(await put(`channels/${CK}/items/n1`, { type: "note", lessonId: "l1", by: "parent", createdAt: 1, comment: "x".repeat(1000) }), 200);
+  assert.equal(await put(`channels/${CK}/items/n2`, { type: "note", lessonId: "l1", by: "student", createdAt: 1, comment: "" }), 200);
+  assert.equal(await put(`channels/${CK}/items/n3`, { type: "note", lessonId: "l1", by: "parent", createdAt: 1, comment: "x".repeat(1001) }), 403);
+  assert.equal(await put(`channels/${CK}/items/n4`, { type: "note", lessonId: "l1", by: "parent", createdAt: 1 }), 403);
+  assert.equal(await put(`channels/${CK}/items/n5`, { type: "cancel", lessonId: "l1", by: "parent", createdAt: 1, comment: "x".repeat(501) }), 403, "у заявок по-прежнему 500");
 });
 
 test("журнал решений по заявкам — только учителю", async () => {

@@ -78,7 +78,7 @@ test("профиль ученика: сохранить ссылки и заме
   await app.close();
 });
 
-test("в кабинет уходит только ссылка на созвон; заметки и материалы — нет", async () => {
+test("в кабинет уходят созвон и доска; заметки — нет", async () => {
   const PK = "parent_key_test_student_0000000001";
   const seed = (await import("./harness.mjs")).defaultSeed();
   seed[statePath].studentProfiles = { "Тест, 7 класс": { callUrl: "https://telemost.yandex.ru/j/SECRET", accessUrl: "https://miro.com/SECRET2", notes: "заметка-SECRET3" } };
@@ -86,8 +86,10 @@ test("в кабинет уходит только ссылка на созвон
   const app = await openApp({ seed });
   await waitFor(async () => (await app.db())[`parentAccess/${PK}`], "витрина");
   const v = JSON.stringify((await app.db())[`parentAccess/${PK}`]);
-  for (const secret of ["SECRET2", "SECRET3", "miro", "заметка"]) assert.equal(v.includes(secret), false, secret);
+  for (const secret of ["SECRET3", "заметка"]) assert.equal(v.includes(secret), false, secret);
   const view = (await app.db())[`parentAccess/${PK}`];
+  assert.equal(view.boardUrl, "https://miro.com/SECRET2", "доска — одна ссылка на ученика, не в каждом занятии");
+  assert.ok(view.lessons.every((l) => !JSON.stringify(l).includes("miro")));
   const upcoming = view.lessons.filter((l) => l.status === "planned");
   assert.ok(upcoming.length && upcoming.every((l) => l.callUrl === "https://telemost.yandex.ru/j/SECRET"), "созвон — у каждого занятия");
   assert.ok(view.lessons.filter((l) => l.status === "rescheduled" || l.status === "cancelled").every((l) => !l.callUrl));
@@ -129,7 +131,12 @@ test("баг «созвон не виден родителю»: ссылка и�
   await page.click("#mCallSave");
   await page.waitForFunction(() => /Разовая ссылка сохранена/.test(document.querySelector("#mMsg").textContent));
   await cab.waitForFunction(() => [...document.querySelectorAll(".lesson")].some((l) => /7\/8/.test(l.textContent) && l.querySelector('.call-link[href="https://zoom.us/j/1"]')));
-  const cards = await cab.$$eval(".lesson", (ls) => ls.map((l) => [l.textContent.includes("8/8"), l.querySelector(".call-link")?.getAttribute("href")]));
-  assert.ok(cards.some(([is8, href]) => is8 && href === "https://telemost.yandex.ru/j/777"), "у соседнего занятия — обычная");
+  // 8/8 — третье по счёту: в списке ссылки нет (только у двух ближайших), в окне занятия — обычная
+  const card8 = cab.locator(".lesson", { hasText: "8/8" }).first();
+  assert.equal(await card8.locator(".call-link").count(), 0);
+  await card8.click();
+  await cab.waitForSelector("#mCall");
+  assert.equal(await cab.getAttribute("#mCall", "href"), "https://telemost.yandex.ru/j/777", "у соседнего занятия — обычная");
+  await cab.click("#mClose");
   await app.close();
 });

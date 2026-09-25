@@ -146,3 +146,34 @@ test("шрифты и скругления по стиль-гайду", async ()
   assert.match(await page.evaluate(() => getComputedStyle(document.querySelector(".modal h2")).fontFamily), /^"?Spectral/);
   await app.close();
 });
+
+test("«Ещё» → резервная копия: JSON со всеми данными и таблица для Excel", async () => {
+  const app = await openApp();
+  const { page } = app;
+  await page.waitForSelector("#lessonsList .lesson");
+  await page.click('.tab[data-tab="more"]');
+  const [dl] = await Promise.all([page.waitForEvent("download"), page.click("#backupJsonBtn")]);
+  assert.match(dl.suggestedFilename(), /^zanyatiya-backup_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}\.json$/);
+  const data = JSON.parse(await (await import("node:fs")).promises.readFile(await dl.path(), "utf8"));
+  const db = await app.db();
+  const lessonPaths = Object.keys(db).filter((p) => p.startsWith(`teacherSpaces/${T}/lessons/`));
+  assert.equal(data.app, "tutor-dashboard");
+  assert.equal(data.lessons.length, lessonPaths.length, "все занятия");
+  assert.ok(data.lessons.every((l) => l.id && l.title && l.startMs));
+  assert.deepEqual(data.state.marks, db[`teacherSpaces/${T}/state/main`].marks, "отметки «Провёл»");
+  assert.deepEqual(Object.keys(data.state.studentProfiles).sort(), ["Анна, 6 класс", "Борис, 8 класс", "Тест, 7 класс"]);
+  assert.ok(Array.isArray(data.accessKeys) && Array.isArray(data.requests));
+  assert.equal(data.account, "teacher@example.org");
+  await page.waitForFunction(() => /Готово: занятий/.test(document.querySelector("#backupMsg").textContent));
+
+  const [csvDl] = await Promise.all([page.waitForEvent("download"), page.click("#backupCsvBtn")]);
+  assert.match(csvDl.suggestedFilename(), /\.csv$/);
+  const csv = await (await import("node:fs")).promises.readFile(await csvDl.path(), "utf8");
+  assert.equal(csv.charCodeAt(0), 0xfeff, "BOM для Excel");
+  const lines = csv.slice(1).split("\r\n");
+  assert.equal(lines[0], "Дата;Время;Минут;Ученик;Название;Статус;Провёл;Сумма, ₽;Оплачено;Отчёт;Пояснение;Файлы ДЗ");
+  assert.equal(lines.length - 1, lessonPaths.length);
+  assert.ok(lines.some((l) => /^2026-09-14;10:00;60;Тест, 7 класс;Тест 7 класс 1\/8;проведено;да;2000;/.test(l)), lines.slice(0, 4).join("\n"));
+  assert.deepEqual(app.errors, []);
+  await app.close();
+});

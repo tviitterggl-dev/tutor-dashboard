@@ -30,15 +30,18 @@ service cloud.firestore {
 
     // Сообщение в канале ученика. Каналы — единственное место, куда пишут
     // родитель и ученик: загруженное ДЗ, заявки на перенос/отмену, отметка
-    // «оплачено». Только создание (менять чужие сообщения нельзя), состав
+    // «оплачено», «пояснение» к занятию (note: текст до 1000 символов,
+    // пустой — «убрать пояснение»). Только создание (менять чужие сообщения нельзя), состав
     // полей и размеры ограничены; ссылки на файлы — только Cloudinary.
     function validItem(d) {
       return d.keys().hasOnly(["type", "lessonId", "by", "createdAt", "file", "newStartMs", "newEndMs", "comment", "paid"])
-        && d.type in ["homework", "reschedule", "cancel", "paid"]
+        && d.type in ["homework", "reschedule", "cancel", "paid", "note"]
         && d.lessonId is string && d.lessonId.size() > 0 && d.lessonId.size() <= 128
         && d.by in ["parent", "student", "teacher"]
         && d.createdAt is int
-        && (!("comment" in d) || (d.comment is string && d.comment.size() <= 500))
+        && (!("comment" in d) || (d.comment is string
+              && (d.comment.size() <= 500 || (d.type == "note" && d.comment.size() <= 1000))))
+        && (d.type != "note" || d.comment is string)
         && (d.type != "homework" || (
               d.file is map
               && d.file.keys().hasOnly(["url", "name"])

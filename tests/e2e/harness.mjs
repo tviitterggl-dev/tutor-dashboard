@@ -89,7 +89,7 @@ export function lessonDoc(e, marks = {}) {
 }
 
 export const PROFILES = {
-  "Тест, 7 класс": { name: "Тест", surname: "Тестов", cls: 7, rate: 2000, manual: true },
+  "Тест, 7 класс": { name: "Тест", cls: 7, rate: 2000, manual: true },
   "Анна, 6 класс": { name: "Анна", surname: "", cls: 6, rate: 1500, manual: true },
   "Борис, 8 класс": { name: "Борис", surname: "", cls: 8, rate: 1800, manual: true },
 };
