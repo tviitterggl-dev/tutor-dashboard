@@ -2234,8 +2234,71 @@
     }));
   }
 
-  function renderStudentsRoster() {
+  // Черновики в карточках учеников. Список перерисуется и сам (фоновая
+  // загрузка пакетов, возврат на вкладку), а набранное, но не сохранённое
+  // при этом стиралось бы. Перед перерисовкой запоминаем изменённые поля
+  // (значение ≠ исходному), фокус и курсор, после — возвращаем. Если данные
+  // поля успели измениться (например, только что сохранили) — берём новые.
+  const PF_FIELDS = [".pf-cls", ".pf-rate", ".pf-call", ".pf-access", ".pf-notes"];
+  const ADD_FIELDS = ["#stAddName", "#stAddCls", "#stAddRate"];
+  function captureRosterDrafts(list) {
+    const cards = {};
+    list.querySelectorAll(".student-card").forEach(card => {
+      const fields = {};
+      PF_FIELDS.forEach(sel => {
+        const el = card.querySelector(sel);
+        if (el && el.value !== el.defaultValue) fields[sel] = { value: el.value, base: el.defaultValue };
+      });
+      const m = card.querySelector(".pf-msg");
+      const msg = m && m.textContent ? { text: m.textContent, cls: m.className } : null;
+      if (Object.keys(fields).length || msg) cards[card.dataset.student] = { fields, msg };
+    });
+    const form = $("stAddForm");
+    const add = form ? {
+      open: form.style.display !== "none",
+      values: Object.fromEntries(ADD_FIELDS.map(sel => [sel, (list.querySelector(sel) || {}).value || ""])),
+      msg: $("stAddMsg") ? { text: $("stAddMsg").textContent, cls: $("stAddMsg").className } : null,
+    } : null;
+    const a = document.activeElement;
+    let focus = null;
+    if (a && list.contains(a)) {
+      const card = a.closest(".student-card");
+      const sel = a.id ? "#" + a.id : PF_FIELDS.find(f => a.matches(f));
+      if (sel) focus = { sid: card ? card.dataset.student : null, sel, start: a.selectionStart, end: a.selectionEnd };
+    }
+    return { cards, add, focus };
+  }
+  function restoreRosterDrafts(list, d, opts) {
+    const cardEl = (sid) => list.querySelector(`.student-card[data-student="${CSS.escape(sid)}"]`);
+    for (const [sid, saved] of Object.entries(d.cards)) {
+      const card = cardEl(sid);
+      if (!card) continue;
+      for (const [sel, f] of Object.entries(saved.fields)) {
+        const el = card.querySelector(sel);
+        if (el && el.defaultValue === f.base) el.value = f.value; // данные не менялись — черновик в силе
+      }
+      const m = card.querySelector(".pf-msg");
+      if (m && saved.msg) { m.textContent = saved.msg.text; m.className = saved.msg.cls; }
+    }
+    if (d.add && !opts.resetAddForm) {
+      const form = $("stAddForm");
+      if (form && d.add.open) form.style.display = "block";
+      ADD_FIELDS.forEach(sel => { const el = list.querySelector(sel); if (el && d.add.values[sel]) el.value = d.add.values[sel]; });
+      if (d.add.msg && $("stAddMsg")) { $("stAddMsg").textContent = d.add.msg.text; $("stAddMsg").className = d.add.msg.cls; }
+    }
+    if (d.focus) {
+      const scope = d.focus.sid ? cardEl(d.focus.sid) : list;
+      const el = scope && scope.querySelector(d.focus.sel);
+      if (el && el.offsetParent !== null) {
+        el.focus({ preventScroll: true });
+        try { if (d.focus.start != null) el.setSelectionRange(d.focus.start, d.focus.end); } catch (e) { /* number: курсора нет */ }
+      }
+    }
+  }
+
+  function renderStudentsRoster(opts = {}) {
     const list = $("studentsRosterList");
+    const drafts = captureRosterDrafts(list);
     const students = rosterStudents();
     const addForm = `
       <div class="btn-row" style="margin-bottom:8px"><button class="btn secondary block" type="button" id="stAddToggle">+ Добавить ученика</button></div>
@@ -2250,6 +2313,7 @@
       </div>`;
     if (!students.length) {
       list.innerHTML = addForm + '<div class="empty">Учеников пока нет (или не загрузились ставки)</div>';
+      restoreRosterDrafts(list, drafts, opts);
       return;
     }
     list.innerHTML = addForm + students.map(st => {
@@ -2293,6 +2357,7 @@
         </div>
       </div>`;
     }).join("");
+    restoreRosterDrafts(list, drafts, opts);
   }
 
   $("studentsRosterList").addEventListener("click", async (e) => {
@@ -2436,7 +2501,7 @@
       await window.TutorFB.setStudentProfile(id, value);
       remoteState.studentProfiles = Object.assign({}, studentProfiles(), { [id]: value });
       openProfile = id;
-      renderStudentsRoster();
+      renderStudentsRoster({ resetAddForm: true }); // добавили — форма снова пустая
       if (activeTab === "students") loadAccessCard();
     } catch (err) {
       msg("Не сохранилось (нет интернета?)", "err");

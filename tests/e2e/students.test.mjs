@@ -213,3 +213,60 @@ test("ставка меняется в карточке ученика и сра
   assert.equal(await input.getAttribute("placeholder"), "2100");
   await app.close();
 });
+
+test("карточка ученика: набранное не стирается, когда список перерисовывается", async () => {
+  const app = await openImported();
+  const { page } = app;
+  await page.click('.tab[data-tab="students"]');
+  const sel = '.student-card[data-student="Анна, 6 класс"]';
+  const card = page.locator(sel);
+  await card.locator(".student-head").click();
+  await card.locator(".pf-rate").fill("1750");
+  await card.locator(".pf-notes").fill("Дроби");
+  // и форма «Добавить ученика» тоже с черновиком
+  await page.click("#stAddToggle");
+  await page.fill("#stAddName", "Вера");
+
+  // Уходим на другую вкладку и возвращаемся — список строится заново
+  await page.click('.tab[data-tab="lessons"]');
+  await page.click('.tab[data-tab="students"]');
+  await page.waitForSelector(`${sel}.open`);
+  assert.equal(await card.locator(".pf-rate").inputValue(), "1750");
+  assert.equal(await card.locator(".pf-notes").inputValue(), "Дроби");
+  assert.equal(await page.isVisible("#stAddForm"), true);
+  assert.equal(await page.inputValue("#stAddName"), "Вера");
+
+  // Перерисовка прямо во время набора: фокус и курсор остаются в заметках
+  await card.locator(".pf-notes").click();
+  await page.keyboard.press("End");
+  await page.evaluate(() => document.querySelector('.tab[data-tab="students"]').click()); // без смены фокуса
+  const marker = await page.evaluate(() => {
+    const n = document.querySelector('.student-card[data-student="Анна, 6 класс"] .pf-notes');
+    n.dataset.fresh = "1"; // метка: это уже новый элемент после перерисовки?
+    return document.activeElement === n;
+  });
+  assert.equal(marker, true, "фокус вернулся в заметки");
+  await page.keyboard.type(" и уравнения");
+  // ещё одна перерисовка — от фоновой загрузки пакетов (через ~0,8 с после изменений)
+  await page.evaluate(() => document.querySelector('.tab[data-tab="students"]').click());
+  assert.equal(await card.locator(".pf-notes").evaluate((n) => n.dataset.fresh), undefined, "элемент действительно пересоздан");
+  assert.equal(await card.locator(".pf-notes").inputValue(), "Дроби и уравнения");
+
+  await card.locator("[data-pf-save]").click();
+  await page.waitForFunction((s) => /Сохранено/.test(document.querySelector(s + " .pf-msg").textContent), sel);
+  const prof = (await app.db())[statePath].studentProfiles["Анна, 6 класс"];
+  assert.equal(prof.notes, "Дроби и уравнения");
+  assert.equal(prof.rate, 1750);
+  // после сохранения — сохранённые значения, «черновика» больше нет
+  assert.equal(await card.locator(".pf-notes").evaluate((n) => n.value === n.defaultValue), true);
+  assert.equal(await card.locator(".pf-rate").evaluate((n) => n.value === n.defaultValue), true);
+  // форма добавления сбрасывается после успешного добавления
+  await page.fill("#stAddCls", "5");
+  await page.click("#stAddSave");
+  await page.waitForSelector('.student-card[data-student="Вера, 5 класс"]');
+  assert.equal(await page.isVisible("#stAddForm"), false);
+  await page.click("#stAddToggle");
+  assert.equal(await page.inputValue("#stAddName"), "");
+  assert.deepEqual(app.errors, []);
+  await app.close();
+});
