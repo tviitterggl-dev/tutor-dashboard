@@ -5,7 +5,7 @@
 // Стратегия «сначала сеть»: всегда берём свежую версию с сайта, а сохранённую
 // копию отдаём, только если сети нет. Поэтому обновления приходят сразу.
 // Чужие адреса (Firebase, CDN, Cloudinary) не трогаем вообще.
-const CACHE = "tutor-shell-v6";
+const CACHE = "tutor-shell-v7";
 const SHELL = ["./", "./index.html", "./design.css", "./theme.js", "./notify-core.js", "./manifest.json", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {
@@ -54,7 +54,11 @@ self.addEventListener("notificationclick", (e) => {
   e.notification.close();
   const url = new URL((e.notification.data && e.notification.data.url) || "./cabinet.html", self.registration.scope).href;
   e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
-    const same = list.find((c) => c.url.split("#")[0] === url.split("#")[0]);
+    // Ключ кабинета — во фрагменте (#p=… / #s=…), поэтому сравниваем адрес
+    // целиком: на одном устройстве могут быть открыты кабинеты и родителя, и
+    // ученика — уведомление должно открыть именно свой. Нет такого окна —
+    // открываем новое (чужой открытый кабинет не трогаем).
+    const same = list.find((c) => c.url === url);
     if (same && "focus" in same) return same.focus();
     return self.clients.openWindow(url);
   }));

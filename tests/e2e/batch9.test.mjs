@@ -167,6 +167,71 @@ test("переход со старых номеров «k/M»: счётчик с
   await app.close();
 });
 
+test("«Провёл» снять и поставить снова у занятия, отмеченного до начала пакета, — без двойного счёта", async () => {
+  // A) перенос со старых номеров: известно, какие отметки вошли в счётчик (baseIds)
+  const seed = defaultSeed({ legacyPackages: true });
+  seed[statePath].pkgOverrides = { "Тест, 7 класс": { doneAdjust: 1, totalOverride: 8 } }; // 2 отметки + 1 = 3
+  const app = await openApp({ seed });
+  const { page } = app;
+  await page.waitForSelector("#lessonsList .lesson");
+  await waitFor(async () => (await app.db())[statePath].pkgTitlesClean === 1, "перенос");
+  assert.deepEqual((await app.db())[statePath].pkgOverrides["Тест, 7 класс"].baseIds.sort(), [S("20260914"), S("20260916")]);
+  await page.click('.tab[data-tab="students"]');
+  await waitCard(page, "Тест, 7 класс", /3 из 8/);
+  await later(page, 1);
+  await openLesson(page, "Тест 7 класс", true); // пн 14.09 — первое на прошлой неделе, отмечено
+  assert.match(await page.textContent("#mMark"), /Провёл \(снять\)/);
+  await page.click("#mMark"); // снять
+  await page.waitForFunction(() => /Провёл занятие/.test(document.querySelector("#mMark").textContent));
+  await page.click("#mClose");
+  await page.click('.tab[data-tab="students"]');
+  await waitCard(page, "Тест, 7 класс", /2 из 8/);
+  await later(page, 2);
+  await openLesson(page, "Тест 7 класс");
+  await page.click("#mMark"); // поставить снова
+  await page.waitForFunction(() => /Провёл \(снять\)/.test(document.querySelector("#mMark").textContent));
+  await page.click("#mClose");
+  await page.click('.tab[data-tab="students"]');
+  await waitCard(page, "Тест, 7 класс", /3 из 8/);
+  await page.waitForTimeout(1200);
+  assert.match(await card(page, "Тест, 7 класс").textContent(), /3 из 8/, "не 4");
+  assert.deepEqual(app.errors, []);
+  await app.close();
+
+  // B) после «Исправить» неизвестно, что вошло в число: снятие не меняет, повтор не добавляет
+  const app2 = await openApp();
+  const p2 = app2.page;
+  await p2.waitForSelector("#lessonsList .lesson");
+  await p2.click('.tab[data-tab="students"]');
+  await waitCard(p2, "Тест, 7 класс", /2 из 8/);
+  await later(p2, 1);
+  await card(p2, "Тест, 7 класс").locator(".pkg-edit-btn").click();
+  await card(p2, "Тест, 7 класс").locator(".pkg-edit-done").fill("5");
+  await card(p2, "Тест, 7 класс").locator(".pkg-save-btn").click();
+  await waitCard(p2, "Тест, 7 класс", /5 из 8/);
+  for (const step of [2, 3]) { // снять, затем поставить снова
+    await later(p2, step);
+    await openLesson(p2, "Тест 7 класс 1/8", step === 2);
+    await p2.click("#mMark");
+    await p2.waitForFunction((on) => new RegExp(on ? "Провёл \\(снять\\)" : "Провёл занятие").test(document.querySelector("#mMark").textContent), step === 3);
+    await p2.click("#mClose");
+    await p2.click('.tab[data-tab="students"]');
+    await p2.waitForTimeout(1200);
+    assert.match(await card(p2, "Тест, 7 класс").textContent(), /5 из 8/, "шаг " + step);
+  }
+  assert.equal((await app2.db())[statePath].marks[S("20260914")].markedAt < Date.parse(NOW) + 60000, true, "вернулось прежнее время отметки");
+  // новая отметка другого занятия — +1
+  await later(p2, 4);
+  await openLesson(p2, "Тест 7 класс 3/8");
+  await p2.click("#mMark");
+  await p2.waitForFunction(() => /Провёл \(снять\)/.test(document.querySelector("#mMark").textContent));
+  await p2.click("#mClose");
+  await p2.click('.tab[data-tab="students"]');
+  await waitCard(p2, "Тест, 7 класс", /6 из 8/);
+  assert.deepEqual(app2.errors, []);
+  await app2.close();
+});
+
 test("перенос прервался после сохранения счётчиков: при следующем открытии названия дочищаются, счётчики не пересчитываются", async () => {
   // шаг 1 уже сделан (счётчик «5 из 8» и флаг сохранены), шаг 2 (названия) — нет
   const seed = defaultSeed({ legacyPackages: true });

@@ -1651,6 +1651,36 @@
     return window.TutorFB.setMark(id, state).catch(reportSaveError);
   }
 
+  // «Провёл» и счётчик пакета. Отметки, поставленные ДО начала пакета
+  // (countFrom), уже сидят в doneBase и сами не считаются. Раньше снятие и
+  // повторная отметка такого занятия давали +1 лишний (новая отметка — уже
+  // «после начала»). Теперь:
+  //  • занятие точно входит в doneBase (ov.baseIds — известно при переносе
+  //    со старых номеров): снятие → doneBase −1, повторная отметка → +1 как новая;
+  //  • неизвестно, входит ли: снятие ничего не меняет, а повторная отметка
+  //    получает прежнее время (baseMarkedAt) — снова «до начала», не считается.
+  function pkgMarkChange(ev, mark, wasMarked) {
+    const sid = (ev._lesson && ev._lesson.studentId) || studentKey(ev);
+    const ov = packageOverrides[sid];
+    const res = { keepAt: null, holdAt: null };
+    if (!ov || !ov.manual || ov.countFrom == null) return res;
+    if (wasMarked) {
+      const at = mark.markedAt != null ? mark.markedAt : (mark.updatedAt || 0);
+      if (at >= ov.countFrom) return res; // отметка пакета — просто перестанет считаться
+      const ids = Array.isArray(ov.baseIds) ? ov.baseIds : null;
+      if (ids && ids.includes(ev.id)) {
+        ov.baseIds = ids.filter(x => x !== ev.id);
+        ov.doneBase = Math.max(0, (ov.doneBase || 0) - 1);
+        savePackageOverride(sid);
+      } else {
+        res.holdAt = at;
+      }
+    } else if (mark && mark.baseMarkedAt != null && mark.baseMarkedAt < ov.countFrom) {
+      res.keepAt = mark.baseMarkedAt;
+    }
+    return res;
+  }
+
   async function toggleMark(ev, currentMark) {
     const wasMarked = !!(currentMark && currentMark.marked);
     const overrideAmount = currentMark ? currentMark.overrideAmount : null;
@@ -1666,7 +1696,9 @@
     // markedAt — когда нажали «Провёл»: по нему пакет считает проведённые
     // (правка суммы потом его не меняет).
     const now = Date.now();
-    const newState = { marked: !wasMarked, overrideAmount, lockedRate, markedAt: wasMarked ? null : now, updatedAt: now };
+    const pk = pkgMarkChange(ev, currentMark, wasMarked);
+    const newState = { marked: !wasMarked, overrideAmount, lockedRate, markedAt: wasMarked ? null : (pk.keepAt != null ? pk.keepAt : now), updatedAt: now };
+    if (wasMarked && pk.holdAt != null) newState.baseMarkedAt = pk.holdAt;
     saveMark(ev.id, newState);
     if (ev._lesson && (ev._lesson.status === "planned" || ev._lesson.status === "done")) {
       const status = newState.marked ? "done" : "planned";
@@ -1686,6 +1718,7 @@
       overrideAmount: Number.isNaN(amount) ? null : amount,
       lockedRate: prev.lockedRate,
       markedAt: prev.markedAt != null ? prev.markedAt : (prev.marked ? (prev.updatedAt || 0) : null),
+      baseMarkedAt: prev.baseMarkedAt != null ? prev.baseMarkedAt : null,
       updatedAt: Date.now(),
     };
     saveMark(ev.id, newState);
@@ -2183,10 +2216,12 @@
       const rate = findRate(activeCycle[0].parsed.name, activeCycle[0].parsed.cls, activeCycle[0].parsed.surname);
 
       let doneCount = 0, doneSum = 0;
+      const doneIds = [];
       activeCycle.forEach(item => {
         const mark = marks[item.ev.id];
         if (mark && mark.marked) {
           doneCount++;
+          doneIds.push(item.ev.id);
           const amount = effectiveAmountFor(item.ev, mark);
           if (amount != null && !Number.isNaN(amount)) doneSum += amount;
         }
@@ -2194,7 +2229,7 @@
       const remaining = Math.max(0, total - doneCount);
       const unearned = rate != null ? remaining * rate : null;
 
-      packages.push({ key, total, doneCount, remaining, doneSum, unearned, rate });
+      packages.push({ key, total, doneCount, remaining, doneSum, unearned, rate, doneIds });
     });
 
     return packages.sort((a, b) => a.key.localeCompare(b.key, "ru"));
@@ -2244,6 +2279,7 @@
         key, total, doneCount, remaining, doneSum, unearned, rate,
         isManual: !base,
         autoDone: base ? base.doneCount : doneCount,
+        doneIds: base ? base.doneIds : [],
         isOverridden: !!ov.doneAdjust || ov.doneOverride != null || ov.totalOverride != null,
       });
     });
@@ -2313,7 +2349,8 @@
       migratePackageOverrides(evs);
       const next = {};
       legacyBuildPackages(evs).forEach(p => {
-        next[p.key] = { manual: true, totalOverride: p.total, doneBase: p.doneCount, countFrom: now, hidden: false };
+        // baseIds — какие отмеченные занятия уже вошли в doneBase (снятие «Провёл» с них — −1)
+        next[p.key] = { manual: true, totalOverride: p.total, doneBase: p.doneCount, countFrom: now, hidden: false, baseIds: (p.doneIds || []).slice(0, 500) };
       });
       Object.entries(packageOverrides).forEach(([key, ov]) => {
         if (!ov || next[key]) return;
@@ -2508,7 +2545,7 @@
       if (!(total >= 1) || !(done >= 0)) { alert("Проведено — число от 0, всего — от 1"); return; }
       const ov = getPackageOverride(key);
       // с этого момента новые «Провёл» прибавляются к введённому числу
-      Object.assign(ov, { manual: true, totalOverride: total, doneBase: done, countFrom: Date.now(), doneOverride: null, doneAdjust: null });
+      Object.assign(ov, { manual: true, totalOverride: total, doneBase: done, countFrom: Date.now(), doneOverride: null, doneAdjust: null, baseIds: null });
       packageOverrides[key] = ov;
       savePackageOverride(key);
       rerenderPackages();
@@ -2520,7 +2557,7 @@
       if (ans === null) return;
       const total = parseInt(ans, 10);
       if (!(total >= 1 && total <= 200)) { alert("Число занятий — от 1 до 200"); return; }
-      packageOverrides[key] = { manual: true, totalOverride: total, doneBase: 0, countFrom: Date.now(), hidden: false };
+      packageOverrides[key] = { manual: true, totalOverride: total, doneBase: 0, countFrom: Date.now(), hidden: false, baseIds: [] };
       savePackageOverride(key);
       rerenderPackages();
       return;
