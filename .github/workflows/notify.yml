@@ -1,0 +1,46 @@
+# Фоновая рассылка пуш-уведомлений (вкладка «Уведомления» в кабинете учителя).
+# Своего сервера у проекта нет — GitHub запускает notifier/send.mjs по
+# расписанию. Для публичного репозитория это бесплатно.
+#
+# Нужен один секрет: Settings → Secrets and variables → Actions →
+# New repository secret, имя FIREBASE_SERVICE_ACCOUNT, значение — весь JSON
+# ключа сервисного аккаунта Firebase (см. README.md → «Уведомления»).
+# Без секрета запуск проходит зелёным и ничего не шлёт.
+#
+# GitHub запускает расписание с задержкой до ~10–20 минут в часы нагрузки,
+# а если в репозитории 60 дней нет коммитов — выключает его (включить
+# обратно: вкладка Actions → «Уведомления» → Enable workflow).
+name: Уведомления
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: notify
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: notifier/package-lock.json
+      - name: Установить firebase-admin
+        run: npm ci --no-audit --no-fund
+        working-directory: notifier
+      - name: Разослать уведомления
+        run: node send.mjs
+        working-directory: notifier
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          SITE_URL: https://tviitterggl-dev.github.io/tutor-dashboard/

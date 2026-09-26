@@ -147,6 +147,37 @@ test("журнал решений по заявкам — только учит�
   assert.equal(await get(`teacherSpaces/${T}/requests`), 403);
 });
 
+test("уведомления: только учитель; журнал рассылки учителю — только читать", async () => {
+  const n = { text: "Напоминаю о занятии", mode: "before", offsetValue: 90, offsetUnit: "min", target: { scope: "all", role: "any" }, active: true, createdAt: 1 };
+  await as(T, async () => {
+    assert.equal(await put(`teacherSpaces/${T}/notifications/n1`, n), 200);
+    assert.equal(await get(`teacherSpaces/${T}/notifications`), 200);
+    assert.equal(await put(`teacherSpaces/${T}/notifications/n2`, { ...n, mode: "spam" }), 403);
+    assert.equal(await put(`teacherSpaces/${T}/notifications/n3`, { ...n, text: "" }), 403);
+    assert.equal(await put(`teacherSpaces/${T}/notifications/n4`, { ...n, text: "x".repeat(1001) }), 403);
+    assert.equal(await get(`teacherSpaces/${T}/notifLog`), 200);
+    assert.equal(await put(`teacherSpaces/${T}/notifLog/l1`, { sentAt: 1 }), 403, "журнал пишет только фоновая рассылка");
+    assert.equal(await del(`teacherSpaces/${T}/notifications/n1`), 200);
+  });
+  for (const who of [null, OTHER]) {
+    await as(who, async () => {
+      assert.equal(await get(`teacherSpaces/${T}/notifications`), 403);
+      assert.equal(await put(`teacherSpaces/${T}/notifications/x`, n), 403);
+      assert.equal(await get(`teacherSpaces/${T}/notifLog`), 403);
+    });
+  }
+});
+
+test("канал: подписка на пуш — токен и ключ, только у type push", async () => {
+  const p = { type: "push", lessonId: "-", by: "parent", createdAt: 1, token: "t".repeat(152), key: "parent_key_for_tests_0123456789" };
+  const { token, ...noToken } = p;
+  assert.equal(await put(`channels/${CK}/items/push_p1`, p), 200);
+  assert.equal(await put(`channels/${CK}/items/push_p2`, { ...p, token: "short" }), 403);
+  assert.equal(await put(`channels/${CK}/items/push_p3`, { ...p, key: "short" }), 403);
+  assert.equal(await put(`channels/${CK}/items/push_p4`, noToken), 403);
+  assert.equal(await put(`channels/${CK}/items/push_p5`, { type: "cancel", lessonId: "l1", by: "parent", createdAt: 1, token }), 403, "токен — только в push");
+});
+
 test("прочие коллекции закрыты", async () => {
   assert.equal(await put(`random/doc`, { a: 1 }), 403);
   assert.equal(await get(`random/doc`), 403);

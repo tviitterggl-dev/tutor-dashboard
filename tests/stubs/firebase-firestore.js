@@ -119,8 +119,28 @@ function applyUpdate(db, ref, args) {
   }
 }
 
+// Сообщения в каналах проверяем так же, как firestore.rules (validItem):
+// иначе расхождение кода кабинета с правилами тесты бы не заметили.
+function checkItem(path, d) {
+  if (!/^channels\/[^/]+\/items\/[^/]+$/.test(path)) return;
+  const bad = (why) => { const e = new Error("Missing or insufficient permissions. (" + why + ")"); e.code = "permission-denied"; throw e; };
+  const allowed = ["type", "lessonId", "by", "createdAt", "file", "newStartMs", "newEndMs", "comment", "paid", "token", "key"];
+  Object.keys(d).forEach((k) => { if (!allowed.includes(k)) bad("лишнее поле " + k); });
+  if (!["homework", "reschedule", "cancel", "paid", "note", "push"].includes(d.type)) bad("type");
+  if (typeof d.lessonId !== "string" || !d.lessonId || d.lessonId.length > 128) bad("lessonId");
+  if (!["parent", "student", "teacher"].includes(d.by)) bad("by");
+  if (!Number.isInteger(d.createdAt)) bad("createdAt");
+  if ("comment" in d && (typeof d.comment !== "string" || d.comment.length > (d.type === "note" ? 1000 : 500))) bad("comment");
+  if (d.type === "note" && typeof d.comment !== "string") bad("note без comment");
+  if (d.type === "homework" && !(d.file && /^https:\/\/res[.]cloudinary[.]com\//.test(d.file.url))) bad("file");
+  if (d.type === "paid" && typeof d.paid !== "boolean") bad("paid");
+  if (d.type === "push" && !(typeof d.token === "string" && d.token.length >= 20 && typeof d.key === "string" && d.key.length >= 24 && d.key.length <= 64)) bad("push");
+  if (d.type !== "push" && ("token" in d || "key" in d)) bad("token вне push");
+}
+
 export async function setDoc(ref, data, opts) {
   checkDeny(ref.path);
+  checkItem(ref.path, data);
   const db = load();
   applySet(db, ref, data, opts);
   save(db);

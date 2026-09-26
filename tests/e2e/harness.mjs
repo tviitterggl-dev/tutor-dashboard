@@ -23,6 +23,7 @@ export const NOW = "2026-09-24T12:00:00+03:00"; // четверг
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "application/javascript", ".css": "text/css", ".json": "application/json", ".png": "image/png", ".svg": "image/svg+xml" };
 
 let server = null;
+let testVapidKey = null; // см. opts.vapidKey
 let baseUrl = null;
 let browser = null;
 
@@ -34,6 +35,14 @@ async function ensureServer() {
     if (!p.startsWith(ROOT)) { res.writeHead(403); res.end(); return; }
     if (fs.existsSync(p) && fs.statSync(p).isDirectory()) p = path.join(p, "index.html");
     if (!fs.existsSync(p)) { res.writeHead(404); res.end("not found"); return; }
+    // Тестовый публичный ключ пушей (в самом cabinet.html он пуст, пока его
+    // не создали в консоли Firebase). Подставляет сервер, а не перехват
+    // запросов: страницу под service worker перехват не видит.
+    if (testVapidKey && p.endsWith("cabinet.html")) {
+      res.writeHead(200, { "Content-Type": MIME[".html"] });
+      res.end(fs.readFileSync(p, "utf8").replace('const FCM_VAPID_KEY = "";', `const FCM_VAPID_KEY = ${JSON.stringify(testVapidKey)};`));
+      return;
+    }
     res.writeHead(200, { "Content-Type": MIME[path.extname(p)] || "application/octet-stream" });
     fs.createReadStream(p).pipe(res);
   });
@@ -111,6 +120,7 @@ export function defaultSeed(opts = {}) {
 // ---- открыть страницу ----
 export async function openApp(opts = {}) {
   const url0 = await ensureServer();
+  testVapidKey = opts.vapidKey || null;
   if (!browser) browser = await chromium.launch();
   const calls = { cloudinary: [], unexpected: [] };
   const ctxOpts = {
@@ -172,6 +182,7 @@ export async function openApp(opts = {}) {
     if (u.hostname === "www.gstatic.com" && u.pathname.endsWith("/firebase-app.js")) return file(path.join(STUBS, "firebase-app.js"));
     if (u.hostname === "www.gstatic.com" && u.pathname.endsWith("/firebase-firestore.js")) return file(path.join(STUBS, "firebase-firestore.js"));
     if (u.hostname === "www.gstatic.com" && u.pathname.endsWith("/firebase-auth.js")) return file(path.join(STUBS, "firebase-auth.js"));
+    if (u.hostname === "www.gstatic.com" && u.pathname.endsWith("/firebase-messaging.js")) return file(path.join(STUBS, "firebase-messaging.js"));
     if (u.hostname.startsWith("fonts.") && opts.fontDir) {
       // Скачанные заранее шрифты Google (для скриншотов; см. tests/screens.mjs)
       if (u.hostname === "fonts.googleapis.com") {

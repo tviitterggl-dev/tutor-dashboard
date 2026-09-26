@@ -45,7 +45,9 @@ Spark, файлы ДЗ в Cloudinary (unsigned preset). Сборки нет: HTM
 | `theme.js` | Тема: как в системе / выбрана вручную (`localStorage["theme"]`), ставится до отрисовки. |
 | `firestore.rules` | Правила доступа к базе. **Меняются в Git, но на сервер попадают только после деплоя** (см. ниже). |
 | `firebase.json` | Настройки CLI `firebase`: путь к правилам, порт эмулятора. |
-| `sw.js`, `manifest.json`, `icons/` | Установка кабинета учителя как приложения (Android/iPhone). |
+| `notify-core.js` | Логика уведомлений «кому и когда» — общая для кабинета учителя, кабинетов родителя/ученика и фоновой рассылки. |
+| `notifier/`, `.github/workflows/notify.yml` | Фоновая рассылка пуш-уведомлений: скрипт на `firebase-admin`, который GitHub Actions запускает раз в ~15 минут. |
+| `sw.js`, `manifest.json`, `icons/` | Service worker (офлайн-оболочка, приём пушей) и установка как приложения (Android/iPhone). |
 | `tests/` | Автотесты: e2e в Playwright с подменённым Firebase и проверка правил в эмуляторе. На сайт не влияют. |
 | `DEVLOG.md` | Хронология изменений; там же шпаргалка по разовым шагам в консоли Firebase. |
 
@@ -62,8 +64,12 @@ teacherSpaces/{uid}/lessons/{id}
     report, homework[], paid{value,by,at}, callUrl, familyNote{text,by,at}, kind:"personal" (личное время) …
 teacherSpaces/{uid}/accessKeys/{ключ}   role, studentId, label, active, revokedAt
 teacherSpaces/{uid}/requests/{id}       решения по заявкам
+teacherSpaces/{uid}/notifications/{id}  уведомления: text, mode (now|once|before), times, offsetValue+offsetUnit,
+                                        target {scope all|student|key, role, studentId, key}, lessonIds, push, active
+teacherSpaces/{uid}/notifLog/{id}       что уже ушло пушем (пишет только фоновая рассылка)
 parentAccess/{ключ}, studentAccess/{ключ}   витрины (перезаписываются кабинетом учителя)
-channels/{ключ}/items/{id}              homework | reschedule | cancel | paid | note (только создание)
+channels/{ключ}/items/{id}              homework | reschedule | cancel | paid | note | push (только создание;
+                                        push — подписка устройства: FCM-токен + ключ доступа)
 ```
 
 Ученик определяется строкой `"Имя, N класс"`. Фамилия становится частью этой строки
@@ -75,6 +81,45 @@ channels/{ключ}/items/{id}              homework | reschedule | cancel | pai
 Резервная копия всех данных — вкладка «Ещё» → «Скачать резервную копию данных» (JSON). Там же
 таблица занятий для Excel (CSV).
 
+## Уведомления
+
+Вкладка «Уведомления» в кабинете учителя позволяет:
+- написать текст;
+- выбрать, когда показывать: «разово — при следующих N открытиях кабинета» или «перед каждым
+  занятием — за X минут/часов/дней»;
+- выбрать, кому: все, родители, ученики, конкретный ученик или конкретный человек;
+- при желании привязать уведомление к выбранным занятиям этого ученика;
+- отдельно — «Отправить сейчас».
+
+Доставка идёт двумя путями.
+1. **В самом кабинете** работает всегда, без настройки. Учитель публикует в витрину адресата
+   `notices`, а кабинет решает сам: сообщение показывает N раз (счётчик на устройстве), напоминание —
+   с момента «за X до занятия» и до конца занятия. «Отправить сейчас» появляется в открытом
+   кабинете сразу.
+2. **Пуш на телефон** (Firebase Cloud Messaging, бесплатно):
+   - родитель или ученик один раз нажимает «Ещё» → «Включить уведомления», и в канал ученика
+     записывается подписка (токен устройства и ключ доступа);
+   - GitHub Actions раз в ~15 минут запускает `notifier/send.mjs`: скрипт находит, что пора
+     отправить, и шлёт пуши;
+   - пуш не уходит, если ключ отозван;
+   - журнал `notifLog` не даёт отправить одно и то же дважды;
+   - на iPhone пуши приходят, только если кабинет открыт со значка на экране «Домой» (iOS 16.4+).
+
+**Разовая настройка пушей** (без неё работает только показ в кабинете):
+1. Консоль Firebase → ⚙ Настройки проекта → **Cloud Messaging** → «Web Push certificates» →
+   **Generate key pair**. Скопировать публичный ключ (длинная строка на `B…`) в `cabinet.html` →
+   `const FCM_VAPID_KEY = "…"`. Ключ публичный, его можно хранить в коде.
+2. Настройки проекта → **Service accounts** → **Generate new private key** — скачается JSON.
+   Это **секрет**: не коммитить, не пересылать.
+3. GitHub → репозиторий → Settings → Secrets and variables → Actions → **New repository secret**:
+   имя `FIREBASE_SERVICE_ACCOUNT`, значение — всё содержимое JSON. После этого файл можно удалить.
+4. Проверка: Actions → «Уведомления» → **Run workflow**. Во вкладке «Уведомления» у учителя
+   появится «Фоновая рассылка работает: последний запуск …».
+
+Если в репозитории 60 дней нет коммитов, GitHub выключает расписание. Включить его обратно: вкладка
+Actions → «Уведомления» → Enable workflow. Расписание GitHub иногда запускает с опозданием на 5–20
+минут.
+
 ## Тесты
 
 Нужны Node.js 20+; для проверки правил — ещё Java 11+ и `firebase-tools`.
@@ -84,6 +129,7 @@ cd tests
 npm install                 # Playwright, FullCalendar, html2canvas (браузер Chromium — один раз: npx playwright install chromium)
 npm run test:e2e            # e2e: оба кабинета в Chromium, Firebase/Cloudinary/CDN подменены (tests/stubs)
 npm run test:rules          # firestore.rules в локальном эмуляторе
+npm run test:notifier       # логика уведомлений + фоновая рассылка против эмулятора (нужен cd ../notifier && npm install)
 node check-syntax.mjs ../index.html ../cabinet.html   # синтаксис встроенных скриптов
 node screens.mjs <папка> [папка со шрифтами]           # скриншоты экранов на «iPhone» (до/после правок дизайна)
 ```

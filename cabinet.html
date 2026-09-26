@@ -21,6 +21,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Spectral:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="design.css">
 <script src="theme.js"></script>
+<script src="notify-core.js"></script>
 <style>
   /* Токены, шрифты, анимации и переключатель темы — в design.css (общий для
      всех кабинетов). Здесь — компоненты кабинета родителя/ученика. */
@@ -145,6 +146,12 @@
   .mark-btn.paid-btn.paid { background: var(--done-bg); border: 2px solid var(--done-solid); color: var(--done-text); font-weight: 700; }
   .pkg-note { font-size: 13px; font-weight: 700; color: var(--pending-text); background: var(--pending-bg); border: 1px solid var(--pending-border); border-radius: var(--r-md); padding: 10px 14px; margin-top: 10px; }
   .pkg-note.over { color: var(--danger); background: var(--danger-bg); border-color: var(--danger-border); }
+  .notice { background: var(--card-bg); border-radius: var(--r-card); box-shadow: var(--shadow); padding: 16px 18px; margin-bottom: 14px; border-left: 4px solid var(--accent); animation: ds-rise 250ms var(--ease); }
+  .notice.rem { border-left-color: var(--event); }
+  .notice-head { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+  .notice-text { white-space: pre-wrap; font-size: 14.5px; line-height: 1.5; }
+  .notice .who { margin-top: 6px; }
+  .notice-close { margin-top: 10px; background: none; border: none; padding: 0; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; font-size: 12.5px; cursor: pointer; }
   .lesson.next { background: var(--card-bg); border: 2px solid var(--accent); box-shadow: var(--shadow); }
   .next-label { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin-bottom: 6px; }
   .lesson-links { display: flex; flex-wrap: wrap; gap: 6px 16px; }
@@ -159,6 +166,7 @@
   <h1 id="title">Личный кабинет</h1>
   <div class="sub" id="subtitle">Загрузка…</div>
   <div id="switcher"></div>
+  <div id="notices"></div>
   <nav class="ctabs" id="tabs" style="display:none" role="tablist">
     <button type="button" class="ctab" data-ctab="lessons" role="tab">Занятия</button>
     <button type="button" class="ctab" data-ctab="calendar" role="tab">Календарь</button>
@@ -190,6 +198,10 @@
         <a id="telemostLink" href="https://yandex.ru/chat/p/ad9c2706-f36a-940f-7a90-d15f170427e5?utm_source=invite" target="_blank" rel="noopener noreferrer">Яндекс Телемост</a>
       </div>
     </div>
+    <div class="card" id="pushCard">
+      <div class="card-title">Уведомления на телефон</div>
+      <div id="pushBody"></div>
+    </div>
     <div class="card">
       <div class="card-title">Оформление</div>
       <div id="themeToggle"></div>
@@ -207,7 +219,7 @@
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
-  import { getFirestore, doc, setDoc, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+  import { getFirestore, doc, setDoc, deleteDoc, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
   // Здесь нет и не должно быть ключа учителя. Кабинет видит только:
   //  • свою витрину parentAccess/{ключ} или studentAccess/{ключ} (её пишет учитель);
@@ -221,7 +233,13 @@
     messagingSenderId: "580713659609",
     appId: "1:580713659609:web:94eae49a4e74eb679052c8",
   };
-  const db = getFirestore(initializeApp(firebaseConfig));
+  const firebaseApp = initializeApp(firebaseConfig);
+  const db = getFirestore(firebaseApp);
+  // Пуш-уведомления: публичный ключ «Web Push certificates» из консоли Firebase
+  // (Настройки проекта → Cloud Messaging). Пусто — кнопка «Включить
+  // уведомления» не показывается, сообщения видны только в кабинете.
+  const FCM_VAPID_KEY = "";
+  const FCM_URL = "https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging.js";
 
   const FC_JS = "https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js";
   const FC_RU = "https://cdn.jsdelivr.net/npm/@fullcalendar/core@6.1.19/locales/ru.global.min.js";
@@ -319,6 +337,7 @@
     $("title").textContent = "Личный кабинет";
     $("subtitle").textContent = "";
     $("root").innerHTML = `<div class="card"><div class="empty">${esc(text)}</div></div>`;
+    $("notices").innerHTML = "";
     setPanesVisible(false);
     $("updatedAt").textContent = "";
   }
@@ -655,6 +674,8 @@
     const reqTab = document.querySelector('.ctab[data-ctab="requests"]');
     reqTab.innerHTML = "Заявки" + (hasPending ? '<span class="dot" title="есть заявка без ответа"></span>' : "");
 
+    renderNotices(now);
+    renderPushCard();
     renderLessonsPane(now);
     renderRequestsPane();
     renderHwPane(now);
@@ -791,7 +812,8 @@
   // ---------- действия ----------
   async function addItem(channel, data) {
     const clean = {};
-    Object.entries(data).forEach(([k, v]) => { if (v !== undefined && v !== null && v !== "") clean[k] = v; });
+    // пустую строку оставляем: пустое «пояснение» = «убрать» (правилам нужен comment-строка)
+    Object.entries(data).forEach(([k, v]) => { if (v !== undefined && v !== null) clean[k] = v; });
     await setDoc(doc(db, "channels", channel, "items", newId()), clean);
   }
 
@@ -1035,11 +1057,153 @@
     }
   }
 
+  // ---------- сообщения и напоминания от преподавателя ----------
+  // Учитель публикует в витрину notices (только для этого адресата):
+  //  • «now»/«once» — показать при следующих N открытиях кабинета (счётчик —
+  //    на этом устройстве, в localStorage); «Понятно, скрыть» — сразу убрать;
+  //  • «before» — напоминание: появляется за заданное время до занятия и
+  //    висит до его конца. Логика — в notify-core.js (общая с рассылкой).
+  const SEEN = "cabinetNoticesSeen";
+  const seenMap = () => { try { return JSON.parse(localStorage.getItem(SEEN) || "{}") || {}; } catch (e) { return {}; } };
+  const saveSeen = (m) => { try { localStorage.setItem(SEEN, JSON.stringify(m)); } catch (e) { /* приватный режим */ } };
+  const countedNow = new Set(); // засчитанные в это открытие кабинета
+  function renderNotices(now) {
+    const el = $("notices");
+    if (!view) { el.innerHTML = ""; return; }
+    const notices = Array.isArray(view.notices) ? view.notices : [];
+    const seen = seenMap();
+    const cards = [];
+    // счётчик — на этом устройстве и для этой ссылки (на общем планшете мама и
+    // ребёнок видят сообщение каждый свои N раз)
+    const sk = (id) => `${current.key.slice(0, 12)}:${id}`;
+    notices.filter((n) => n.mode === "once" || n.mode === "now").forEach((n) => {
+      const times = n.times || 1;
+      const counted = countedNow.has(sk(n.id));
+      if (!counted && (seen[sk(n.id)] || 0) >= times) return;
+      if (!counted) { seen[sk(n.id)] = (seen[sk(n.id)] || 0) + 1; countedNow.add(sk(n.id)); }
+      const bound = (n.lessonIds || []).map((id) => lessonById(id)).filter(Boolean).sort((a, b) => a.startMs - b.startMs);
+      cards.push({ id: sk(n.id), kind: "msg", text: n.text, sub: bound.length ? "К занятию: " + bound.map((l) => fmtWhen(l.startMs, l.endMs)).join("; ") : "" });
+    });
+    const label = view.studentLabel || view.studentId;
+    window.NotifyCore.dueReminders(notices, myLessons(), now, label).forEach((r) => {
+      if (!seen[sk(r.id)]) cards.push({ id: sk(r.id), kind: "rem", text: r.text, sub: fmtWhen(r.startMs) });
+    });
+    saveSeen(seen);
+    el.innerHTML = cards.map((c) => `
+      <div class="notice ${c.kind}" data-notice="${esc(c.id)}">
+        <div class="notice-head">${c.kind === "rem" ? "Напоминание о занятии" : "Сообщение от преподавателя"}</div>
+        <div class="notice-text">${esc(c.text)}</div>
+        ${c.sub ? `<div class="who">${esc(c.sub)}</div>` : ""}
+        <button class="link-btn notice-close" type="button" data-notice-close="${esc(c.id)}">Понятно, скрыть</button>
+      </div>`).join("");
+  }
+  $("notices").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-notice-close]");
+    if (!b) return;
+    const seen = seenMap();
+    seen[b.dataset.noticeClose] = 1000;
+    saveSeen(seen);
+    countedNow.delete(b.dataset.noticeClose);
+    renderNotices(Date.now());
+  });
+  setInterval(() => { if (view) renderNotices(Date.now()); }, 60000); // напоминания «за X до занятия»
+
+  // ---------- уведомления на телефон (пуш, Firebase Cloud Messaging) ----------
+  // Подписка = сообщение type "push" в общем канале ученика: токен этого
+  // устройства + ключ этого кабинета. Пуши шлёт фоновая рассылка (notifier/,
+  // GitHub Actions) — она проверяет, что ключ не отозван.
+  const PUSH_STORE = "cabinetPush"; // { [ключ доступа]: { token, itemId, channel } }
+  const pushSaved = () => { try { return JSON.parse(localStorage.getItem(PUSH_STORE) || "{}") || {}; } catch (e) { return {}; } };
+  const savePush = (m) => { try { localStorage.setItem(PUSH_STORE, JSON.stringify(m)); } catch (e) { /* приватный режим */ } };
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const isStandalone = () => window.navigator.standalone === true || (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
+  function pushSupport() {
+    if (!FCM_VAPID_KEY) return { ok: false, text: "Уведомления на телефон пока не включены у преподавателя. Сообщения и напоминания всё равно видны здесь, в кабинете." };
+    if (!("serviceWorker" in navigator) || !("Notification" in window) || !("PushManager" in window)) {
+      if (isIOS && !isStandalone()) return { ok: false, text: "На iPhone уведомления приходят, только если кабинет добавлен на экран «Домой»: Safari → «Поделиться» → «На экран «Домой»». Потом откройте кабинет со значка и включите уведомления здесь." };
+      return { ok: false, text: "Этот браузер не умеет получать уведомления. Сообщения преподавателя видны здесь, в кабинете." };
+    }
+    if (Notification.permission === "denied") return { ok: false, text: "Уведомления для этого сайта запрещены в настройках браузера или телефона — разрешите их там и обновите страницу." };
+    return { ok: true };
+  }
+  const pushOn = () => {
+    const mine = current && pushSaved()[current.key];
+    return !!(mine && "Notification" in window && Notification.permission === "granted" && shared.some((i) => i.id === mine.itemId));
+  };
+  function pushMsg(t, kind) { const m = $("pushMsg"); if (m) { m.textContent = t || ""; m.className = "msg" + (kind ? " " + kind : ""); } }
+  function renderPushCard() {
+    const el = $("pushBody");
+    if (!el || !current || !view) return;
+    const keepMsg = $("pushMsg") ? [$("pushMsg").textContent, $("pushMsg").className] : null;
+    const sup = pushSupport();
+    let html;
+    if (!sup.ok) html = `<div class="hint" style="margin-top:0">${esc(sup.text)}</div>`;
+    else if (pushOn()) html = `<div>Уведомления включены на этом устройстве ✓</div>
+        <div class="btn-row"><button class="btn secondary" type="button" id="pushTest">Проверить</button><button class="forget" type="button" id="pushOff">Выключить</button></div>`;
+    else html = `<div class="btn-row" style="margin-top:0"><button class="btn" type="button" id="pushOnBtn">Включить уведомления</button></div>
+        <div class="hint">Напоминания о занятиях и сообщения преподавателя будут приходить на этот телефон или компьютер, даже когда кабинет закрыт.${isIOS ? " На iPhone — только из кабинета, открытого со значка на экране «Домой»." : ""}</div>`;
+    el.innerHTML = html + '<div class="msg" id="pushMsg"></div>';
+    if (keepMsg) { $("pushMsg").textContent = keepMsg[0]; $("pushMsg").className = keepMsg[1]; }
+    if ($("pushOnBtn")) $("pushOnBtn").addEventListener("click", enablePush);
+    if ($("pushOff")) $("pushOff").addEventListener("click", () => disablePush(true));
+    if ($("pushTest")) $("pushTest").addEventListener("click", async () => {
+      try {
+        const reg = await navigator.serviceWorker.register("sw.js");
+        await reg.showNotification("Кабинет: проверка", { body: "Так будут выглядеть напоминания и сообщения преподавателя.", icon: "icons/icon-192.png" });
+        pushMsg("Уведомление показано.", "ok");
+      } catch (e) { pushMsg("Не получилось показать уведомление.", "err"); }
+    });
+  }
+  const userError = (text) => { const e = new Error(text); e.userText = text; return e; };
+  async function enablePush() {
+    const btn = $("pushOnBtn");
+    if (btn) btn.disabled = true;
+    pushMsg("Включаю…");
+    try {
+      if (!view.channel) throw userError("Уведомления заработают после ближайшего входа преподавателя в свой кабинет — попробуйте чуть позже.");
+      const reg = await navigator.serviceWorker.register("sw.js");
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") throw userError("Без разрешения уведомления не придут. Если передумаете — разрешите их и нажмите ещё раз.");
+      const m = await import(FCM_URL);
+      if (m.isSupported && !(await m.isSupported())) throw userError("Этот браузер не умеет получать уведомления.");
+      const token = await m.getToken(m.getMessaging(firebaseApp), { vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: reg });
+      if (!token) throw userError("Телефон не выдал адрес для уведомлений — попробуйте ещё раз.");
+      const saved = pushSaved();
+      const old = saved[current.key];
+      if (!(old && old.token === token && shared.some((i) => i.id === old.itemId))) {
+        const itemId = newId();
+        await setDoc(doc(db, "channels", view.channel, "items", itemId), { type: "push", lessonId: "-", by: current.role, createdAt: Date.now(), token, key: current.key });
+        if (old && old.itemId && old.channel) deleteDoc(doc(db, "channels", old.channel, "items", old.itemId)).catch(() => {});
+        saved[current.key] = { token, itemId, channel: view.channel };
+        savePush(saved);
+        shared = shared.concat([{ id: itemId, type: "push", token, key: current.key }]);
+      }
+      renderPushCard();
+      pushMsg("Готово! Уведомления будут приходить на это устройство.", "ok");
+    } catch (err) {
+      console.error(err);
+      renderPushCard();
+      pushMsg(errText(err, "Не получилось включить уведомления. Проверьте интернет и попробуйте ещё раз."), "err");
+    }
+  }
+  async function disablePush(say) {
+    const saved = pushSaved();
+    const mine = current && saved[current.key];
+    if (!mine) return;
+    delete saved[current.key];
+    savePush(saved);
+    try { if (mine.itemId && mine.channel) await deleteDoc(doc(db, "channels", mine.channel, "items", mine.itemId)); } catch (e) { /* уже удалено */ }
+    shared = shared.filter((i) => i.id !== mine.itemId);
+    if (say) { renderPushCard(); pushMsg("Уведомления на этом устройстве выключены.", "ok"); }
+  }
+
   // ---------- запуск ----------
   $("forgetBtn").addEventListener("click", () => {
     if (!confirm("Забыть кабинет на этом устройстве? Чтобы снова войти, понадобится ссылка от преподавателя.")) return;
+    // уведомления на это устройство тоже больше не нужны
+    Object.values(pushSaved()).forEach((p) => { if (p && p.channel && p.itemId) deleteDoc(doc(db, "channels", p.channel, "items", p.itemId)).catch(() => {}); });
     stopWatching();
-    try { localStorage.removeItem(STORE); } catch (e) { /* ничего */ }
+    try { localStorage.removeItem(STORE); localStorage.removeItem(PUSH_STORE); localStorage.removeItem(SEEN); } catch (e) { /* ничего */ }
     showInAddress(null);
     current = null;
     view = null;

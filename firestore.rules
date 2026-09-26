@@ -7,7 +7,7 @@ rules_version = '2';
 //  • parentAccess/{ключ}, studentAccess/{ключ} — «витрины» кабинетов
 //    родителя/ученика: «ключ = пароль», точечное чтение, листинг запрещён.
 //  • channels/{ключ канала}/items — то, что пишут родитель/ученик (ДЗ,
-//    заявки, «оплачено»). У каждого ученика общий канал (родитель +
+//    заявки, «оплачено», «пояснение», подписка на пуш). У каждого ученика общий канал (родитель +
 //    ученик) и отдельный родительский (оплата). Учитель проверяет, что
 //    каждое сообщение относится к занятию именно этого ученика.
 service cloud.firestore {
@@ -31,11 +31,13 @@ service cloud.firestore {
     // Сообщение в канале ученика. Каналы — единственное место, куда пишут
     // родитель и ученик: загруженное ДЗ, заявки на перенос/отмену, отметка
     // «оплачено», «пояснение» к занятию (note: текст до 1000 символов,
-    // пустой — «убрать пояснение»). Только создание (менять чужие сообщения нельзя), состав
+    // пустой — «убрать пояснение»), подписка устройства на пуш-уведомления
+    // (push: токен Firebase Cloud Messaging + ключ доступа этого кабинета —
+    // по ключу фоновая рассылка проверяет, что доступ не отозван). Только создание (менять чужие сообщения нельзя), состав
     // полей и размеры ограничены; ссылки на файлы — только Cloudinary.
     function validItem(d) {
-      return d.keys().hasOnly(["type", "lessonId", "by", "createdAt", "file", "newStartMs", "newEndMs", "comment", "paid"])
-        && d.type in ["homework", "reschedule", "cancel", "paid", "note"]
+      return d.keys().hasOnly(["type", "lessonId", "by", "createdAt", "file", "newStartMs", "newEndMs", "comment", "paid", "token", "key"])
+        && d.type in ["homework", "reschedule", "cancel", "paid", "note", "push"]
         && d.lessonId is string && d.lessonId.size() > 0 && d.lessonId.size() <= 128
         && d.by in ["parent", "student", "teacher"]
         && d.createdAt is int
@@ -49,7 +51,11 @@ service cloud.firestore {
               && d.file.url.matches("^https://res[.]cloudinary[.]com/.*")
               && d.file.name is string && d.file.name.size() <= 200))
         && (d.type != "reschedule" || (d.newStartMs is int && d.newEndMs is int && d.newEndMs > d.newStartMs))
-        && (d.type != "paid" || d.paid is bool);
+        && (d.type != "paid" || d.paid is bool)
+        && (d.type != "push" || (
+              d.token is string && d.token.size() >= 20 && d.token.size() <= 4096
+              && d.key is string && d.key.size() >= 24 && d.key.size() <= 64))
+        && (d.type == "push" || !("token" in d || "key" in d));
     }
 
     function validView(d) {
@@ -70,6 +76,22 @@ service cloud.firestore {
 
     match /teacherSpaces/{uid}/accessKeys/{accessKey} {
       allow get, list, write: if isTeacher(uid);
+    }
+
+    // Уведомления (конструктор во вкладке «Уведомления») — только учитель.
+    // Фоновая рассылка (GitHub Actions, сервисный аккаунт) правила обходит.
+    function validNotification(d) {
+      return d.text is string && d.text.size() > 0 && d.text.size() <= 1000
+        && d.mode in ["once", "before", "now"]
+        && d.target is map;
+    }
+    match /teacherSpaces/{uid}/notifications/{notifId} {
+      allow get, list, delete: if isTeacher(uid);
+      allow create, update: if isTeacher(uid) && validNotification(request.resource.data);
+    }
+    // Журнал фоновой рассылки (что и когда ушло пушем) — пишет только она.
+    match /teacherSpaces/{uid}/notifLog/{logId} {
+      allow get, list, delete: if isTeacher(uid);
     }
 
     // Журнал решений по заявкам (подтверждено/отклонено) — только учитель.
