@@ -120,6 +120,21 @@ channels/{ключ}/items/{id}              homework | reschedule | cancel | pai
 4. Проверка: Actions → «Уведомления» → **Run workflow**. Во вкладке «Уведомления» у учителя
    появится «Фоновая рассылка работает: последний запуск …».
 
+**Частые запуски через cron-job.org.** Своё расписание GitHub у малоактивных репозиториев
+запускает редко, иногда раз в несколько часов. Поэтому основной запуск идёт снаружи: бесплатный
+cron-job.org каждые 15 минут вызывает запуск рассылки через GitHub API (`workflow_dispatch`).
+Расписание в `notify.yml` остаётся запасным. Два запуска подряд ничего не дублируют: журнал
+`notifLog` и `concurrency` это не дают.
+- Токен GitHub (fine-grained): доступ только к репозиторию `tutor-dashboard`, из прав — только
+  **Actions: Read and write** (плюс обязательное Metadata: Read-only). Токен хранится только
+  в cron-job.org.
+- Задача cron-job.org: `POST https://api.github.com/repos/tviitterggl-dev/tutor-dashboard/actions/workflows/notify.yml/dispatches`,
+  заголовки `Accept: application/vnd.github+json`, `Authorization: Bearer <токен>`,
+  `X-GitHub-Api-Version: 2022-11-28`, `Content-Type: application/json`, тело `{"ref":"main"}`,
+  каждые 15 минут. Ответ **204** означает, что запуск принят.
+- Срок токена — до года. Когда он истечёт, cron-job.org начнёт получать 401: нужно выпустить новый
+  токен с теми же правами и заменить его в заголовке `Authorization`.
+
 Если в репозитории 60 дней нет коммитов, GitHub выключает расписание. Включить его обратно: вкладка
 Actions → «Уведомления» → Enable workflow. Расписание GitHub иногда запускает с опозданием на 5–20
 минут.
