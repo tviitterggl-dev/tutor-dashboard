@@ -9,7 +9,7 @@ import { runOnce } from "../../notifier/send.mjs";
 const req = createRequire(new URL("../../notifier/package.json", import.meta.url));
 const core = createRequire(import.meta.url)("../../notify-core.js");
 const { initializeApp } = req("firebase-admin/app");
-const { getFirestore } = req("firebase-admin/firestore");
+const { getFirestore, Query, DocumentReference, Firestore } = req("firebase-admin/firestore");
 const HOST = process.env.FIRESTORE_EMULATOR_HOST || "127.0.0.1:8080";
 const db = getFirestore(initializeApp({ projectId: "demo-tutor" }));
 
@@ -168,4 +168,37 @@ test("пуши учителю: нет подписанных устройств 
   await runOnce({ db, send: fakeSend(sent), now: NOW + M, siteUrl: SITE, logger: quiet });
   assert.equal(sent.filter((m) => m.data.title === "Оплата").length, 1);
   assert.equal(((await tRef.collection("state").doc("main").get()).data().teacherDevices || {}).dead, undefined, "мёртвая подписка удалена");
+});
+
+// Счётчик прочитанных документов (так Firestore и тарифицирует чтения):
+// оборачиваем Query.get / DocumentReference.get / Firestore.getAll.
+function countReads() {
+  const orig = { q: Query.prototype.get, d: DocumentReference.prototype.get, a: Firestore.prototype.getAll };
+  const c = { reads: 0 };
+  Query.prototype.get = async function (...x) { const r = await orig.q.apply(this, x); c.reads += Math.max(1, r.size); return r; };
+  DocumentReference.prototype.get = async function (...x) { const r = await orig.d.apply(this, x); c.reads += 1; return r; };
+  Firestore.prototype.getAll = async function (...x) { const r = await orig.a.apply(this, x); c.reads += r.length; return r; };
+  c.stop = () => { Query.prototype.get = orig.q; DocumentReference.prototype.get = orig.d; Firestore.prototype.getAll = orig.a; };
+  return c;
+}
+
+test("экономия чтений: большая история журнала и старых «Отправить сейчас» не читается на каждом запуске", async () => {
+  // 400 записей журнала и 200 старых «сейчас»/отчётов — как после пары месяцев работы
+  let b = db.batch(); let n = 0;
+  const flush = async () => { await b.commit(); b = db.batch(); n = 0; };
+  for (let i = 0; i < 400; i++) { b.set(tRef.collection("notifLog").doc(`old${i}__l${i}`), { ruleId: "r90", sentAt: NOW - 10 * 24 * H, status: "done" }); if (++n === 400) await flush(); }
+  await flush();
+  for (let i = 0; i < 200; i++) { b.set(tRef.collection("notifications").doc(`now_old_${i}`), { text: "Отчёт " + i, mode: "now", times: 1, target: { scope: "all", role: "any" }, active: true, createdAt: NOW - 30 * 24 * H, source: "report" }); if (++n === 400) await flush(); }
+  await flush();
+  const first = [];
+  await runOnce({ db, send: fakeSend(first), now: NOW, siteUrl: SITE, logger: quiet }); // первый запуск: отправки и суточная чистка
+  const c = countReads();
+  try {
+    const sent = [];
+    await runOnce({ db, send: fakeSend(sent), now: NOW + 5 * M, siteUrl: SITE, logger: quiet });
+    assert.equal(sent.length, 0, "повторно ничего");
+  } finally { c.stop(); }
+  assert.ok(c.reads < 40, `чтений за запуск: ${c.reads} (раньше было бы 600+)`);
+  // «разово/сейчас» после отправки помечено — дальше не проверяется по журналу
+  assert.ok((await tRef.collection("notifications").doc("now1").get()).data().pushedAt, "now1 помечено pushedAt");
 });

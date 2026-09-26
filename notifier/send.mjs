@@ -39,24 +39,53 @@ function studentLabelFn(profiles) {
 }
 const cabinetUrl = (siteUrl, key) => `${siteUrl.replace(/\/?$/, "/")}cabinet.html#${key.role === "parent" ? "p" : "s"}=${key.id}`;
 
+// Живые уведомления без чтения всей истории: «разово»/«перед занятием» и
+// «сейчас»/отчёты за последние NOW_TTL (старше — уже не показываются и не шлются).
+async function liveRules(tRef, now) {
+  const col = tRef.collection("notifications");
+  const [a, b] = await Promise.all([
+    col.where("mode", "in", ["once", "before"]).get(),
+    col.where("createdAt", ">=", now - core.NOW_TTL_MS).get(),
+  ]);
+  const byId = new Map();
+  [...a.docs, ...b.docs].forEach((d) => byId.set(d.id, Object.assign({ id: d.id }, d.data())));
+  return [...byId.values()];
+}
+// Какие из этих записей журнала уже есть — точечное чтение (getAll), не весь журнал.
+async function logHas(tRef, ids) {
+  const uniq = [...new Set(ids)];
+  const out = {};
+  if (!uniq.length) return out;
+  const snaps = await tRef.firestore.getAll(...uniq.map((id) => tRef.collection("notifLog").doc(id)));
+  snaps.forEach((s) => { if (s.exists) out[s.id] = true; });
+  return out;
+}
+async function markPushed(tRef, ruleId, now) {
+  await tRef.collection("notifications").doc(ruleId).set({ pushedAt: now }, { merge: true }).catch(() => {});
+}
+
 // Пуши учителю: устройства — state.teacherDevices { id: { token, createdAt } }
 // (подписывается сам учитель во вкладке «Уведомления»), что присылать —
 // state.teacherPush { paid, note, homework }. Смотрим занятия, изменённые за
 // последние TEACHER_WINDOW, и ещё не разобранные сообщения каналов; событие
 // старше подписки устройства не шлём.
 const TEACHER_WINDOW = 6 * 3600000;
-async function teacherPushes({ db, tRef, stateRef, state, log, send, now, siteUrl, logger }) {
+async function teacherPushes({ db, tRef, stateRef, state, readChannel, send, now, siteUrl, logger }) {
   const res = { planned: 0, sent: 0, failed: 0, removed: 0 };
   const devices = Object.entries(state.teacherDevices || {}).filter(([, d]) => d && typeof d.token === "string" && d.token.length > 20);
   if (!devices.length) return res;
   const since = Math.max(now - TEACHER_WINDOW, Math.min(...devices.map(([, d]) => d.createdAt || 0)));
   const lessonsSnap = await tRef.collection("lessons").where("updatedAt", ">=", since).get();
   const lessons = lessonsSnap.docs.map((d) => Object.assign({ id: d.id }, d.data()));
+  const prefs = Object.assign({ paid: true, note: true, homework: true }, state.teacherPush || {});
+  if (!prefs.paid && !prefs.note && !prefs.homework) return res;
   const items = [];
   for (const [sid, ch] of Object.entries(state.studentChannels || {})) {
-    for (const ck of [ch && ch.shared, ch && ch.parent].filter(Boolean)) {
-      const snap = await db.collection("channels").doc(ck).collection("items").where("createdAt", ">=", since).get();
-      snap.docs.forEach((d) => { const x = d.data(); if (x.type !== "push") items.push({ item: Object.assign({ id: d.id }, x), studentId: sid }); });
+    // родительский канал нужен только для «Оплачено»
+    for (const ck of [ch && ch.shared, prefs.paid && ch && ch.parent].filter(Boolean)) {
+      (await readChannel(ck)).forEach((x) => {
+        if (x.data.type !== "push" && (x.data.createdAt || 0) >= since) items.push({ item: Object.assign({ id: x.id }, x.data), studentId: sid });
+      });
     }
   }
   // даты занятий для сообщений из каналов, которых нет среди изменённых
@@ -66,10 +95,12 @@ async function teacherPushes({ db, tRef, stateRef, state, log, send, now, siteUr
     const s = await tRef.collection("lessons").doc(id).get().catch(() => null);
     if (s && s.exists) lessons.push(Object.assign({ id: s.id }, s.data(), { __onlyForDate: true }));
   }
-  const plan = core.planTeacherPushes({
+  const candidates = core.planTeacherPushes({
     lessons: lessons.map((l) => (l.__onlyForDate ? { id: l.id, studentId: l.studentId, startMs: l.startMs } : l)),
-    items, since, log, label: studentLabelFn(state.studentProfiles), prefs: state.teacherPush || null,
+    items, since, log: {}, label: studentLabelFn(state.studentProfiles), prefs,
   });
+  const log = await logHas(tRef, candidates.flatMap((p) => p.logIds));
+  const plan = candidates.map((p) => Object.assign({}, p, { logIds: p.logIds.filter((id) => !log[id]) })).filter((p) => p.logIds.length);
   res.planned = plan.length;
   for (const p of plan) {
     try {
@@ -115,13 +146,24 @@ export async function runOnce({ db, send, now = Date.now(), siteUrl, logger = co
     if (!stateSnap.exists) continue;
     summary.teachers++;
     const state = stateSnap.data() || {};
-    const rules = (await tRef.collection("notifications").get()).docs.map((d) => Object.assign({ id: d.id }, d.data()));
-    const live = rules.filter((r) => core.isLive(r, now) && r.push !== false);
+    // Бесплатный план Firestore — 50 000 чтений в сутки на весь проект, а
+    // запуск идёт каждые 15 минут. Поэтому читаем только то, что может
+    // понадобиться: живые уведомления (не всю историю «Отправить сейчас» и
+    // отчётов), действующие ключи, по одному разу каждый канал, а в журнал
+    // смотрим точечно — только на то, что собираемся отправить.
+    const rules = await liveRules(tRef, now);
+    const live = rules.filter((r) => core.isLive(r, now) && r.push !== false && !r.pushedAt);
     let sentHere = 0;
-    const logSnap = await tRef.collection("notifLog").get();
-    const log = Object.fromEntries(logSnap.docs.map((d) => [d.id, true]));
+    const channelCache = new Map(); // ключ канала → сообщения (читаем один раз за запуск)
+    const readChannel = async (ck) => {
+      if (!channelCache.has(ck)) {
+        const snap = await db.collection("channels").doc(ck).collection("items").get();
+        channelCache.set(ck, snap.docs.map((d) => ({ id: d.id, path: d.ref.path, data: d.data() })));
+      }
+      return channelCache.get(ck);
+    };
     if (live.length) {
-      const keys = (await tRef.collection("accessKeys").get()).docs.map((d) => Object.assign({ id: d.id }, d.data()));
+      const keys = (await tRef.collection("accessKeys").where("active", "==", true).get()).docs.map((d) => Object.assign({ id: d.id }, d.data()));
       const maxOffset = Math.max(0, ...live.map((r) => core.offsetMs(r)));
       const lessonsSnap = await tRef.collection("lessons")
         .where("startMs", ">=", now - DAY).where("startMs", "<=", now + maxOffset + DAY).get();
@@ -130,13 +172,18 @@ export async function runOnce({ db, send, now = Date.now(), siteUrl, logger = co
       // В подписке — отпечаток ключа доступа (не сам ключ), сопоставляем с ключами.
       const keyByHash = await core.pushKeyMap(keys);
       const devices = [];
-      for (const ch of Object.values(state.studentChannels || {})) {
-        if (!ch || !ch.shared) continue;
-        const items = await db.collection("channels").doc(ch.shared).collection("items").where("type", "==", "push").get();
-        items.docs.forEach((d) => { const x = d.data(); devices.push({ token: x.token, key: core.pushItemKey(x, keyByHash), path: d.ref.path }); });
+      const withKeys = new Set(keys.map((k) => k.studentId));
+      for (const [sid, ch] of Object.entries(state.studentChannels || {})) {
+        if (!ch || !ch.shared || !withKeys.has(sid)) continue; // без действующих доступов — некому слать
+        (await readChannel(ch.shared)).filter((x) => x.data.type === "push")
+          .forEach((x) => devices.push({ token: x.data.token, key: core.pushItemKey(x.data, keyByHash), path: x.path }));
       }
       const label = studentLabelFn(state.studentProfiles);
-      const plan = core.planPushes({ now, rules: live, lessons, keys, devices, log, label });
+      const candidates = core.planPushes({ now, rules: live, lessons, keys, devices, log: {}, label });
+      const log = await logHas(tRef, candidates.map((p) => p.logId));
+      const plan = candidates.filter((p) => !log[p.logId]);
+      // разовые/«сейчас», которые уже в журнале (отправлены раньше) — пометить, чтобы больше не смотреть
+      for (const p of candidates) if (log[p.logId] && !p.lessonId) await markPushed(tRef, p.ruleId, now);
       summary.planned += plan.length;
       for (const p of plan) {
         const logRef = tRef.collection("notifLog").doc(p.logId);
@@ -172,6 +219,7 @@ export async function runOnce({ db, send, now = Date.now(), siteUrl, logger = co
           }
         }
         await logRef.set({ delivered, failed, status: "done" }, { merge: true });
+        if (!p.lessonId) await markPushed(tRef, p.ruleId, now); // «разово»/«сейчас» — отправлено навсегда
         summary.sent += delivered;
         summary.failed += failed;
         sentHere += delivered;
@@ -179,15 +227,20 @@ export async function runOnce({ db, send, now = Date.now(), siteUrl, logger = co
       }
     }
     // Обратные пуши — учителю (оплата, пояснение, ДЗ от родителя/ученика).
-    const t = await teacherPushes({ db, tRef, stateRef, state, log, send, now, siteUrl, logger });
+    const t = await teacherPushes({ db, tRef, stateRef, state, readChannel, send, now, siteUrl, logger });
     summary.planned += t.planned; summary.sent += t.sent; summary.failed += t.failed; summary.removedTokens += t.removed;
     sentHere += t.sent;
-    // Журнал не растёт бесконечно: старше 60 дней — удаляем. Кроме записей
-    // «разово»/«сейчас» (…__once): правило живёт, пока учитель его не
-    // выключит, и только эта запись не даёт отправить его повторно.
-    const old = logSnap.docs.filter((d) => !d.id.endsWith("__once") && (d.data().sentAt || 0) < now - 60 * DAY);
-    for (const d of old) await d.ref.delete();
-    await stateRef.set({ notifier: { lastRunAt: now, lastSent: sentHere } }, { merge: true });
+    // Журнал не растёт бесконечно: раз в сутки удаляем записи старше 60 дней.
+    // Кроме «разово»/«сейчас» (…__once): вместе с пометкой pushedAt у самого
+    // уведомления они не дают отправить его повторно.
+    const lastPurge = (state.notifier && state.notifier.lastPurgeAt) || 0;
+    let purgedAt = lastPurge;
+    if (now - lastPurge >= DAY) {
+      const old = await tRef.collection("notifLog").where("sentAt", "<", now - 60 * DAY).limit(300).get();
+      for (const d of old.docs) if (!d.id.endsWith("__once")) await d.ref.delete();
+      purgedAt = now;
+    }
+    await stateRef.set({ notifier: { lastRunAt: now, lastSent: sentHere, lastPurgeAt: purgedAt } }, { merge: true });
   }
   return summary;
 }
