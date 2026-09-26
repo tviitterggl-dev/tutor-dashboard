@@ -419,6 +419,8 @@
     gap: 10px;
   }
   .lesson.done { background: var(--done-bg); border-color: var(--done-border); }
+  .lesson.clickable { cursor: pointer; }
+  .lesson.clickable:hover { border-color: var(--border); box-shadow: var(--shadow-sm); }
   .lesson.past-unmarked { border-color: var(--pending-border); }
   .lesson-top {
     display: flex;
@@ -684,6 +686,20 @@
     background: var(--card-bg); color: var(--text); font-size: 14.5px; font-weight: 400;
   }
   .field textarea, .modal textarea { min-height: 90px; resize: vertical; }
+  .modal textarea { display: block; width: 100%; }
+  #mReport { min-height: 160px; line-height: 1.5; }
+  @media (max-width: 620px) {
+    /* на телефоне отчёт пишут подолгу — большое поле и 16px, чтобы iPhone не увеличивал страницу */
+    #mReport { min-height: 45vh; font-size: 16px; }
+  }
+  .drop-zone { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-align: center;
+    border: 2px dashed var(--border); border-radius: var(--r-inner); padding: 18px 14px; cursor: pointer; background: var(--surface-2);
+    transition: border-color var(--dur) var(--ease), background-color var(--dur) var(--ease); }
+  .drop-zone:hover, .drop-zone:focus-visible, .drop-zone.over { border-color: var(--accent); }
+  .drop-zone.over { background: var(--accent-soft); }
+  .drop-zone .dz-main { font-weight: 700; font-size: 14px; }
+  .drop-zone .dz-sub { font-size: 12px; color: var(--muted); }
+  .drop-zone input[type=file] { display: none; }
   .check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; margin-bottom: 10px; color: var(--text); }
   .check input { accent-color: var(--accent); width: 18px; height: 18px; }
   .status-pill { display: inline-block; padding: 3px 11px; border-radius: var(--r-pill); font-size: 11.5px; font-weight: 700; border: 1px solid var(--border); }
@@ -838,15 +854,10 @@
   </div>
 
   <div id="appRoot" style="display:none">
-    <div class="card">
-      <div class="status-row" id="statusRow">
-        <span class="badge" id="calBadge">Занятия: …</span>
-        <span class="badge" id="userBadge"></span>
-        <button class="logout-link" id="logoutBtn">выйти</button>
-      </div>
-      <button class="req-alert" id="reqAlert" type="button" style="display:none"></button>
-      <button class="req-alert pkg-alert" id="pkgAlert" type="button" style="display:none"></button>
-    </div>
+    <!-- наверху — только то, что требует внимания; почта и статус базы — во вкладке «Ещё» -->
+    <button class="req-alert" id="syncAlert" type="button" style="display:none"></button>
+    <button class="req-alert" id="reqAlert" type="button" style="display:none"></button>
+    <button class="req-alert pkg-alert" id="pkgAlert" type="button" style="display:none"></button>
 
     <div class="tabs">
       <div class="tab" data-tab="lessons">Занятия</div>
@@ -1056,7 +1067,7 @@
             <button class="btn secondary block" id="pkgAddCancelBtn" type="button">Отмена</button>
           </div>
         </div>
-        <div class="hint">Считается по занятиям с номером пакета в названии («N/M» в конце). «Отработано» — по отметкам «Провёл», остальное — ещё не отработанная предоплата по текущей ставке. Если авто-подсчёт ошибся — жми «Исправить» на карточке.</div>
+        <div class="hint">Считается по занятиям с номером пакета в названии («N/M» в конце). «Проведено» и «отработано» считаются сами по отметкам «Провёл» — отдельно править пакет не нужно. Если авто-подсчёт ошибся — «Исправить»: поправка запомнится, а следующие отметки «Провёл» будут прибавляться к ней. Пакет, добавленный вручную, считает отметки «Провёл» этого ученика с момента добавления. При отмене занятия пакета в карточке занятия можно сразу добавить замену в конец пакета.</div>
       </div>
       <div class="card" id="accessCard">
         <div class="chart-title">Доступы для родителей и учеников</div>
@@ -1092,6 +1103,14 @@
 
     <!-- ЕЩЁ: резервная копия, оформление -->
     <div class="tabview" id="view-more" style="display:none">
+      <div class="card">
+        <div class="chart-title">Аккаунт и база</div>
+        <div class="status-row" id="statusRow" style="margin-bottom:0">
+          <span class="badge" id="calBadge">Занятия: …</span>
+          <span class="badge" id="userBadge"></span>
+        </div>
+        <div class="hint">Выйти на этом устройстве и сменить пароль — вкладка «Ученики» → «Аккаунт».</div>
+      </div>
       <div class="card">
         <div class="chart-title">Резервная копия</div>
         <div class="btn-row" style="margin-bottom:0">
@@ -1260,7 +1279,7 @@
     location.reload();
   }
   $("authMigrateSignOut").addEventListener("click", doSignOut);
-  $("logoutBtn").addEventListener("click", doSignOut);
+  $("syncAlert").addEventListener("click", () => location.reload());
   $("accountSignOutBtn").addEventListener("click", () => { if (confirm("Выйти из дашборда на этом устройстве?")) doSignOut(); });
   $("accountResetBtn").addEventListener("click", async () => {
     const email = window.TutorAuth.user && window.TutorAuth.user.email;
@@ -1501,6 +1520,12 @@
   function setBadge(el, text, cls) {
     el.textContent = text;
     el.className = "badge" + (cls ? " " + cls : "");
+    // статус базы живёт во «Ещё», но ошибку показываем наверху — её нельзя пропустить
+    if (el.id === "calBadge") {
+      const a = $("syncAlert");
+      a.style.display = cls === "err" ? "block" : "none";
+      a.textContent = cls === "err" ? `${text} — нажми, чтобы обновить страницу` : "";
+    }
   }
 
   // ---------- ЗАНЯТИЯ (Firestore) ----------
@@ -1730,6 +1755,14 @@
       row.querySelector("input").addEventListener("change", (e) => setOverride(ev, e.target.value));
       const editBtn = row.querySelector("button.edit-link");
       if (editBtn) editBtn.addEventListener("click", () => openLessonModal(ev.id));
+      // вся карточка открывает занятие (кроме полей, кнопок и ссылок в ней)
+      if (ev._lesson) {
+        row.classList.add("clickable");
+        row.addEventListener("click", (e) => {
+          if (e.target.closest("input, button, a, select, textarea, label")) return;
+          openLessonModal(ev.id);
+        });
+      }
       row.querySelector(".mark-btn").addEventListener("click", () => {
         if (!canMark) return;
         toggleMark(ev, mark);
@@ -2169,7 +2202,16 @@
       if (!base && !ov.manual) return;
 
       const total = ov.totalOverride != null ? ov.totalOverride : (base ? base.total : 8);
-      const doneCount = ov.doneOverride != null ? ov.doneOverride : (base ? base.doneCount : 0);
+      // «Проведено» = автоподсчёт по отметкам «Провёл» + ручная поправка.
+      // Поправка хранится разницей (doneAdjust), поэтому новые отметки
+      // продолжают считаться. Пакет, добавленный вручную, считает отметки
+      // «Провёл» у этого ученика с момента добавления (countFrom) поверх
+      // введённого тогда числа (doneBase).
+      let doneCount;
+      if (base) doneCount = ov.doneAdjust != null ? base.doneCount + ov.doneAdjust
+        : ov.doneOverride != null ? ov.doneOverride : base.doneCount; // старое «замороженное» — до переноса
+      else doneCount = (ov.doneBase != null ? ov.doneBase : (ov.doneOverride || 0)) + manualDone(key, ov.countFrom, evs);
+      doneCount = Math.max(0, doneCount);
       const remaining = Math.max(0, total - doneCount);
 
       let rate = base ? base.rate : null;
@@ -2177,19 +2219,51 @@
         const sp = splitStudentId(key);
         if (sp) rate = findRate(sp.name, sp.cls, sp.surname);
       }
-      const doneSum = ov.doneOverride != null
-        ? (rate != null ? doneCount * rate : 0)
-        : (base ? base.doneSum : 0);
+      const doneSum = base && ov.doneAdjust == null && ov.doneOverride == null
+        ? base.doneSum
+        : (base ? base.doneSum + ((doneCount - base.doneCount) * (rate || 0)) : (rate != null ? doneCount * rate : 0));
       const unearned = rate != null ? remaining * rate : null;
 
       result.push({
         key, total, doneCount, remaining, doneSum, unearned, rate,
         isManual: !base,
-        isOverridden: ov.doneOverride != null || ov.totalOverride != null,
+        autoDone: base ? base.doneCount : doneCount,
+        isOverridden: !!ov.doneAdjust || ov.doneOverride != null || ov.totalOverride != null,
       });
     });
 
     return result.sort((a, b) => a.key.localeCompare(b.key, "ru"));
+  }
+
+  // Ручной пакет: сколько занятий этого ученика отмечено «Провёл» ПОСЛЕ того,
+  // как пакет добавили (по времени отметки, countFrom); без countFrom (старые) — 0,
+  // пока не перенесены.
+  function manualDone(key, countFrom, evs) {
+    if (countFrom == null) return 0;
+    return (evs || []).filter(ev => {
+      const m = marks[ev.id];
+      return m && m.marked && (m.updatedAt || 0) >= countFrom && studentKey(ev) === key;
+    }).length;
+  }
+  // Разовый перенос старых правок на новую схему (без изменения видимых чисел).
+  function migratePackageOverrides(evs) {
+    const autoByKey = Object.fromEntries(computePackages(evs).map(p => [p.key, p]));
+    Object.entries(packageOverrides).forEach(([key, ov]) => {
+      if (!ov) return;
+      let changed = false;
+      if (!ov.manual && ov.doneOverride != null && ov.doneAdjust == null && autoByKey[key]) {
+        ov.doneAdjust = ov.doneOverride - autoByKey[key].doneCount;
+        ov.doneOverride = null;
+        changed = true;
+      }
+      if (ov.manual && ov.countFrom == null) {
+        ov.doneBase = ov.doneOverride || 0;
+        ov.doneOverride = null;
+        ov.countFrom = Date.now();
+        changed = true;
+      }
+      if (changed) savePackageOverride(key);
+    });
   }
 
   function escAttr(s) {
@@ -2214,19 +2288,28 @@
     el.textContent = ending.length ? "Пакет заканчивается: " + ending.map(p => `${studentLabel(p.key)} (${pkgEnding(p).short})`).join(", ") : "";
   }
   let pkgAlertTimer = null;
+  // Пакет считается по занятиям за полгода назад (раньше — 3 недели: при
+  // занятиях раз в неделю первые проведённые выпадали из подсчёта).
+  const PKG_PAST_DAYS = 180;
+  const PKG_FUTURE_DAYS = 240;
+  async function fetchPackageEvents() {
+    const now = Date.now();
+    return fetchLessons(new Date(now - PKG_PAST_DAYS * DAY_MS), new Date(now + PKG_FUTURE_DAYS * DAY_MS));
+  }
+  // После отметки «Провёл» (и любых правок занятий) пакеты пересчитываются
+  // сами: плашка, вкладка «Ученики», кабинеты родителей.
   function refreshPackageAlertsSoon() {
     clearTimeout(pkgAlertTimer);
     pkgAlertTimer = setTimeout(async () => {
       try {
-        const now = new Date();
-        const start = new Date(now); start.setDate(start.getDate() - 21);
-        const end = new Date(now); end.setDate(end.getDate() + 240);
-        const evs = await fetchLessons(start, end);
+        const evs = await fetchPackageEvents();
         loadMarksFor(evs.map(e => e.id));
+        lastPackageEvents = evs;
         const pk = buildPackages(evs);
         lastPackagesByKey = Object.fromEntries(pk.map(p => [p.key, p]));
         renderPkgAlert(pk);
-        if (activeTab === "students") renderStudentsRoster();
+        if (activeTab === "students") { renderPackages(pk); renderStudentsRoster(); }
+        publishViewsSoon();
       } catch (e) { /* не критично */ }
     }, 800);
   }
@@ -2290,12 +2373,10 @@
   async function loadPackages() {
     $("packagesList").innerHTML = '<div class="empty">Загрузка…</div>';
     await loadPackageOverrides();
-    const now = new Date();
-    const start = new Date(now); start.setDate(start.getDate() - 21);
-    const end = new Date(now); end.setDate(end.getDate() + 240);
     try {
-      lastPackageEvents = await fetchLessons(start, end);
+      lastPackageEvents = await fetchPackageEvents();
       loadMarksFor(lastPackageEvents.map(e => e.id));
+      migratePackageOverrides(lastPackageEvents);
       renderPackages(buildPackages(lastPackageEvents));
     } catch (e) {
       $("packagesList").innerHTML = '<div class="empty">Не удалось загрузить пакеты</div>';
@@ -2330,8 +2411,13 @@
       const total = parseInt(card.querySelector(".pkg-edit-total").value, 10);
       const done = parseInt(card.querySelector(".pkg-edit-done").value, 10);
       const ov = getPackageOverride(key);
+      const pk = lastPackagesByKey[key];
       ov.totalOverride = Number.isNaN(total) ? null : total;
-      ov.doneOverride = Number.isNaN(done) ? null : done;
+      ov.doneOverride = null;
+      if (!Number.isNaN(done)) {
+        if (ov.manual) { ov.doneBase = done; ov.countFrom = Date.now(); }
+        else ov.doneAdjust = done - (pk ? pk.autoDone : 0); // дальше отметки «Провёл» считаются сами
+      }
       packageOverrides[key] = ov;
       savePackageOverride(key);
       rerenderPackages();
@@ -2341,6 +2427,7 @@
       const ov = getPackageOverride(key);
       ov.totalOverride = null;
       ov.doneOverride = null;
+      ov.doneAdjust = null;
       if (!ov.manual) delete packageOverrides[key]; else packageOverrides[key] = ov;
       savePackageOverride(key);
       rerenderPackages();
@@ -2373,7 +2460,7 @@
     // С фамилией — отдельный пакет («Маша Иванова, 7 класс»), без — как раньше.
     const key = makeStudentId(name, cls, fixSurname(surnameRaw));
     if (packageOverrides[key] && packageOverrides[key].manual && !packageOverrides[key].hidden) { alert("Такой пакет уже есть. Если это другой ученик с тем же именем — укажи фамилию."); return; }
-    packageOverrides[key] = { manual: true, totalOverride: total, doneOverride: done, hidden: false };
+    packageOverrides[key] = { manual: true, totalOverride: total, doneBase: done, countFrom: Date.now(), hidden: false };
     savePackageOverride(key);
     $("pkgAddName").value = ""; $("pkgAddSurname").value = ""; $("pkgAddCls").value = ""; $("pkgAddTotal").value = "8"; $("pkgAddDone").value = "0";
     $("pkgAddForm").style.display = "none";
@@ -3020,7 +3107,9 @@
       decisions = await window.TutorFB.listRequestDecisions(now - 365 * DAY_MS); // история заявок в кабинете — за год
     } catch (e) { /* журнал заявок недоступен (старые правила) — без него */ }
     const channels = studentChannels();
-    const pkgs = buildPackages(all.filter(l => isActiveStatus(l.status)).map(lessonToEv));
+    // пакеты — тем же подсчётом, что во вкладке «Ученики» (за полгода)
+    const pkgEvs = await fetchPackageEvents().catch(() => all.filter(l => isActiveStatus(l.status)).map(lessonToEv));
+    const pkgs = buildPackages(pkgEvs);
     const rules = await getNotifications().catch(() => []); // до деплоя правил — без уведомлений
 
     return keys.map(k => {
@@ -3512,8 +3601,9 @@
         if (!confirm(q)) return;
         await rescheduleLesson(l, item.newStartMs, item.newEndMs);
       } else {
-        if (!confirm(`Отменить «${l.title}», ${fmtWhen(l.startMs, l.endMs)}?`)) return;
-        await setStatusScoped(l, "cancelled", "one", ["planned"]);
+        if (!confirm(`Отменить «${displayTitle(l.title)}», ${fmtWhen(l.startMs, l.endMs)}?`)) return;
+        if (parsePackage(l.title) && confirm("Это занятие пакета. Добавить замену в конец пакета?\n(«Отмена» — просто отменить, без замены.)")) await cancelWithMakeup(l);
+        else await setStatusScoped(l, "cancelled", "one", ["planned"]);
       }
     } else {
       const r = prompt("Причина отказа (увидит родитель/ученик, можно оставить пустым):", "");
@@ -3580,12 +3670,16 @@
   // ---------- МОДАЛЬНОЕ ОКНО ----------
 
   function openModal(html) {
+    pasteTarget = null; // новое окно — вставка из буфера только туда, где есть зона для файлов
+    modalLessonId = null;
     $("modal").innerHTML = html;
     $("modalBack").style.display = "flex";
     $("modalBack").scrollTop = 0;
     document.body.style.overflow = "hidden";
   }
   function closeModal() {
+    pasteTarget = null;
+    modalLessonId = null;
     $("modalBack").style.display = "none";
     $("modal").innerHTML = "";
     document.body.style.overflow = "";
@@ -3778,6 +3872,71 @@
     if (scope !== "following" || !l.recurrenceId) return [l];
     const series = await window.TutorFB.listSeries(l.recurrenceId);
     return series.filter(x => x.startMs >= l.startMs && (!statuses || statuses.includes(x.status)));
+  }
+
+  // ---- отмена занятия пакета: замена в конец пакета ----
+  // Даты других занятий не трогаем. Отменённое выпадает из пакета, у
+  // следующих занятий ЭТОГО пакета номер уменьшается на 1 (8/8 → 7/8), а в
+  // конец добавляется одна замена «M/M» — через неделю после последнего
+  // занятия пакета, в то же время (если занято — ещё на неделю позже).
+  // «Вернуть занятие» всё откатывает.
+  function packageTail(l, list) {
+    const p = parsePackage(l.title);
+    if (!p) return [];
+    const out = [];
+    let prev = p.current;
+    list.filter(x => x.id !== l.id && isActiveStatus(x.status) && x.startMs > l.startMs)
+      .sort((a, b) => a.startMs - b.startMs)
+      .some(x => {
+        const q = parsePackage(x.title);
+        if (!q || q.total !== p.total || q.current <= prev) return true; // дальше — следующий пакет
+        out.push(x);
+        prev = q.current;
+        return false;
+      });
+    return out;
+  }
+  const renumber = (title, delta) => title.replace(PKG_SUFFIX_RE, (m, k, n) => ` ${parseInt(k, 10) + delta}/${n}`);
+  async function cancelWithMakeup(l) {
+    const p = parsePackage(l.title);
+    const own = await window.TutorFB.listLessonsOfStudent(l.studentId);
+    const tail = packageTail(l, own);
+    const last = tail.length ? tail[tail.length - 1] : l;
+    const dur = l.endMs - l.startMs;
+    const all = await window.TutorFB.listLessons(last.startMs, last.startMs + 12 * 7 * DAY_MS);
+    let start = last.startMs + 7 * DAY_MS;
+    for (let i = 0; i < 8 && all.some(x => isActiveStatus(x.status) && x.startMs < start + dur && x.endMs > start); i++) start += 7 * DAY_MS;
+    const makeupId = newId("l");
+    const now = Date.now();
+    await window.TutorFB.saveLessons([
+      ...tail.map(x => ({ id: x.id, merge: true, data: { title: renumber(x.title, -1), updatedAt: now } })),
+      { id: makeupId, data: lessonData({
+        title: `${baseTitle(l.title)} ${p.total}/${p.total}`, startMs: start, endMs: start + dur, status: "planned",
+        packageId: l.packageId || null, recurrenceId: null, source: "app",
+        extra: { makeupFor: l.id, createdAt: now },
+      }) },
+      { id: l.id, merge: true, data: { status: "cancelled", makeup: { id: makeupId, renumbered: tail.map(x => x.id) }, updatedAt: now } },
+    ]);
+    return { makeupId, start, renumbered: tail.length };
+  }
+  async function restoreWithMakeup(l) {
+    const mk = l.makeup;
+    const now = Date.now();
+    const items = [{ id: l.id, merge: true, data: { status: "planned", makeup: null, updatedAt: now } }];
+    let note = "";
+    const makeup = mk && mk.id ? await window.TutorFB.getLesson(mk.id) : null;
+    if (makeup && makeup.status === "planned") {
+      await window.TutorFB.deleteLessons([mk.id]);
+      for (const id of mk.renumbered || []) {
+        const x = await window.TutorFB.getLesson(id);
+        if (x && isActiveStatus(x.status)) items.push({ id, merge: true, data: { title: renumber(x.title, +1), updatedAt: now } });
+      }
+      note = " Замена в конце пакета убрана, номера вернулись.";
+    } else if (makeup) {
+      note = " Замена в конце пакета уже проведена — её оставили.";
+    }
+    await window.TutorFB.saveLessons(items);
+    return note;
   }
 
   async function setStatusScoped(l, status, scope, fromStatuses) {
@@ -4110,6 +4269,7 @@
           <button class="btn secondary" type="button" id="mMove">Перенести</button>
         </div>
         <div class="hint">«Сохранить» — просто исправить. «Перенести» — сдвинуть на новые дату/время и оставить в истории отметку «перенесено» (её видят родители).</div>
+        ${parsePackage(l.title) && l.status === "planned" ? `<label class="check" style="margin-top:10px"><input type="checkbox" id="mMakeup" checked> при отмене — замена в конец пакета (номера следующих занятий сдвинутся на 1, даты — нет)</label>` : ""}
         <div class="btn-row" style="margin-top:10px">
           <button class="btn secondary" type="button" id="mCancelLesson">Отменить занятие</button>
           <button class="btn danger" type="button" id="mDelete">Удалить</button>
@@ -4128,9 +4288,17 @@
       <div class="section">
         <div class="section-title">Домашнее задание (файлы)</div>
         ${hw.length ? `<ul class="file-list">${hw.map((h, i) => `<li><span><a href="${escHtml(h.url)}" target="_blank" rel="noopener">${escHtml(h.name || "файл")}</a>${h.by && h.by !== "teacher" ? ` <span class="cls">(${ROLE_RU[h.by] || escHtml(h.by)})</span>` : ""}</span><button class="link-btn" type="button" data-hw-remove="${i}">убрать</button></li>`).join("")}</ul>` : '<div class="hint" style="margin-top:0">Файлов нет.</div>'}
-        <input type="file" id="mHwFile" multiple style="font-size:13px; max-width:100%">
+        ${dropZoneHtml("mHwFile", "Добавить файлы к этому занятию")}
         <div class="hint">Фото, PDF, документы — до 10 МБ каждый. Хранятся в Cloudinary. Родитель и ученик видят эти файлы в своих кабинетах и могут добавлять свои (они появятся здесь с пометкой).</div>
       </div>`;
+
+    // ДЗ к следующему занятию этого же ученика (studentId учитывает фамилию —
+    // у тёзок «Маша, 7 класс» и «Маша Иванова, 7 класс» разные занятия).
+    const nextHwHtml = l.studentId && !isPersonal(l) ? `
+      <div class="section" id="mNextHw">
+        <div class="section-title">ДЗ к следующему занятию</div>
+        <div class="hint" style="margin-top:0">Ищу следующее занятие ученика…</div>
+      </div>` : "";
 
     const call = callLinkFor(l);
     const prof = profileOf(l.studentId);
@@ -4168,9 +4336,10 @@
       <div class="section">
         <div class="section-title">Отчёт по занятию</div>
         <textarea id="mReport" maxlength="5000" placeholder="Что прошли, как получилось, что повторить…">${escHtml(l.report || "")}</textarea>
-        <div class="btn-row" style="margin:8px 0 0"><button class="btn secondary" type="button" id="mSaveReport">Сохранить отчёт</button></div>
+        <div class="btn-row" style="margin:8px 0 0"><button class="btn" type="button" id="mSaveReport">Отчёт</button></div>
       </div>
       ${hwHtml}
+      ${nextHwHtml}
       ${exportHtml}
       <div class="msg" id="mMsg"></div>
       <div class="btn-row" style="margin-top:12px"><button class="btn secondary" type="button" id="mClose">Закрыть</button></div>`);
@@ -4179,6 +4348,7 @@
   }
 
   function wireLessonModal(l) {
+    modalLessonId = l.id;
     const scope = () => (mq("#mScope") ? mq("#mScope").value : "one");
     const busy = async (btn, fn) => {
       if (btn) btn.disabled = true;
@@ -4248,7 +4418,14 @@
     if (mq("#mCancelLesson")) {
       mq("#mCancelLesson").addEventListener("click", (e) => busy(e.currentTarget, async () => {
         const sc = scope();
-        if (!confirm(sc === "following" ? "Отменить это и все следующие занятия серии?" : "Отменить это занятие?")) return;
+        const makeup = sc === "one" && mq("#mMakeup") && mq("#mMakeup").checked;
+        if (!confirm(sc === "following" ? "Отменить это и все следующие занятия серии?" : makeup ? "Отменить это занятие и добавить замену в конец пакета?" : "Отменить это занятие?")) return;
+        if (makeup) {
+          const r = await cancelWithMakeup(l);
+          afterLessonsChanged();
+          await reopen(`Занятие отменено. Замена — ${fmtWhen(r.start, r.start + (l.endMs - l.startMs))}${r.renumbered ? `, номера ${r.renumbered} ${r.renumbered === 1 ? "занятия" : "занятий"} после неё сдвинуты` : ""}.`);
+          return;
+        }
         const n = await setStatusScoped(l, "cancelled", sc, ["planned"]);
         afterLessonsChanged();
         await reopen(n > 1 ? `Отменено занятий: ${n}` : "Занятие отменено");
@@ -4256,6 +4433,12 @@
     }
     if (mq("#mRestore")) {
       mq("#mRestore").addEventListener("click", (e) => busy(e.currentTarget, async () => {
+        if (l.makeup && scope() === "one") {
+          const note = await restoreWithMakeup(l);
+          afterLessonsChanged();
+          await reopen("Занятие снова в расписании." + note);
+          return;
+        }
         const n = await setStatusScoped(l, "planned", scope(), ["cancelled"]);
         afterLessonsChanged();
         await reopen(n > 1 ? `Возвращено занятий: ${n}` : "Занятие снова в расписании");
@@ -4270,12 +4453,34 @@
         afterLessonsChanged();
       }));
     }
+    // «Отчёт» — не просто сохранить: отчёт публикуется в кабинетах и уходит
+    // уведомлением родителю и ученику (как «Отправить сейчас» — в кабинете
+    // сразу, пушем — с ближайшей фоновой рассылкой).
     mq("#mSaveReport").addEventListener("click", (e) => busy(e.currentTarget, async () => {
       const report = mq("#mReport").value.trim();
+      const changed = report !== (l.report || "").trim();
       await window.TutorFB.updateLesson(l.id, { report, reportUpdatedAt: Date.now(), updatedAt: Date.now() });
       l.report = report;
-      publishViewsSoon();
-      modalMsg("Отчёт сохранён", "ok");
+      if (!report) { publishViewsSoon(); modalMsg("Отчёт убран", "ok"); return; }
+      if (!changed) { modalMsg("Отчёт уже опубликован — изменений нет", "ok"); return; }
+      const keys = activeKeysOf(l.studentId);
+      if (!keys.length) { publishViewsSoon(); modalMsg("Отчёт сохранён. У ученика нет доступа к кабинету — отправлять некому.", "ok"); return; }
+      const head = `Отчёт по занятию ${fmtWhen(l.startMs, l.endMs)}:\n`;
+      const text = (head + report).length > 1000 ? (head + report).slice(0, 999) + "…" : head + report;
+      const now = Date.now();
+      try {
+        await window.TutorFB.saveNotification(newId("n"), {
+          text, mode: "now", times: 1, target: { scope: "student", role: "any", studentId: l.studentId },
+          push: true, active: true, lessonIds: [l.id], source: "report", createdAt: now, updatedAt: now,
+        });
+        notifCache = null;
+        await publishViews(keys);
+        modalMsg(`Отчёт опубликован и отправлен: ${keys.length} ${NotifyCore.plural(keys.length, ["кабинет", "кабинета", "кабинетов"])} (пуш — с ближайшей рассылкой).`, "ok");
+      } catch (err) {
+        console.error(err);
+        publishViewsSoon();
+        modalMsg("Отчёт сохранён, но уведомление не ушло (нет интернета?)", "err");
+      }
     }));
     $("modal").querySelectorAll("[data-hw-remove]").forEach(b => b.addEventListener("click", () => busy(b, async () => {
       const i = parseInt(b.dataset.hwRemove, 10);
@@ -4284,26 +4489,105 @@
       publishViewsSoon();
       await reopen("Файл убран из занятия");
     })));
-    mq("#mHwFile").addEventListener("change", (e) => busy(e.currentTarget, async () => {
-      const files = Array.from(e.target.files || []);
-      if (!files.length) return;
-      const tooBig = files.filter(f => f.size > CLOUDINARY_MAX_BYTES);
-      if (tooBig.length) { modalMsg(`Слишком большой файл: ${tooBig.map(f => f.name).join(", ")} (максимум 10 МБ).`, "err"); return; }
-      const uploaded = [];
-      for (let i = 0; i < files.length; i++) {
-        modalMsg(`Загружаю ${i + 1} из ${files.length}: ${files[i].name}…`);
-        uploaded.push(await uploadToCloudinary(files[i]));
-      }
-      const fresh = await window.TutorFB.getLesson(l.id);
-      const hw = [...((fresh && fresh.homework) || []), ...uploaded];
-      await window.TutorFB.updateLesson(l.id, { homework: hw, updatedAt: Date.now() });
-      publishViewsSoon();
-      await reopen(uploaded.length > 1 ? `Загружено файлов: ${uploaded.length}` : "Файл загружен");
-    }).catch(() => {}));
+    const hwZone = $("modal").querySelector('[data-drop="mHwFile"]');
+    const uploadHere = (files) => busy(hwZone, async () => {
+      const n = await uploadHwTo(l.id, files);
+      if (n) await reopen(n > 1 ? `Загружено файлов: ${n}` : "Файл загружен");
+    }).catch(() => {});
+    wireDropZone(hwZone, uploadHere);
+    pasteTarget = uploadHere; // Ctrl+V со скриншотом — в это занятие (или в выбранную зону)
+    hwZone.addEventListener("focusin", () => { pasteTarget = uploadHere; });
+    if (mq("#mNextHw")) renderNextHw(l, busy);
     mq("#mExport").addEventListener("click", () => {
       downloadIcs(l);
       modalMsg("Файл события скачан — открой его, чтобы добавить в календарь.", "ok");
     });
+  }
+
+  // ---------- файлы ДЗ: перетаскивание, выбор, вставка из буфера ----------
+  function dropZoneHtml(id, label) {
+    return `<label class="drop-zone" data-drop="${id}" tabindex="0">
+      <input type="file" id="${id}" multiple>
+      <span class="dz-main">${escHtml(label)}</span>
+      <span class="dz-sub">перетащи фото или файл сюда, нажми, чтобы выбрать, или вставь скриншот (Ctrl+V)</span>
+    </label>`;
+  }
+  function wireDropZone(zone, onFiles) {
+    if (!zone) return;
+    const input = zone.querySelector('input[type="file"]');
+    input.addEventListener("change", () => { const f = Array.from(input.files || []); input.value = ""; if (f.length) onFiles(f); });
+    ["dragenter", "dragover"].forEach(t => zone.addEventListener(t, (e) => { e.preventDefault(); zone.classList.add("over"); }));
+    ["dragleave", "drop"].forEach(t => zone.addEventListener(t, (e) => { e.preventDefault(); zone.classList.remove("over"); }));
+    zone.addEventListener("drop", (e) => { const f = Array.from((e.dataTransfer && e.dataTransfer.files) || []); if (f.length) onFiles(f); });
+  }
+  // Файлы из буфера обмена (скриншот): у картинки из буфера имя «image.png» — даём понятное.
+  function filesFromClipboard(e) {
+    const items = Array.from((e.clipboardData && e.clipboardData.items) || []);
+    const stamp = new Date().toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).replace(/[.,: ]+/g, "-");
+    return items.filter(i => i.kind === "file").map((i, n) => {
+      const f = i.getAsFile();
+      if (!f) return null;
+      if (!f.name || /^image\.\w+$/i.test(f.name)) {
+        const ext = (f.type.split("/")[1] || "png").replace("jpeg", "jpg");
+        return new File([f], `скриншот-${stamp}${n ? "-" + (n + 1) : ""}.${ext}`, { type: f.type });
+      }
+      return f;
+    }).filter(Boolean);
+  }
+  var pasteTarget = null; // (var — без «мёртвой зоны»: нужна в openModal/closeModal) куда вставлять файлы из буфера, пока открыто окно занятия
+  document.addEventListener("paste", (e) => {
+    if (!pasteTarget || $("modalBack").style.display === "none") return;
+    const files = filesFromClipboard(e);
+    if (!files.length) return; // обычный текст — вставляется как обычно
+    e.preventDefault();
+    pasteTarget(files);
+  });
+  async function uploadHwTo(lessonId, files) {
+    const tooBig = files.filter(f => f.size > CLOUDINARY_MAX_BYTES);
+    if (tooBig.length) { modalMsg(`Слишком большой файл: ${tooBig.map(f => f.name).join(", ")} (максимум 10 МБ).`, "err"); return 0; }
+    const uploaded = [];
+    for (let i = 0; i < files.length; i++) {
+      modalMsg(`Загружаю ${i + 1} из ${files.length}: ${files[i].name}…`);
+      uploaded.push(await uploadToCloudinary(files[i]));
+    }
+    const fresh = await window.TutorFB.getLesson(lessonId);
+    const hw = [...((fresh && fresh.homework) || []), ...uploaded];
+    await window.TutorFB.updateLesson(lessonId, { homework: hw, updatedAt: Date.now() });
+    publishViewsSoon();
+    return uploaded.length;
+  }
+  // Следующее запланированное занятие этого же ученика (по studentId — с фамилией).
+  async function nextLessonOf(l) {
+    const own = await window.TutorFB.listLessonsOfStudent(l.studentId);
+    return own.filter(x => x.id !== l.id && x.status === "planned" && !isPersonal(x) && x.startMs > l.startMs)
+      .sort((a, b) => a.startMs - b.startMs)[0] || null;
+  }
+  var modalLessonId = null; // (var — см. pasteTarget) какое занятие сейчас открыто в окне
+  async function renderNextHw(l, busy) {
+    const box = mq("#mNextHw");
+    let next = null;
+    try { next = await nextLessonOf(l); } catch (e) { /* без сети */ }
+    if (!box || !box.isConnected || modalLessonId !== l.id) return;
+    if (!next) {
+      box.innerHTML = '<div class="section-title">ДЗ к следующему занятию</div><div class="hint" style="margin-top:0">У ученика пока нет следующего занятия в расписании.</div>';
+      return;
+    }
+    const hw = Array.isArray(next.homework) ? next.homework : [];
+    box.innerHTML = `<div class="section-title">ДЗ к следующему занятию</div>
+      <div style="margin-bottom:8px">${escHtml(fmtWhen(next.startMs, next.endMs))}${pkgSuffix(next.title).trim() ? " · " + escHtml(pkgSuffix(next.title).trim()) : ""}
+        <button class="link-btn" type="button" data-open="${escHtml(next.id)}">открыть</button></div>
+      ${hw.length ? `<ul class="file-list">${hw.map(h => `<li><span><a href="${escHtml(h.url)}" target="_blank" rel="noopener">${escHtml(h.name || "файл")}</a></span></li>`).join("")}</ul>` : ""}
+      ${dropZoneHtml("mNextHwFile", "Прикрепить ДЗ к следующему занятию")}
+      <div class="hint">Файлы попадут в следующее занятие ученика — родитель и ученик увидят их у него.</div>`;
+    const zone = box.querySelector('[data-drop="mNextHwFile"]');
+    const upload = (files) => busy(zone, async () => {
+      const n = await uploadHwTo(next.id, files);
+      if (n) { modalMsg(`ДЗ к занятию ${fmtWhen(next.startMs)}: ${n === 1 ? "файл прикреплён" : "прикреплено файлов: " + n}`, "ok"); renderNextHw(l, busy); }
+    }).catch(() => {});
+    wireDropZone(zone, upload);
+    zone.addEventListener("focusin", () => { pasteTarget = upload; });
+    const openBtn = box.querySelector("[data-open]");
+    if (openBtn) openBtn.addEventListener("click", () => openLessonModal(next.id));
   }
 
   // ---------- «ДОБАВИТЬ В КАЛЕНДАРЬ»: файл .ics (без входа в Google) ----------

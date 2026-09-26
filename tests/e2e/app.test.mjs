@@ -80,7 +80,8 @@ test("выход: снова экран входа, и после перезаг
   const app = await openApp();
   const { page } = app;
   await page.waitForSelector("#appRoot", { state: "visible" });
-  await page.click("#logoutBtn");
+  await page.click('.tab[data-tab="students"]');
+  await page.click("#accountSignOutBtn");
   await page.waitForSelector("#authSignIn", { state: "visible" });
   await page.reload();
   await page.waitForSelector("#authSignIn", { state: "visible" });

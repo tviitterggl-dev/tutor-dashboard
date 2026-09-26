@@ -35,12 +35,12 @@ async function ensureServer() {
     if (!p.startsWith(ROOT)) { res.writeHead(403); res.end(); return; }
     if (fs.existsSync(p) && fs.statSync(p).isDirectory()) p = path.join(p, "index.html");
     if (!fs.existsSync(p)) { res.writeHead(404); res.end("not found"); return; }
-    // Тестовый публичный ключ пушей (в самом cabinet.html он пуст, пока его
-    // не создали в консоли Firebase). Подставляет сервер, а не перехват
+    // Тестовый публичный ключ пушей (opts.vapidKey; "" — как будто ключа нет).
+    // Подставляет сервер, а не перехват
     // запросов: страницу под service worker перехват не видит.
-    if (testVapidKey && p.endsWith("cabinet.html")) {
+    if (testVapidKey !== null && p.endsWith("cabinet.html")) {
       res.writeHead(200, { "Content-Type": MIME[".html"] });
-      res.end(fs.readFileSync(p, "utf8").replace('const FCM_VAPID_KEY = "";', `const FCM_VAPID_KEY = ${JSON.stringify(testVapidKey)};`));
+      res.end(fs.readFileSync(p, "utf8").replace(/const FCM_VAPID_KEY = "[^"]*";/, `const FCM_VAPID_KEY = ${JSON.stringify(testVapidKey)};`));
       return;
     }
     res.writeHead(200, { "Content-Type": MIME[path.extname(p)] || "application/octet-stream" });
@@ -120,7 +120,7 @@ export function defaultSeed(opts = {}) {
 // ---- открыть страницу ----
 export async function openApp(opts = {}) {
   const url0 = await ensureServer();
-  testVapidKey = opts.vapidKey || null;
+  testVapidKey = opts.vapidKey === undefined ? null : opts.vapidKey;
   if (!browser) browser = await chromium.launch();
   const calls = { cloudinary: [], unexpected: [] };
   const ctxOpts = {

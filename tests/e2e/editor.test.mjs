@@ -216,7 +216,7 @@ test("ошибка Cloudinary показывается понятным текс
   const app = await openImported({ cloudinaryFail: true });
   const { page } = app;
   await page.locator("#fcRoot .fc-event", { hasText: "Тест 7 класс 5/8" }).click();
-  await page.waitForSelector("#modal #mHwFile");
+  await page.waitForSelector('#modal [data-drop="mHwFile"]');
   await page.setInputFiles("#mHwFile", [{ name: "a.pdf", mimeType: "application/pdf", buffer: Buffer.from("x") }]);
   await page.waitForFunction(() => /Upload preset not found/.test(document.querySelector("#mMsg").textContent));
   await app.close();

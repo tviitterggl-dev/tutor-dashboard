@@ -178,7 +178,7 @@ test("«Отправить сейчас»: конкретному человек
 
 test("пуш: без ключа — кнопки нет; с ключом — «Включить» создаёт подписку (токен + ключ), учитель видит устройство; отзыв и «Выключить» её убирают", async () => {
   // без публичного ключа
-  const app0 = await openFamily();
+  const app0 = await openFamily({ vapidKey: "" });
   const c0 = await openCabinet(app0, `#p=${PK}`);
   await c0.click('.ctab[data-ctab="more"]');
   assert.match(await c0.innerText("#pushBody"), /пока не включены у преподавателя/);

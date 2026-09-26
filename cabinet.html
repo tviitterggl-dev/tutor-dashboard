@@ -146,6 +146,16 @@
   .mark-btn.paid-btn.paid { background: var(--done-bg); border: 2px solid var(--done-solid); color: var(--done-text); font-weight: 700; }
   .pkg-note { font-size: 13px; font-weight: 700; color: var(--pending-text); background: var(--pending-bg); border: 1px solid var(--pending-border); border-radius: var(--r-md); padding: 10px 14px; margin-top: 10px; }
   .pkg-note.over { color: var(--danger); background: var(--danger-bg); border-color: var(--danger-border); }
+  .drop-zone { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-align: center;
+    border: 2px dashed var(--border); border-radius: var(--r-inner); padding: 18px 14px; cursor: pointer; background: var(--surface-2);
+    transition: border-color var(--dur) var(--ease), background-color var(--dur) var(--ease); }
+  .drop-zone:hover, .drop-zone:focus-visible, .drop-zone.over { border-color: var(--accent); }
+  .drop-zone.over { background: var(--accent-soft); }
+  .drop-zone .dz-main { font-weight: 700; font-size: 14px; }
+  .drop-zone .dz-sub { font-size: 12px; color: var(--muted); }
+  .drop-zone input[type=file] { display: none; }
+  .pay-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-top: 10px; }
+  .thanks { font-size: 13px; font-weight: 700; color: var(--done-text); animation: ds-in var(--dur) var(--ease); }
   .notice { background: var(--card-bg); border-radius: var(--r-card); box-shadow: var(--shadow); padding: 16px 18px; margin-bottom: 14px; border-left: 4px solid var(--accent); animation: ds-rise 250ms var(--ease); }
   .notice.rem { border-left-color: var(--event); }
   .notice-head { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
@@ -238,7 +248,7 @@
   // Пуш-уведомления: публичный ключ «Web Push certificates» из консоли Firebase
   // (Настройки проекта → Cloud Messaging). Пусто — кнопка «Включить
   // уведомления» не показывается, сообщения видны только в кабинете.
-  const FCM_VAPID_KEY = "";
+  const FCM_VAPID_KEY = "BPW_d18oS3UpZ-L_Ypube_ZYPy1R99VB2hFw3cUGK23X-8hUNWYD5T_gU7y4UgkCaCf6InBlOyhEk3xY9j92HZM";
   const FCM_URL = "https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging.js";
 
   const FC_JS = "https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js";
@@ -470,7 +480,7 @@
     if (l.status === "planned" && l.endMs < now) { cls = "past"; text = "прошло"; }
     const pills = [`<span class="pill ${esc(cls)}">${esc(text)}</span>`];
     if (pendingFor(l.id)) pills.push('<span class="pill pending">заявка отправлена</span>');
-    if (paidOf(l)) pills.push('<span class="pill paid">оплачено</span>');
+    if (paidOf(l) && !canPay(l)) pills.push('<span class="pill paid">оплачено</span>');
     return `<div class="pills">${pills.join("")}</div>`;
   }
 
@@ -494,6 +504,7 @@
           ${call ? `<a class="call-link" href="${esc(call)}" target="_blank" rel="noopener noreferrer">Подключиться к занятию →</a>` : ""}
           ${board ? `<a class="call-link board-link" href="${esc(board)}" target="_blank" rel="noopener noreferrer">Доска →</a>` : ""}
         </div>` : ""}
+        ${canPay(l) ? `<div class="pay-row">${paidButton(l)}${thanksFor === l.id ? '<span class="thanks">Благодарю за оплату!</span>' : ""}</div>` : ""}
         ${note && note.text ? `<div class="note-line"><span class="who">Пояснение:</span> ${esc(note.text.length > 140 ? note.text.slice(0, 140) + "…" : note.text)}</div>` : ""}
         ${l.report ? `<div class="report">${esc(l.report)}</div>` : ""}
         ${files.length ? `<ul class="files">${files.map((h) => `<li><a href="${esc(h.url)}" target="_blank" rel="noopener noreferrer">${esc(h.name || "файл")}</a> <span class="who">(${esc(ROLE[h.by] || ROLE.teacher)})</span></li>`).join("")}</ul>` : ""}
@@ -572,6 +583,13 @@
     pane.querySelectorAll("[data-filter]").forEach((b) => b.addEventListener("click", () => { lessonsFilter = b.dataset.filter; renderLessonsPane(Date.now()); }));
     if ($("more")) $("more").addEventListener("click", () => { pastLimit += 20; renderLessonsPane(Date.now()); });
     wireLessonCards(pane);
+    pane.querySelectorAll("[data-paid]").forEach((b) => b.addEventListener("click", async () => {
+      const l = lessonById(b.dataset.paid);
+      if (!l) return;
+      b.disabled = true;
+      try { await togglePaid(l); } catch (err) { alert(errText(err, "Не сохранилось — проверьте интернет.")); }
+      renderLessonsPane(Date.now());
+    }));
   }
 
   function wireLessonCards(container) {
@@ -601,7 +619,7 @@
       html += `<div class="card hw-upload">
         <div class="card-title">Загрузить ДЗ</div>
         <select id="hwLesson">${cands.map((l) => `<option value="${esc(l.id)}"${l.id === hwSelected ? " selected" : ""}>${esc(fmtWhen(l.startMs, l.endMs))}${l.pkg ? " · " + esc(l.pkg) : ""}</option>`).join("")}</select>
-        <label class="btn" style="display:inline-block">Выбрать файлы<input type="file" id="hwFile" multiple style="display:none"></label>
+        ${dropZoneHtml("hwFile", "Загрузить выполненное ДЗ")}
         <div class="msg" id="hwMsg"></div>
         <div class="hint">Фото или файл выполненного задания, до 10 МБ. Его сразу увидят преподаватель и ${current.role === "parent" ? "ученик" : "родитель"}.</div>
       </div>`;
@@ -622,19 +640,20 @@
     const pane = $("pane-hw");
     pane.innerHTML = html;
     if ($("hwLesson")) $("hwLesson").addEventListener("change", (e) => { hwSelected = e.target.value; });
-    if ($("hwFile")) $("hwFile").addEventListener("change", (e) => {
+    if ($("hwFile")) wireDropZone(pane.querySelector('[data-drop="hwFile"]'), (files) => {
       const l = lessonById($("hwLesson").value);
-      if (l) uploadFromPane(l, e.target);
+      if (l) uploadFromPane(l, files);
     });
     pane.querySelectorAll("[data-hw-add]").forEach((inp) => inp.addEventListener("change", () => {
       const l = lessonById(inp.dataset.hwAdd);
-      if (l) uploadFromPane(l, inp);
+      const files = Array.from(inp.files || []);
+      inp.value = "";
+      if (l && files.length) uploadFromPane(l, files);
     }));
     wireLessonCards(pane);
   }
 
-  async function uploadFromPane(l, input) {
-    const files = Array.from(input.files || []);
+  async function uploadFromPane(l, files) {
     if (!files.length) return;
     const say = (t, kind) => { const el = $("hwMsg"); if (el) { el.textContent = t; el.className = "msg" + (kind ? " " + kind : ""); } };
     uploading = true;
@@ -868,14 +887,73 @@
     }
   }
 
+  // ---------- файлы ДЗ: перетаскивание, выбор, вставка из буфера ----------
+  function dropZoneHtml(id, label) {
+    return `<label class="drop-zone" data-drop="${id}" tabindex="0">
+      <input type="file" id="${id}" multiple>
+      <span class="dz-main">${esc(label)}</span>
+      <span class="dz-sub">перетащите фото или файл сюда, нажмите, чтобы выбрать, или вставьте скриншот (Ctrl+V)</span>
+    </label>`;
+  }
+  function wireDropZone(zone, onFiles) {
+    if (!zone) return;
+    const input = zone.querySelector('input[type="file"]');
+    input.addEventListener("change", () => { const f = Array.from(input.files || []); input.value = ""; if (f.length) onFiles(f); });
+    ["dragenter", "dragover"].forEach((t) => zone.addEventListener(t, (e) => { e.preventDefault(); zone.classList.add("over"); }));
+    ["dragleave", "drop"].forEach((t) => zone.addEventListener(t, (e) => { e.preventDefault(); zone.classList.remove("over"); }));
+    zone.addEventListener("drop", (e) => { const f = Array.from((e.dataTransfer && e.dataTransfer.files) || []); if (f.length) onFiles(f); });
+  }
+  function filesFromClipboard(e) {
+    const items = Array.from((e.clipboardData && e.clipboardData.items) || []);
+    const stamp = new Date().toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).replace(/[.,: ]+/g, "-");
+    return items.filter((i) => i.kind === "file").map((i, n) => {
+      const f = i.getAsFile();
+      if (!f) return null;
+      if (!f.name || /^image\.\w+$/i.test(f.name)) {
+        const ext = (f.type.split("/")[1] || "png").replace("jpeg", "jpg");
+        return new File([f], `скриншот-${stamp}${n ? "-" + (n + 1) : ""}.${ext}`, { type: f.type });
+      }
+      return f;
+    }).filter(Boolean);
+  }
+  var modalPaste = null; // вставка из буфера в открытое окно занятия
+  document.addEventListener("paste", (e) => {
+    const files = filesFromClipboard(e);
+    if (!files.length) return; // обычный текст вставляется как обычно
+    if (modalPaste && $("modalBack").style.display !== "none") { e.preventDefault(); modalPaste(files); return; }
+    if (activeTab === "hw" && $("hwFile") && $("hwLesson")) {
+      const l = lessonById($("hwLesson").value);
+      if (l) { e.preventDefault(); uploadFromPane(l, files); }
+    }
+  });
+
+  // ---------- «Оплачено» (родитель): кнопка-переключатель ----------
+  let thanksFor = null; // занятие, у которого только что отметили оплату
+  async function togglePaid(l) {
+    const value = !paidOf(l);
+    await addItem(view.parentChannel, { type: "paid", lessonId: l.id, by: "parent", createdAt: Date.now(), paid: value });
+    // сразу показываем новое состояние, не дожидаясь ответа базы
+    parentItems = parentItems.concat([{ id: "local-" + Date.now(), type: "paid", lessonId: l.id, by: "parent", createdAt: Date.now(), paid: value }]);
+    thanksFor = value ? l.id : null;
+    if (value) setTimeout(() => { if (thanksFor === l.id) { thanksFor = null; if (view) renderLessonsPane(Date.now()); } }, 8000);
+    return value;
+  }
+  const canPay = (l) => current && current.role === "parent" && view && view.parentChannel && (l.status === "planned" || l.status === "done");
+  function paidButton(l, id) {
+    const paid = paidOf(l);
+    return `<button class="mark-btn paid-btn ${paid ? "paid" : ""}" type="button" ${id ? `id="${id}"` : `data-paid="${esc(l.id)}"`} aria-pressed="${paid ? "true" : "false"}">${paid ? "✓ Оплачено (снять)" : "Оплачено"}</button>`;
+  }
+
   // ---------- окно занятия ----------
   function openModal(html) {
+    modalPaste = null;
     $("modal").innerHTML = html;
     $("modalBack").style.display = "flex";
     document.body.style.overflow = "hidden";
   }
   function closeModal() {
     openLessonId = null;
+    modalPaste = null;
     $("modalBack").style.display = "none";
     $("modal").innerHTML = "";
     document.body.style.overflow = "";
@@ -933,7 +1011,7 @@
     }
 
     const paidHtml = current.role === "parent" && l.status !== "cancelled" && l.status !== "rescheduled" && view.parentChannel ? `
-      <div class="section"><button class="mark-btn paid-btn ${paid ? "paid" : ""}" type="button" id="mPaid" aria-pressed="${paid ? "true" : "false"}">${paid ? "✓ Оплачено (снять)" : "Отметить оплату"}</button>
+      <div class="section">${paidButton(l, "mPaid")}
         <div class="hint">Просто отметка — её сразу видит преподаватель. Деньги через сайт не передаются.</div></div>` : "";
 
     const call = (l.status === "planned" || l.status === "done") ? httpUrl(l.callUrl) : null;
@@ -957,7 +1035,7 @@
       ${l.report ? `<div class="section"><div class="section-title">Отчёт преподавателя</div><div class="report" style="margin-top:0">${esc(l.report)}</div></div>` : ""}
       <div class="section"><div class="section-title">Домашнее задание</div>
         ${files.length ? `<ul class="files">${files.map((h) => `<li><a href="${esc(h.url)}" target="_blank" rel="noopener noreferrer">${esc(h.name || "файл")}</a> <span class="who">(${esc(ROLE[h.by] || ROLE.teacher)})</span></li>`).join("")}</ul>` : '<div class="hint" style="margin-top:0">Файлов пока нет.</div>'}
-        ${view.channel ? `<div style="margin-top:8px"><input type="file" id="mFile" multiple style="font-size:13px; max-width:100%"></div>
+        ${view.channel ? `<div style="margin-top:10px">${dropZoneHtml("mFile", "Добавить файлы")}</div>
         <div class="hint">Сфотографируйте или приложите выполненное задание (до 10 МБ). Его сразу увидят преподаватель и ${current.role === "parent" ? "ученик" : "родитель"}.</div>` : '<div class="hint">Загрузка файлов и заявки появятся после ближайшего входа преподавателя в свой кабинет.</div>'}
       </div>
       ${paidHtml}
@@ -1028,8 +1106,8 @@
         const value = !paidOf(l);
         e.currentTarget.disabled = true;
         try {
-          await addItem(view.parentChannel, { type: "paid", lessonId: l.id, by: "parent", createdAt: Date.now(), paid: value });
-          modalNote = [value ? "Отмечено: оплачено" : "Отметка «оплачено» снята", "ok"];
+          await togglePaid(l);
+          modalNote = [value ? "Благодарю за оплату!" : "Отметка «оплачено» снята", "ok"];
         } catch (err) {
           modalNote = [errText(err, "Не сохранилось — проверьте интернет."), "err"];
         }
@@ -1037,10 +1115,8 @@
       });
     }
     if (mq("#mFile")) {
-      mq("#mFile").addEventListener("change", async (e) => {
-        const files = Array.from(e.target.files || []);
-        if (!files.length) return;
-        e.target.disabled = true;
+      const uploadHere = async (files) => {
+        if (!files.length || uploading) return;
         uploading = true;
         try {
           await uploadFiles(l, files, msg);
@@ -1050,10 +1126,11 @@
           renderHwPane(Date.now());
         } catch (err) {
           uploading = false;
-          e.target.disabled = false;
           msg(errText(err, "Не удалось загрузить. Проверьте интернет."), "err");
         }
-      });
+      };
+      wireDropZone($("modal").querySelector('[data-drop="mFile"]'), uploadHere);
+      modalPaste = uploadHere; // Ctrl+V со скриншотом — в это занятие
     }
   }
 

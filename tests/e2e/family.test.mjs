@@ -254,10 +254,20 @@ test("«Оплачено»: родитель ↔ учитель в обе сто
   const { page } = app;
   const parent = await openCabinet(app, `#p=${PK_T}`);
   await parent.waitForSelector("#pane-lessons .lesson");
+  // кнопка-переключатель прямо в карточке списка (как «Провёл» у учителя)
+  const card8 = parent.locator(".lesson", { hasText: "8/8" }).first();
+  assert.equal(await card8.locator("[data-paid]").textContent(), "Оплачено");
+  await card8.locator("[data-paid]").click();
+  await parent.waitForFunction(() => [...document.querySelectorAll(".lesson")].some((l) => /8\/8/.test(l.textContent) && /Благодарю за оплату!/.test(l.textContent)));
+  assert.match(await parent.locator(".lesson", { hasText: "8/8" }).first().locator("[data-paid]").getAttribute("class"), /\bpaid\b/);
+  assert.equal(await parent.locator(".lesson", { hasText: "8/8" }).first().locator("[data-paid]").textContent(), "✓ Оплачено (снять)");
+  assert.equal(await parent.isVisible("#modalBack"), false, "нажатие на кнопку не открывает окно занятия");
+  await waitFor(async () => (await app.db())[L("serA_20260930T070000Z")].paid?.value === true, "paid 8/8 у учителя");
+  // и в окне занятия
   await parent.locator(".lesson", { hasText: "7/8" }).first().click();
-  assert.equal(await parent.textContent("#mPaid"), "Отметить оплату");
+  assert.equal(await parent.textContent("#mPaid"), "Оплачено");
   await parent.click("#mPaid");
-  await parent.waitForFunction(() => /Отмечено: оплачено/.test(document.querySelector("#mMsg").textContent));
+  await parent.waitForFunction(() => /Благодарю за оплату!/.test(document.querySelector("#mMsg").textContent));
   await waitFor(async () => (await app.db())[L("serA_20260928T070000Z")].paid?.value === true, "paid у учителя");
   assert.equal((await app.db())[L("serA_20260928T070000Z")].paid.by, "parent");
 

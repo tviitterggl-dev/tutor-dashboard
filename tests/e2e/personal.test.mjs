@@ -170,7 +170,8 @@ test("смена класса: занятия, профиль, пакет, до�
   assert.equal(st.studentProfiles["Тест, 8 класс"].callUrl, "https://t.me/call");
   assert.equal(st.studentProfiles["Тест, 8 класс"].cls, 8);
   assert.equal(st.studentProfiles["Тест, 8 класс"].rate, 2000);
-  assert.deepEqual(st.pkgOverrides["Тест, 8 класс"], { doneOverride: 3, totalOverride: 8 });
+  // старая «замороженная» правка (3 проведено) перенесена в поправку к автоподсчёту: 2 отметки + 1
+  assert.deepEqual(st.pkgOverrides["Тест, 8 класс"], { doneOverride: null, doneAdjust: 1, totalOverride: 8 });
   assert.equal(st.pkgOverrides["Тест, 7 класс"], undefined);
   assert.deepEqual(st.studentChannels["Тест, 8 класс"], channelBefore, "каналы те же — ссылки родителей не ломаются");
   assert.equal(db[`teacherSpaces/${T}/accessKeys/${PK}`].studentId, "Тест, 8 класс");
