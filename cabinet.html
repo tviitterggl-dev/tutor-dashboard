@@ -1204,10 +1204,14 @@
     if (Notification.permission === "denied") return { ok: false, text: "Уведомления для этого сайта запрещены в настройках браузера или телефона — разрешите их там и обновите страницу." };
     return { ok: true };
   }
-  const pushOn = () => {
+  // Своя подписка в канале: по id, а если учитель пересоздал её (перевод
+  // старой подписки на отпечаток ключа, смена канала) — по токену устройства.
+  function myPushItem() {
     const mine = current && pushSaved()[current.key];
-    return !!(mine && "Notification" in window && Notification.permission === "granted" && shared.some((i) => i.id === mine.itemId));
-  };
+    if (!mine) return null;
+    return shared.find((i) => i.id === mine.itemId) || shared.find((i) => i.type === "push" && i.token === mine.token && window.NotifyCore.isPushKeyId(i.key)) || null;
+  }
+  const pushOn = () => !!(myPushItem() && "Notification" in window && Notification.permission === "granted");
   function pushMsg(t, kind) { const m = $("pushMsg"); if (m) { m.textContent = t || ""; m.className = "msg" + (kind ? " " + kind : ""); } }
   function renderPushCard() {
     const el = $("pushBody");
@@ -1233,28 +1237,42 @@
     });
   }
   const userError = (text) => { const e = new Error(text); e.userText = text; return e; };
+  // Запрос разрешения — ПЕРВЫМ делом и синхронно в нажатии: Safari на iPhone
+  // показывает системный вопрос только так (после любого await — может молча
+  // отказать). Старый Safari отвечает через колбэк, новый — промисом.
+  function askPermission() {
+    return new Promise((resolve) => {
+      const r = Notification.requestPermission(resolve);
+      if (r && typeof r.then === "function") r.then(resolve, () => resolve("denied"));
+    });
+  }
   async function enablePush() {
+    if (!view.channel) { pushMsg("Уведомления заработают после ближайшего входа преподавателя в свой кабинет — попробуйте чуть позже.", "err"); return; }
+    const permission = askPermission();
     const btn = $("pushOnBtn");
     if (btn) btn.disabled = true;
     pushMsg("Включаю…");
     try {
-      if (!view.channel) throw userError("Уведомления заработают после ближайшего входа преподавателя в свой кабинет — попробуйте чуть позже.");
-      const reg = await navigator.serviceWorker.register("sw.js");
-      const perm = await Notification.requestPermission();
+      const perm = await permission;
       if (perm !== "granted") throw userError("Без разрешения уведомления не придут. Если передумаете — разрешите их и нажмите ещё раз.");
+      const reg = await navigator.serviceWorker.register("sw.js");
       const m = await import(FCM_URL);
       if (m.isSupported && !(await m.isSupported())) throw userError("Этот браузер не умеет получать уведомления.");
       const token = await m.getToken(m.getMessaging(firebaseApp), { vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: reg });
       if (!token) throw userError("Телефон не выдал адрес для уведомлений — попробуйте ещё раз.");
       const saved = pushSaved();
       const old = saved[current.key];
-      if (!(old && old.token === token && shared.some((i) => i.id === old.itemId))) {
+      const have = old && old.token === token ? myPushItem() : null;
+      if (!have) {
+        // в общем канале — только отпечаток ключа: вторая сторона (родитель
+        // или ученик) видит канал, но не должна узнать чужой ключ
+        const kid = await window.NotifyCore.pushKeyId(current.key);
         const itemId = newId();
-        await setDoc(doc(db, "channels", view.channel, "items", itemId), { type: "push", lessonId: "-", by: current.role, createdAt: Date.now(), token, key: current.key });
+        await setDoc(doc(db, "channels", view.channel, "items", itemId), { type: "push", lessonId: "-", by: current.role, createdAt: Date.now(), token, key: kid });
         if (old && old.itemId && old.channel) deleteDoc(doc(db, "channels", old.channel, "items", old.itemId)).catch(() => {});
         saved[current.key] = { token, itemId, channel: view.channel };
         savePush(saved);
-        shared = shared.concat([{ id: itemId, type: "push", token, key: current.key }]);
+        shared = shared.concat([{ id: itemId, type: "push", token, key: kid }]);
       }
       renderPushCard();
       pushMsg("Готово! Уведомления будут приходить на это устройство.", "ok");
@@ -1268,10 +1286,14 @@
     const saved = pushSaved();
     const mine = current && saved[current.key];
     if (!mine) return;
+    const item = myPushItem(); // до удаления из сохранённых
     delete saved[current.key];
     savePush(saved);
-    try { if (mine.itemId && mine.channel) await deleteDoc(doc(db, "channels", mine.channel, "items", mine.itemId)); } catch (e) { /* уже удалено */ }
-    shared = shared.filter((i) => i.id !== mine.itemId);
+    const ids = new Set([mine.itemId, item && item.id].filter(Boolean));
+    for (const id of ids) {
+      try { await deleteDoc(doc(db, "channels", view && view.channel ? view.channel : mine.channel, "items", id)); } catch (e) { /* уже удалено */ }
+    }
+    shared = shared.filter((i) => !ids.has(i.id));
     if (say) { renderPushCard(); pushMsg("Уведомления на этом устройстве выключены.", "ok"); }
   }
 
@@ -1280,6 +1302,9 @@
     if (!confirm("Забыть кабинет на этом устройстве? Чтобы снова войти, понадобится ссылка от преподавателя.")) return;
     // уведомления на это устройство тоже больше не нужны
     Object.values(pushSaved()).forEach((p) => { if (p && p.channel && p.itemId) deleteDoc(doc(db, "channels", p.channel, "items", p.itemId)).catch(() => {}); });
+    // подписку могли пересоздать (новый id) — удаляем и по токену устройства
+    const tokens = new Set(Object.values(pushSaved()).map((p) => p && p.token).filter(Boolean));
+    if (view && view.channel) shared.filter((i) => i.type === "push" && tokens.has(i.token)).forEach((i) => deleteDoc(doc(db, "channels", view.channel, "items", i.id)).catch(() => {}));
     stopWatching();
     try { localStorage.removeItem(STORE); localStorage.removeItem(PUSH_STORE); localStorage.removeItem(SEEN); } catch (e) { /* ничего */ }
     showInAddress(null);

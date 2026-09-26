@@ -131,3 +131,18 @@ test("свой заголовок: в пуше и в кабинете; пуст�
   const due = core.dueReminders(dad, lessons.filter((l) => l.studentId === "Маша, 7 класс"), NOW - 30 * M, "Маша");
   assert.equal(due[0].title, "Важно: Маша");
 });
+
+test("отпечаток ключа для подписки на пуш: 64 hex, не содержит ключ, сопоставляется; старая подписка — сам ключ", async () => {
+  const k = "parent_key_masha_0000000000000001";
+  const h = await core.pushKeyId(k);
+  assert.match(h, /^[0-9a-f]{64}$/);
+  assert.ok(!h.includes(k));
+  assert.equal(await core.pushKeyId(k), h, "стабилен");
+  assert.notEqual(await core.pushKeyId("student_key_masha_000000000000002"), h);
+  assert.equal(core.isPushKeyId(h), true);
+  assert.equal(core.isPushKeyId(k), false);
+  const map = await core.pushKeyMap([{ id: k }]);
+  assert.equal(core.pushItemKey({ key: h }, map), k);
+  assert.equal(core.pushItemKey({ key: k }, map), k, "старая подписка");
+  assert.equal(core.pushItemKey({ key: "f".repeat(64) }, map), null, "чужой/отозванный отпечаток");
+});

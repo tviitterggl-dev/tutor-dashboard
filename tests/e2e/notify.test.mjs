@@ -2,7 +2,9 @@
 // «Отправить сейчас», показ в кабинетах, подписка на пуш.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
 import { openApp, shutdown, T, NOW, defaultSeed } from "./harness.mjs";
+const core = createRequire(import.meta.url)("../../notify-core.js");
 
 after(shutdown);
 
@@ -189,14 +191,26 @@ test("пуш: без ключа — кнопки нет; с ключом — «�
   await app.context.grantPermissions(["notifications"], { origin: app.base });
   const cab = await openCabinet(app, `#p=${PK}`);
   await cab.click('.ctab[data-ctab="more"]');
+  // порядок: разрешение спрашиваем первым и прямо в нажатии (iPhone), до регистрации service worker
+  await cab.evaluate(() => {
+    window.__order = [];
+    const perm = Notification.requestPermission.bind(Notification);
+    const reg = navigator.serviceWorker.register.bind(navigator.serviceWorker);
+    Notification.requestPermission = (cb) => { window.__order.push("permission:" + (window.event ? window.event.type : "async")); return perm(cb); };
+    navigator.serviceWorker.register = (...a) => { window.__order.push("register"); return reg(...a); };
+  });
   await cab.click("#pushOnBtn");
   await cab.waitForFunction(() => /Уведомления будут приходить/.test(document.querySelector("#pushMsg").textContent), null, { timeout: 8000 });
+  assert.equal((await cab.evaluate(() => window.__order))[0], "permission:click", "разрешение — синхронно в нажатии и первым");
   assert.match(await cab.innerText("#pushBody"), /включены на этом устройстве/);
   const ch = (await app.db())[`parentAccess/${PK}`].channel;
   const pushItems = async () => { const db = await app.db(); return Object.entries(db).filter(([p, d]) => p.startsWith(`channels/${ch}/items/`) && d.type === "push").map(([, d]) => d); };
   const items = await pushItems();
   assert.equal(items.length, 1);
-  assert.equal(items[0].key, PK);
+  // в общем канале (его читает и ученик) — отпечаток ключа, не сам ключ
+  assert.equal(items[0].key, await core.pushKeyId(PK));
+  const channelDump = JSON.stringify(Object.entries(await app.db()).filter(([p]) => p.startsWith(`channels/${ch}/`)));
+  for (const secret of [PK, PK2, SK]) assert.ok(!channelDump.includes(secret), "ключ доступа не лежит в канале");
   assert.equal(items[0].by, "parent");
   assert.match(items[0].token, /^fake-fcm-token-/);
   // повторное «Включить» на том же устройстве не плодит подписки
@@ -238,7 +252,8 @@ test("пуш: при отзыве доступа подписка этого ч�
   const db = await app.db();
   const ch = db[`parentAccess/${PK}`] ? db[`teacherSpaces/${T}/state/main`].studentChannels["Тест, 7 класс"].shared : null;
   const items = Object.entries(db).filter(([p, d]) => p.startsWith(`channels/${ch}/items/`) && d.type === "push").map(([, d]) => d.key);
-  assert.deepEqual(items, [PK], "осталась только мама");
+  assert.deepEqual(items, [await core.pushKeyId(PK)], "осталась только мама (и в новом канале — отпечаток)");
+  assert.ok(!JSON.stringify(Object.entries(db).filter(([p]) => p.startsWith("channels/"))).includes(PK2), "отозванного ключа нет ни в одном канале");
   await app.close();
 });
 
@@ -329,6 +344,30 @@ test("заголовок: свой — в кабинете вместо стан
   assert.equal(notifs(await app.db()).find((n) => n.mode === "before").title, "");
   await waitFor(async () => !(await app.db())[`parentAccess/${PK2}`].notices.find((n) => n.mode === "before").title, "витрина без заголовка");
   assert.deepEqual(dad.errors, []);
+  assert.deepEqual(app.errors, []);
+  await app.close();
+});
+
+test("старые подписки с самим ключом в общем канале: учитель переводит их на отпечаток, отозванные — удаляет", async () => {
+  const CHS = "legacy_shared_channel_000000000001", CHP = "legacy_parent_channel_000000000002";
+  const REVOKED = "parent_key_revoked_000000000000004";
+  const seed = defaultSeed();
+  const k = (role, label, createdAt, active = true) => ({ role, studentId: "Тест, 7 класс", label, createdAt, active, revokedAt: active ? null : 5 });
+  seed[`teacherSpaces/${T}/accessKeys/${PK}`] = k("parent", "мама", 1);
+  seed[`teacherSpaces/${T}/accessKeys/${SK}`] = k("student", "", 2);
+  seed[`teacherSpaces/${T}/accessKeys/${REVOKED}`] = k("parent", "папа", 3, false);
+  seed[`teacherSpaces/${T}/state/main`].studentChannels = { "Тест, 7 класс": { shared: CHS, parent: CHP, createdAt: 1 } };
+  const tok = "tok-legacy-mom-" + "x".repeat(30);
+  seed[`channels/${CHS}/items/old1`] = { type: "push", lessonId: "-", by: "parent", createdAt: 1, token: tok, key: PK };
+  seed[`channels/${CHS}/items/old2`] = { type: "push", lessonId: "-", by: "parent", createdAt: 1, token: "tok-legacy-dad-" + "x".repeat(30), key: REVOKED };
+  const app = await openApp({ seed });
+  const pushes = async () => Object.entries(await app.db()).filter(([p, d]) => p.startsWith(`channels/${CHS}/items/`) && d.type === "push").map(([p, d]) => ({ id: p.split("/").pop(), ...d }));
+  await waitFor(async () => { const ps = await pushes(); return ps.length === 1 && ps[0].id !== "old1"; }, "перевод подписок");
+  const [p] = await pushes();
+  assert.equal(p.key, await core.pushKeyId(PK));
+  assert.equal(p.token, tok, "то же устройство — пуши продолжают приходить");
+  const dump = JSON.stringify(Object.entries(await app.db()).filter(([q]) => q.startsWith("channels/")));
+  assert.ok(!dump.includes(PK) && !dump.includes(REVOKED), "ключей в каналах не осталось");
   assert.deepEqual(app.errors, []);
   await app.close();
 });

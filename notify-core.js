@@ -116,6 +116,27 @@
     }).sort((a, b) => b.createdAt - a.createdAt);
   }
 
+  // Подписка на пуш лежит в ОБЩЕМ канале ученика (его читают и родитель, и
+  // ученик), поэтому сам ключ доступа туда писать нельзя — только его
+  // отпечаток: SHA-256 от «tutor-dashboard/push:» + ключ, 64 hex-символа.
+  // По отпечатку ключ не восстановить; учитель и рассылка знают все ключи и
+  // сопоставляют их. Старые подписки (до 2026-09-27) хранили сам ключ
+  // (32 символа base64url) — isPushKeyId их отличает.
+  async function pushKeyId(key) {
+    const c = (typeof crypto !== "undefined" && crypto) || (root && root.crypto);
+    const buf = await c.subtle.digest("SHA-256", new TextEncoder().encode("tutor-dashboard/push:" + key));
+    return Array.from(new Uint8Array(buf), (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  const isPushKeyId = (s) => typeof s === "string" && /^[0-9a-f]{64}$/.test(s);
+  // { отпечаток: ключ } для списка ключей доступа (keys — [{ id }]).
+  async function pushKeyMap(keys) {
+    const out = {};
+    for (const k of keys || []) out[await pushKeyId(k.id)] = k.id;
+    return out;
+  }
+  // Ключ доступа, к которому относится подписка (новая — по отпечатку, старая — сам ключ).
+  const pushItemKey = (item, map) => (item && isPushKeyId(item.key) ? (map[item.key] || null) : (item && item.key) || null);
+
   // Кабинет: напоминания «перед занятием», которые пора показать сейчас.
   // lessons — занятия из витрины (свои), notice.lessonIds — фильтр.
   function dueReminders(notices, lessons, now, label) {
@@ -172,7 +193,7 @@
     return out;
   }
 
-  const api = { UNIT_MS, TITLE_MAX, DEFAULT_TITLE, titleFor, NOW_TTL_MS, PUSH_GRACE_MS, offsetMs, offsetText, keyMatches, targetStudent, ruleLessons, isLive, fillText, noticesForKey, dueReminders, planPushes, plural };
+  const api = { pushKeyId, isPushKeyId, pushKeyMap, pushItemKey, UNIT_MS, TITLE_MAX, DEFAULT_TITLE, titleFor, NOW_TTL_MS, PUSH_GRACE_MS, offsetMs, offsetText, keyMatches, targetStudent, ruleLessons, isLive, fillText, noticesForKey, dueReminders, planPushes, plural };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.NotifyCore = api;
 })(typeof window !== "undefined" ? window : globalThis);

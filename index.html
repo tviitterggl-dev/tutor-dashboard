@@ -2287,39 +2287,53 @@
     }).length;
   }
 
-  // Разовый переход на новую схему (state.pkgByMarks = 1): каждый пакет,
-  // найденный по номерам «k/M», становится счётчиком с тем же «X из N» на
-  // сегодня, а номера «k/M» убираются из названий всех занятий.
+  // Разовый переход на новую схему, два шага с отдельными флагами:
+  //  1) каждый пакет, найденный по номерам «k/M», становится счётчиком с тем
+  //     же «X из N» на сегодня → сохраняем счётчики и state.pkgByMarks = 1;
+  //  2) только ПОСЛЕ этого убираем «k/M» из названий всех занятий →
+  //     state.pkgTitlesClean = 1.
+  // Обрыв между шагами не теряет прогресс: счётчики уже сохранены, а
+  // названия дочистятся при следующем открытии (шаг 2 повторяемый).
   let pkgMigration = null;
   function ensurePkgMigrated(evs) {
-    if (remoteState.pkgByMarks) return Promise.resolve(false);
-    if (!pkgMigration) pkgMigration = migrateToMarkPackages(evs).catch(e => { pkgMigration = null; throw e; });
+    if (remoteState.pkgByMarks && remoteState.pkgTitlesClean) return Promise.resolve(false);
+    if (!pkgMigration) pkgMigration = migrateToMarkPackages(evs).finally(() => { pkgMigration = null; });
     return pkgMigration;
   }
   async function migrateToMarkPackages(evs) {
-    migratePackageOverrides(evs);
+    // свежее состояние: второе устройство могло уже сделать шаг 1
+    const fresh = await window.TutorFB.loadState();
+    if (fresh) {
+      remoteState.pkgByMarks = fresh.pkgByMarks;
+      remoteState.pkgTitlesClean = fresh.pkgTitlesClean;
+      if (fresh.pkgByMarks) packageOverrides = fresh.pkgOverrides || {};
+    }
     const now = Date.now();
-    const legacy = legacyBuildPackages(evs);
-    const next = {};
-    legacy.forEach(p => {
-      next[p.key] = { manual: true, totalOverride: p.total, doneBase: p.doneCount, countFrom: now, hidden: false };
-    });
-    Object.entries(packageOverrides).forEach(([key, ov]) => {
-      if (!ov || next[key]) return;
-      if (ov.hidden) next[key] = { manual: true, totalOverride: ov.totalOverride || 8, doneBase: ov.doneBase || 0, countFrom: ov.countFrom || now, hidden: true };
-    });
-    // номера из названий — у всех занятий (и прошлых, и будущих)
+    if (!remoteState.pkgByMarks) {
+      migratePackageOverrides(evs);
+      const next = {};
+      legacyBuildPackages(evs).forEach(p => {
+        next[p.key] = { manual: true, totalOverride: p.total, doneBase: p.doneCount, countFrom: now, hidden: false };
+      });
+      Object.entries(packageOverrides).forEach(([key, ov]) => {
+        if (!ov || next[key]) return;
+        if (ov.hidden) next[key] = { manual: true, totalOverride: ov.totalOverride || 8, doneBase: ov.doneBase || 0, countFrom: ov.countFrom || now, hidden: true };
+      });
+      const removed = Object.keys(packageOverrides).filter(k => !next[k]);
+      // счётчики и флаг — одной записью (всё или ничего)
+      await window.TutorFB.patchState({ pkgOverrides: next, pkgByMarks: 1 });
+      for (const k of removed) await window.TutorFB.setPkgOverride(k, null); // ключи, которых нет в next
+      packageOverrides = next;
+      remoteState.pkgOverrides = next;
+      remoteState.pkgByMarks = 1;
+    }
+    // шаг 2: номера из названий — у всех занятий (и прошлых, и будущих)
     const all = await window.TutorFB.listLessons(0, now + 10 * 365 * DAY_MS);
     const renames = all.filter(l => PKG_SUFFIX_RE.test(l.title || "") && !isPersonal(l))
       .map(l => ({ id: l.id, merge: true, data: { title: baseTitle(l.title), updatedAt: now } }));
     if (renames.length) await window.TutorFB.saveLessons(renames);
-    const removed = Object.keys(packageOverrides).filter(k => !next[k]);
-    packageOverrides = next;
-    for (const k of Object.keys(next)) await window.TutorFB.setPkgOverride(k, next[k]);
-    for (const k of removed) await window.TutorFB.setPkgOverride(k, null);
-    await window.TutorFB.patchState({ pkgByMarks: 1 });
-    remoteState.pkgByMarks = 1;
-    remoteState.pkgOverrides = packageOverrides;
+    await window.TutorFB.patchState({ pkgTitlesClean: 1 });
+    remoteState.pkgTitlesClean = 1;
     return true;
   }
   // Разовый перенос старых правок на новую схему (без изменения видимых чисел).
@@ -2545,9 +2559,11 @@
     rerenderPackages();
   });
 
-  // ---------- ПРОФИЛИ УЧЕНИКОВ (только для учителя) ----------
+  // ---------- ПРОФИЛИ УЧЕНИКОВ ----------
   // state/main.studentProfiles["Имя, N класс"] = { callUrl, accessUrl, notes, updatedAt }.
-  // В витрины родителей/учеников НЕ публикуется.
+  // В витрины родителя/ученика попадают ОБЕ ссылки: callUrl — «Подключиться»
+  // у занятий, accessUrl — кнопка «Доска» у ближайших занятий. Заметки,
+  // ставка и остальное профиля — только у учителя.
   const studentProfiles = () => remoteState.studentProfiles || {};
   const profileOf = (studentId) => (studentId && studentProfiles()[studentId]) || {};
   const safeHref = (u) => /^https?:\/\//i.test(u || "");
@@ -2693,11 +2709,11 @@
             <div class="field" style="max-width:180px"><span>Ставка за занятие, ₽</span>
               <input type="number" class="pf-rate" min="0" step="50" value="${st.rate != null ? st.rate : ""}"></div>
           </div>
-          <div class="field"><span>Ссылка на созвон (постоянная)</span>
+          <div class="field"><span>Ссылка на созвон (постоянная, видна родителю и ученику)</span>
             <input type="url" class="pf-call" maxlength="500" placeholder="https://telemost.yandex.ru/…" value="${escHtml(p.callUrl || "")}"></div>
           <div class="field"><span>Ссылка на доску / материалы (видна родителю и ученику)</span>
             <input type="url" class="pf-access" maxlength="500" placeholder="доска, папка с материалами, платформа…" value="${escHtml(p.accessUrl || "")}"></div>
-          <div class="field"><span>Заметки</span>
+          <div class="field"><span>Заметки (видишь только ты)</span>
             <textarea class="pf-notes" maxlength="10000" placeholder="Что уже прошли, что планируем дальше…">${escHtml(p.notes || "")}</textarea></div>
           <div class="btn-row" style="margin-bottom:0">
             <button class="btn" type="button" data-pf-save>Сохранить</button>
@@ -3219,9 +3235,9 @@
             pkg: pkgSuffix(l.title).trim() || null,
             report: l.report || "",
             homework: (Array.isArray(l.homework) ? l.homework : []).map(h => ({ url: h.url, name: h.name || "файл", by: h.by || "teacher" })),
-            // Ссылка на созвон (разовая у занятия или из профиля ученика) —
-            // единственное, что из профиля уходит в кабинет; заметки и
-            // «материалы» остаются только у учителя.
+            // Ссылка на созвон (разовая у занятия или из профиля ученика).
+            // Из профиля в кабинет уходят только две ссылки — эта и boardUrl
+            // (доска/материалы, выше); заметки и ставка остаются у учителя.
             callUrl: isActiveStatus(l.status) && callLinkFor(l) ? callLinkFor(l).url : null,
           };
           if (l.familyNote && l.familyNote.text) out.familyNote = { text: String(l.familyNote.text).slice(0, 1000), by: l.familyNote.by || null, at: l.familyNote.at || 0 };
@@ -3517,6 +3533,23 @@
   }
   $("reqAlert").addEventListener("click", () => showTab("requests"));
 
+  // Старые подписки на пуш (до 2026-09-27) хранили в общем канале сам ключ
+  // доступа — его видела и вторая сторона (родитель ↔ ученик). Переводим на
+  // отпечаток ключа (тот же токен устройства, пуши продолжают приходить), а
+  // подписки отозванных ключей просто удаляем.
+  async function fixLegacyPushItems(ck, meta, all) {
+    const legacy = all.filter(i => i.type === "push" && !NotifyCore.isPushKeyId(i.key));
+    if (!legacy.length) return;
+    const active = new Set(activeKeysOf(meta.studentId).map(k => k.id));
+    for (const i of legacy) {
+      if (active.has(i.key)) {
+        const data = { type: "push", lessonId: i.lessonId || "-", by: i.by, createdAt: i.createdAt || Date.now(), token: i.token, key: await NotifyCore.pushKeyId(i.key) };
+        await window.TutorFB.addChannelItem(ck, newId("p"), data);
+      }
+    }
+    await window.TutorFB.deleteChannelItems(ck, legacy.map(i => i.id));
+  }
+
   // Автоматически: ДЗ → в занятие, «оплачено» → в занятие. Заявки ждут решения.
   async function processChannel(ck) {
     if (channelBusy[ck]) { channelBusy[ck] = "again"; return; }
@@ -3524,6 +3557,7 @@
     try {
       const meta = channelMeta[ck];
       // подписки на пуш (type push) не относятся к занятиям — их читает фоновая рассылка
+      if (meta) await fixLegacyPushItems(ck, meta, channelItems[ck] || []);
       const items = (channelItems[ck] || []).filter(i => i.type !== "push");
       if (!meta || !items.length) return;
       const byLesson = {};
@@ -3730,12 +3764,17 @@
       let items = [];
       try { items = await window.TutorFB.listChannel(oldKey); } catch (e) { /* пусто */ }
       // подписки на пуш переезжают только у тех, чей доступ ещё действует
-      const stillActive = new Set(activeKeysOf(studentId).map(k => k.id));
+      // (отозванный ключ — нет; старый канал целиком очищается ниже), и
+      // только с отпечатком ключа, не с самим ключом
+      const active = activeKeysOf(studentId);
+      const byHash = await NotifyCore.pushKeyMap(active);
+      const stillActive = new Set(active.map(k => k.id));
       const keep = items.filter(i => REQUEST_TYPES.includes(i.type) || i.type === "paid" || i.type === "homework" || i.type === "note"
-        || (i.type === "push" && stillActive.has(i.key)));
+        || (i.type === "push" && stillActive.has(NotifyCore.pushItemKey(i, byHash))));
       for (const i of keep) {
         const data = Object.assign({}, i);
         delete data.id;
+        if (i.type === "push") data.key = await NotifyCore.pushKeyId(NotifyCore.pushItemKey(i, byHash));
         await window.TutorFB.addChannelItem(newKey, i.id, data);
       }
       if (items.length) await window.TutorFB.deleteChannelItems(oldKey, items.map(i => i.id));
@@ -4683,6 +4722,7 @@
     else if (tab === "summary") { stopPoll(); refreshSummary(); loadTrend(); }
     else if (tab === "students") { stopPoll(); renderStudentsRoster(); loadPackages(); loadAccessCard(); }
     else if (tab === "schedule") { stopPoll(); loadSchedule(); }
+    else if (tab === "more") prepareBackup();
   }
 
   document.querySelectorAll(".tab").forEach(tab => {
@@ -4875,7 +4915,8 @@
       if (!ch || !ch.shared) continue;
       let items = [];
       try { items = await window.TutorFB.listChannel(ch.shared); } catch (e) { /* пусто */ }
-      const tokens = new Set(items.filter(i => i.type === "push" && keys.some(k => k.id === i.key)).map(i => i.token));
+      const byHash = await NotifyCore.pushKeyMap(keys);
+      const tokens = new Set(items.filter(i => i.type === "push" && NotifyCore.pushItemKey(i, byHash)).map(i => i.token));
       if (tokens.size) perStudent[sid] = tokens.size;
     }
     const run = remoteState.notifier && remoteState.notifier.lastRunAt;
@@ -4994,76 +5035,103 @@
   });
 
   // ---------- РЕЗЕРВНАЯ КОПИЯ ----------
-  function downloadFile(name, text, type) {
-    const blob = new Blob([text], { type });
-    const url = URL.createObjectURL(blob);
+  // Файлы готовятся ЗАРАНЕЕ (при открытии «Ещё»), а по нажатию отдаются сразу,
+  // без await: Safari на iPhone разрешает скачивание/«Поделиться» только прямо
+  // в нажатии. На iPhone — через «Поделиться» (→ «Сохранить в Файлы»): там
+  // видно, сохранили или отменили, и «Сохранено» пишем только при успехе.
+  // На компьютере/Android — обычное скачивание; браузер не сообщает, дошёл
+  // ли файл, поэтому пишем «скачивание запущено», а не «сохранено».
+  const backupStamp = () => { const d = mskParts(Date.now()); return `${d.date}_${d.time.replace(":", "-")}`; };
+  const isIOSDevice = () => /iP(hone|od|ad)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  let backupReady = null;   // { json: File, csv: File, lessons, students, at }
+  let backupLoading = null;
+  const BACKUP_FRESH_MS = 5 * 60000;
+  function backupMsg(t, kind) { const m = $("backupMsg"); m.textContent = t; m.className = "msg" + (kind ? " " + kind : ""); }
+  function setBackupButtons(on) { $("backupJsonBtn").disabled = !on; $("backupCsvBtn").disabled = !on; }
+  function buildBackupCsv(data) {
+    const marksAll = (data.state && data.state.marks) || {};
+    const cell = (v) => { const t = v == null ? "" : String(v); return /[";\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
+    const rows = [["Дата", "Время", "Минут", "Ученик", "Название", "Статус", "Провёл", "Сумма, ₽", "Оплачено", "Отчёт", "Пояснение", "Файлы ДЗ"]];
+    data.lessons.forEach(l => {
+      const when = mskParts(l.startMs || 0);
+      const m = marksAll[l.id] || {};
+      const amount = m.overrideAmount != null ? m.overrideAmount : (m.marked && m.lockedRate != null ? m.lockedRate : "");
+      rows.push([
+        when.date, when.time, l.durationMin || Math.round(((l.endMs || 0) - (l.startMs || 0)) / 60000),
+        l.kind === "personal" ? "(личное время)" : studentLabel(l.studentId) || "",
+        l.kind === "personal" ? (l.note || "Личное время") : displayTitle(l.title),
+        STATUS_RU[l.status] || l.status || "", m.marked ? "да" : "", amount,
+        l.paid && l.paid.value ? "да" : "", l.report || "", (l.familyNote && l.familyNote.text) || "",
+        (Array.isArray(l.homework) ? l.homework : []).map(h => h.url).join(" "),
+      ]);
+    });
+    // «;» и BOM — чтобы русский Excel сразу открыл по столбцам и с кириллицей
+    return "\ufeff" + rows.map(r => r.map(cell).join(";")).join("\r\n");
+  }
+  function prepareBackup(force) {
+    if (backupLoading) return backupLoading;
+    if (!force && backupReady && Date.now() - backupReady.at < BACKUP_FRESH_MS) return Promise.resolve(backupReady);
+    setBackupButtons(false);
+    backupMsg("Готовлю резервную копию…");
+    backupLoading = (async () => {
+      try {
+        const data = await window.TutorFB.exportAll();
+        data.lessons.sort((a, b) => (a.startMs || 0) - (b.startMs || 0));
+        const out = Object.assign({
+          app: "tutor-dashboard", format: 1, exportedAt: new Date().toISOString(),
+          account: ($("userBadge") && $("userBadge").textContent.trim()) || null,
+        }, data);
+        const stamp = backupStamp();
+        backupReady = {
+          json: new File([JSON.stringify(out, null, 2)], `zanyatiya-backup_${stamp}.json`, { type: "application/json" }),
+          csv: new File([buildBackupCsv(data)], `zanyatiya_${stamp}.csv`, { type: "text/csv;charset=utf-8" }),
+          lessons: data.lessons.length,
+          students: Object.keys((data.state && data.state.studentProfiles) || {}).length,
+          at: Date.now(),
+        };
+        backupMsg(`Копия готова: занятий ${backupReady.lessons}, учеников ${backupReady.students}. Нажми кнопку, чтобы сохранить.`);
+      } catch (err) {
+        console.error(err);
+        backupReady = null;
+        backupMsg("Не получилось собрать копию (нет интернета?). Открой вкладку «Ещё» ещё раз.", "err");
+      } finally {
+        backupLoading = null;
+        setBackupButtons(true);
+      }
+      return backupReady;
+    })();
+    return backupLoading;
+  }
+  // Отдать готовый файл — синхронно, прямо в обработчике нажатия.
+  function deliverBackup(file, what) {
+    if (isIOSDevice() && navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: file.name })
+        .then(() => backupMsg(`Сохранено: ${what}. Проверь в «Файлах» или там, куда сохранено.`, "ok"))
+        .catch((e) => backupMsg(e && e.name === "AbortError" ? "Отменено — файл не сохранён." : "Не получилось сохранить файл — попробуй ещё раз.", "err"));
+      return;
+    }
+    const url = URL.createObjectURL(file);
     const a = document.createElement("a");
     a.href = url;
-    a.download = name;
+    a.download = file.name;
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60000);
+    backupMsg(`Скачивание запущено: ${what}, файл «${file.name}». Проверь папку «Загрузки»; если файла там нет — нажми ещё раз.`, "ok");
   }
-  const backupStamp = () => { const d = mskParts(Date.now()); return `${d.date}_${d.time.replace(":", "-")}`; };
-  async function backupData() {
-    const data = await window.TutorFB.exportAll();
-    data.lessons.sort((a, b) => (a.startMs || 0) - (b.startMs || 0));
-    return data;
+  function onBackupClick(kind) {
+    const fresh = backupReady && Date.now() - backupReady.at < BACKUP_FRESH_MS;
+    if (!fresh) {
+      // данных ещё нет или они устарели: готовим и просим нажать ещё раз
+      // (скачивание после ожидания Safari на iPhone не пропустит)
+      prepareBackup(true);
+      return;
+    }
+    deliverBackup(backupReady[kind], kind === "json" ? `занятий ${backupReady.lessons}, учеников ${backupReady.students}` : `${backupReady.lessons} занятий в таблице`);
   }
-  function backupMsg(t, kind) { const m = $("backupMsg"); m.textContent = t; m.className = "msg" + (kind ? " " + kind : ""); }
-  $("backupJsonBtn").addEventListener("click", async (e) => {
-    const btn = e.currentTarget;
-    btn.disabled = true;
-    backupMsg("Собираю данные…");
-    try {
-      const data = await backupData();
-      const out = Object.assign({
-        app: "tutor-dashboard",
-        format: 1,
-        exportedAt: new Date().toISOString(),
-        account: ($("userBadge") && $("userBadge").textContent.trim()) || null,
-      }, data);
-      downloadFile(`zanyatiya-backup_${backupStamp()}.json`, JSON.stringify(out, null, 2), "application/json");
-      backupMsg(`Готово: занятий ${data.lessons.length}, учеников ${Object.keys((data.state && data.state.studentProfiles) || {}).length}. Файл сохранён в «Загрузки».`, "ok");
-    } catch (err) {
-      console.error(err);
-      backupMsg("Не получилось собрать копию (нет интернета?)", "err");
-    }
-    btn.disabled = false;
-  });
-  $("backupCsvBtn").addEventListener("click", async (e) => {
-    const btn = e.currentTarget;
-    btn.disabled = true;
-    backupMsg("Собираю таблицу…");
-    try {
-      const data = await backupData();
-      const marksAll = (data.state && data.state.marks) || {};
-      const cell = (v) => { const t = v == null ? "" : String(v); return /[";\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
-      const rows = [["Дата", "Время", "Минут", "Ученик", "Название", "Статус", "Провёл", "Сумма, ₽", "Оплачено", "Отчёт", "Пояснение", "Файлы ДЗ"]];
-      data.lessons.forEach(l => {
-        const when = mskParts(l.startMs || 0);
-        const m = marksAll[l.id] || {};
-        const amount = m.overrideAmount != null ? m.overrideAmount : (m.marked && m.lockedRate != null ? m.lockedRate : "");
-        rows.push([
-          when.date, when.time, l.durationMin || Math.round(((l.endMs || 0) - (l.startMs || 0)) / 60000),
-          l.kind === "personal" ? "(личное время)" : studentLabel(l.studentId) || "",
-          l.kind === "personal" ? (l.note || "Личное время") : displayTitle(l.title),
-          STATUS_RU[l.status] || l.status || "", m.marked ? "да" : "", amount,
-          l.paid && l.paid.value ? "да" : "", l.report || "", (l.familyNote && l.familyNote.text) || "",
-          (Array.isArray(l.homework) ? l.homework : []).map(h => h.url).join(" "),
-        ]);
-      });
-      // «;» и BOM — чтобы русский Excel сразу открыл по столбцам и с кириллицей
-      const csv = "\ufeff" + rows.map(r => r.map(cell).join(";")).join("\r\n");
-      downloadFile(`zanyatiya_${backupStamp()}.csv`, csv, "text/csv;charset=utf-8");
-      backupMsg(`Готово: ${data.lessons.length} занятий в таблице.`, "ok");
-    } catch (err) {
-      console.error(err);
-      backupMsg("Не получилось собрать таблицу (нет интернета?)", "err");
-    }
-    btn.disabled = false;
-  });
+  $("backupJsonBtn").addEventListener("click", () => onBackupClick("json"));
+  $("backupCsvBtn").addEventListener("click", () => onBackupClick("csv"));
 
   document.querySelectorAll('.subtab[data-lessonmode]').forEach(tab => {
     tab.addEventListener("click", () => {

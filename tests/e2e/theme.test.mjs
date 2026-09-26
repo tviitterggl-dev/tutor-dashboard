@@ -152,6 +152,8 @@ test("«Ещё» → резервная копия: JSON со всеми дан�
   const { page } = app;
   await page.waitForSelector("#lessonsList .lesson");
   await page.click('.tab[data-tab="more"]');
+  // данные готовятся заранее, при открытии «Ещё»; кнопка отдаёт файл сразу
+  await page.waitForFunction(() => /Копия готова/.test(document.querySelector("#backupMsg").textContent));
   const [dl] = await Promise.all([page.waitForEvent("download"), page.click("#backupJsonBtn")]);
   assert.match(dl.suggestedFilename(), /^zanyatiya-backup_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}\.json$/);
   const data = JSON.parse(await (await import("node:fs")).promises.readFile(await dl.path(), "utf8"));
@@ -164,7 +166,9 @@ test("«Ещё» → резервная копия: JSON со всеми дан�
   assert.deepEqual(Object.keys(data.state.studentProfiles).sort(), ["Анна, 6 класс", "Борис, 8 класс", "Тест, 7 класс"]);
   assert.ok(Array.isArray(data.accessKeys) && Array.isArray(data.requests));
   assert.equal(data.account, "teacher@example.org");
-  await page.waitForFunction(() => /Готово: занятий/.test(document.querySelector("#backupMsg").textContent));
+  // браузер не сообщает, сохранился ли файл, — поэтому не «сохранено», а «скачивание запущено»
+  assert.match(await page.textContent("#backupMsg"), /Скачивание запущено/);
+  assert.doesNotMatch(await page.textContent("#backupMsg"), /Сохранено/);
 
   const [csvDl] = await Promise.all([page.waitForEvent("download"), page.click("#backupCsvBtn")]);
   assert.match(csvDl.suggestedFilename(), /\.csv$/);
@@ -174,6 +178,34 @@ test("«Ещё» → резервная копия: JSON со всеми дан�
   assert.equal(lines[0], "Дата;Время;Минут;Ученик;Название;Статус;Провёл;Сумма, ₽;Оплачено;Отчёт;Пояснение;Файлы ДЗ");
   assert.equal(lines.length - 1, lessonPaths.length);
   assert.ok(lines.some((l) => /^2026-09-14;10:00;60;Тест, 7 класс;Тест 7 класс 1\/8;проведено;да;2000;/.test(l)), lines.slice(0, 4).join("\n"));
+  assert.deepEqual(app.errors, []);
+  await app.close();
+});
+
+test("резервная копия на iPhone: «Поделиться» прямо в нажатии; «Сохранено» — только если правда сохранили", async () => {
+  const app = await openApp({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1" });
+  const { page } = app;
+  await page.waitForSelector("#lessonsList .lesson");
+  // подмена «Поделиться»: запоминаем, вызвано ли в нажатии; 1-й раз — «сохранили», 2-й — «отменили»
+  await page.evaluate(() => {
+    window.__shares = [];
+    navigator.canShare = () => true;
+    navigator.share = (d) => {
+      window.__shares.push({ name: d.files[0].name, inClick: !!(window.event && window.event.type === "click") });
+      return window.__shares.length === 1 ? Promise.resolve() : Promise.reject(new DOMException("cancel", "AbortError"));
+    };
+  });
+  await page.click('.tab[data-tab="more"]');
+  await page.waitForFunction(() => /Копия готова/.test(document.querySelector("#backupMsg").textContent));
+  await page.click("#backupJsonBtn");
+  await page.waitForFunction(() => /Сохранено/.test(document.querySelector("#backupMsg").textContent));
+  await page.click("#backupCsvBtn");
+  await page.waitForFunction(() => /Отменено — файл не сохранён/.test(document.querySelector("#backupMsg").textContent));
+  const shares = await page.evaluate(() => window.__shares);
+  assert.equal(shares.length, 2);
+  assert.ok(shares.every((x) => x.inClick), "share вызывается синхронно в нажатии: " + JSON.stringify(shares));
+  assert.match(shares[0].name, /\.json$/);
+  assert.match(shares[1].name, /\.csv$/);
   assert.deepEqual(app.errors, []);
   await app.close();
 });

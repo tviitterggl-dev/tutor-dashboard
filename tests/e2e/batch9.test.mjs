@@ -142,7 +142,8 @@ test("переход со старых номеров «k/M»: счётчик с
   const app = await openApp({ seed });
   const { page } = app;
   await page.waitForSelector("#lessonsList .lesson");
-  await waitFor(async () => (await app.db())[statePath].pkgByMarks === 1, "перенос");
+  await waitFor(async () => (await app.db())[statePath].pkgTitlesClean === 1, "перенос");
+  assert.equal((await app.db())[statePath].pkgByMarks, 1);
   const db = await app.db();
   const own = lessonsOf(db, "Тест, 7 класс");
   assert.ok(own.length === 8 && own.every((l) => l.title === "Тест 7 класс"), JSON.stringify(own.map((l) => l.title)));
@@ -162,6 +163,24 @@ test("переход со старых номеров «k/M»: счётчик с
   await page.click('.tab[data-tab="calendar"]');
   await page.click("#fcAddBtn");
   assert.equal(await page.locator("#mPkg").count(), 0);
+  assert.deepEqual(app.errors, []);
+  await app.close();
+});
+
+test("перенос прервался после сохранения счётчиков: при следующем открытии названия дочищаются, счётчики не пересчитываются", async () => {
+  // шаг 1 уже сделан (счётчик «5 из 8» и флаг сохранены), шаг 2 (названия) — нет
+  const seed = defaultSeed({ legacyPackages: true });
+  seed[statePath].pkgByMarks = 1;
+  seed[statePath].pkgOverrides = { "Тест, 7 класс": { manual: true, totalOverride: 8, doneBase: 5, countFrom: Date.parse(NOW) } };
+  const app = await openApp({ seed });
+  const { page } = app;
+  await page.waitForSelector("#lessonsList .lesson");
+  await waitFor(async () => (await app.db())[statePath].pkgTitlesClean === 1, "названия дочищены");
+  const db = await app.db();
+  assert.ok(lessonsOf(db, "Тест, 7 класс").every((l) => l.title === "Тест 7 класс"));
+  assert.deepEqual(db[statePath].pkgOverrides["Тест, 7 класс"], { manual: true, totalOverride: 8, doneBase: 5, countFrom: Date.parse(NOW) }, "счётчик не тронут (не пересчитан по номерам)");
+  await page.click('.tab[data-tab="students"]');
+  await waitCard(page, "Тест, 7 класс", /5 из 8/);
   assert.deepEqual(app.errors, []);
   await app.close();
 });

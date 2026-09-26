@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 import { runOnce } from "../../notifier/send.mjs";
 
 const req = createRequire(new URL("../../notifier/package.json", import.meta.url));
+const core = createRequire(import.meta.url)("../../notify-core.js");
 const { initializeApp } = req("firebase-admin/app");
 const { getFirestore } = req("firebase-admin/firestore");
 const HOST = process.env.FIRESTORE_EMULATOR_HOST || "127.0.0.1:8080";
@@ -34,7 +35,9 @@ async function seed() {
   await tRef.collection("lessons").doc("m1").set({ title: "Маша 7 класс", studentId: "Маша, 7 класс", startMs: NOW + 90 * M, endMs: NOW + 150 * M, status: "planned" });
   await tRef.collection("lessons").doc("m2").set({ title: "Маша 7 класс", studentId: "Маша, 7 класс", startMs: NOW + 5 * 24 * H, endMs: NOW + 5 * 24 * H + H, status: "planned" });
   const items = db.collection("channels").doc(CH).collection("items");
-  await items.doc("pushMom").set({ type: "push", lessonId: "-", by: "parent", createdAt: 1, token: "tok-mom-" + "x".repeat(30), key: "parent_key_masha_0000000000000001" });
+  // новая подписка — отпечаток ключа (сам ключ в общий канал не пишется);
+  // у ребёнка — старая, с самим ключом (до 2026-09-27), тоже должна работать
+  await items.doc("pushMom").set({ type: "push", lessonId: "-", by: "parent", createdAt: 1, token: "tok-mom-" + "x".repeat(30), key: await core.pushKeyId("parent_key_masha_0000000000000001") });
   await items.doc("pushKid").set({ type: "push", lessonId: "-", by: "student", createdAt: 1, token: "tok-kid-DEAD" + "x".repeat(30), key: "student_key_masha_000000000000002" });
   await items.doc("pushOld").set({ type: "push", lessonId: "-", by: "parent", createdAt: 1, token: "tok-old-" + "x".repeat(30), key: "parent_key_revoked_00000000000003" });
   await items.doc("hw").set({ type: "homework", lessonId: "m1", by: "student", createdAt: 1, file: { url: "https://res.cloudinary.com/x/a.pdf", name: "a.pdf" } });
@@ -101,4 +104,20 @@ test("без уведомлений — только отметка о запу�
   await runOnce({ db, send: fakeSend(sent), now: NOW, siteUrl: SITE, logger: quiet });
   assert.equal(sent.length, 0);
   assert.equal((await tRef.collection("notifLog").doc("now1__once").get()).data().recipients, 0);
+});
+
+test("журнал: старше 60 дней чистится, но «разово»/«сейчас» (…__once) — никогда, иначе ушло бы повторно", async () => {
+  await tRef.collection("notifications").doc("once1").set({ text: "Оплата до 5-го", mode: "once", times: 1, target: { scope: "all", role: "any" }, active: true, createdAt: 1 });
+  const old = NOW - 90 * 24 * H;
+  await tRef.collection("notifLog").doc("once1__once").set({ ruleId: "once1", sentAt: old, status: "done" });
+  await tRef.collection("notifLog").doc("r90__oldlesson").set({ ruleId: "r90", sentAt: old, status: "done" });
+  const sent = [];
+  await runOnce({ db, send: fakeSend(sent), now: NOW, siteUrl: SITE, logger: quiet });
+  assert.equal((await tRef.collection("notifLog").doc("once1__once").get()).exists, true, "запись «разово» осталась");
+  assert.equal((await tRef.collection("notifLog").doc("r90__oldlesson").get()).exists, false, "старая запись напоминания удалена");
+  // и через ещё 60+ дней «разово» не уходит повторно
+  const again = [];
+  await runOnce({ db, send: fakeSend(again), now: NOW + 70 * 24 * H, siteUrl: SITE, logger: quiet });
+  assert.equal(again.filter((m) => m.data.tag === "once1__once").length, 0);
+  assert.equal(sent.filter((m) => m.data.tag === "once1__once").length, 0, "уже было отправлено раньше");
 });

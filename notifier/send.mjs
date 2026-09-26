@@ -60,11 +60,13 @@ export async function runOnce({ db, send, now = Date.now(), siteUrl, logger = co
         .where("startMs", ">=", now - DAY).where("startMs", "<=", now + maxOffset + DAY).get();
       const lessons = lessonsSnap.docs.map((d) => Object.assign({ id: d.id }, d.data()));
       // Подписки устройств — сообщения type "push" в общих каналах учеников.
+      // В подписке — отпечаток ключа доступа (не сам ключ), сопоставляем с ключами.
+      const keyByHash = await core.pushKeyMap(keys);
       const devices = [];
       for (const ch of Object.values(state.studentChannels || {})) {
         if (!ch || !ch.shared) continue;
         const items = await db.collection("channels").doc(ch.shared).collection("items").where("type", "==", "push").get();
-        items.docs.forEach((d) => { const x = d.data(); devices.push({ token: x.token, key: x.key, path: d.ref.path }); });
+        items.docs.forEach((d) => { const x = d.data(); devices.push({ token: x.token, key: core.pushItemKey(x, keyByHash), path: d.ref.path }); });
       }
       const logSnap = await tRef.collection("notifLog").get();
       const log = Object.fromEntries(logSnap.docs.map((d) => [d.id, true]));
@@ -110,8 +112,10 @@ export async function runOnce({ db, send, now = Date.now(), siteUrl, logger = co
         sentHere += delivered;
         logger.log(`[${tRef.id.slice(0, 6)}…] ${p.logId}: ${delivered}/${messages.length}`);
       }
-      // Журнал не растёт бесконечно: старше 60 дней — удаляем.
-      const old = logSnap.docs.filter((d) => (d.data().sentAt || 0) < now - 60 * DAY);
+      // Журнал не растёт бесконечно: старше 60 дней — удаляем. Кроме записей
+      // «разово»/«сейчас» (…__once): правило живёт, пока учитель его не
+      // выключит, и только эта запись не даёт отправить его повторно.
+      const old = logSnap.docs.filter((d) => !d.id.endsWith("__once") && (d.data().sentAt || 0) < now - 60 * DAY);
       for (const d of old) await d.ref.delete();
     }
     await stateRef.set({ notifier: { lastRunAt: now, lastSent: sentHere } }, { merge: true });
