@@ -5,7 +5,7 @@
 // Стратегия «сначала сеть»: всегда берём свежую версию с сайта, а сохранённую
 // копию отдаём, только если сети нет. Поэтому обновления приходят сразу.
 // Чужие адреса (Firebase, CDN, Cloudinary) не трогаем вообще.
-const CACHE = "tutor-shell-v4";
+const CACHE = "tutor-shell-v5";
 const SHELL = ["./", "./index.html", "./design.css", "./theme.js", "./notify-core.js", "./manifest.json", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {

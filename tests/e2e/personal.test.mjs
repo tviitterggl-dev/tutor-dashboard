@@ -249,6 +249,7 @@ test("веб-приложение: manifest и значки (iPhone и Android)"
   assert.equal(m.display, "standalone");
   assert.equal(m.start_url, "./index.html");
   assert.ok(m.theme_color && m.background_color && m.short_name && m.name);
+  assert.equal(m.short_name, "Тьютор Онлайн", "имя значка на экране «Домой»");
   const pngSize = (f) => { const b = fs.readFileSync(path.join(ROOT, f)); return [b.readUInt32BE(16), b.readUInt32BE(20)]; };
   for (const icon of m.icons) {
     const [w, h] = icon.sizes.split("x").map(Number);
@@ -293,7 +294,7 @@ test("Android (эмуляция Pixel 7): Chrome считает приложен
   await page.context().setOffline(true);
   await page.reload();
   await page.waitForSelector("h1");
-  assert.match(await page.textContent("h1"), /Учёт занятий/);
+  assert.match(await page.textContent("h1"), /Тьютор Онлайн/);
   await page.context().setOffline(false);
   assert.deepEqual(app.errors.filter((e) => !/net::|Failed to fetch|NetworkError|Нет сети|ERR_INTERNET/i.test(e)), []);
   await app.close();
@@ -313,7 +314,7 @@ test("iPhone (эмуляция iPhone 13): мета-теги Safari, значо�
     };
   });
   assert.equal(meta.capable, "yes");
-  assert.equal(meta.title, "Занятия");
+  assert.equal(meta.title, "Тьютор Онлайн");
   assert.equal(meta.bar, "default");
   assert.equal(meta.theme.length, 2);
   // Safari берёт значок отсюда — он должен отдаваться и быть 180×180
