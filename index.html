@@ -783,6 +783,8 @@
   .nf-lessons .check { font-size: 13px; margin-bottom: 6px; }
   .nf-item { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-inner); padding: 14px 16px; margin-bottom: 10px; }
   .nf-item.off { opacity: 0.6; }
+  .nf-head { font-weight: 700; font-size: 13px; margin-bottom: 4px; }
+  .nf-head.dflt { font-weight: 600; color: var(--muted); }
   .nf-text { white-space: pre-wrap; font-size: 14px; line-height: 1.45; }
   .nf-meta { font-size: 12px; color: var(--muted); margin-top: 6px; }
   .nf-actions { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; }
@@ -934,6 +936,7 @@
       <div class="card">
         <div class="chart-title">Отправить сейчас</div>
         <div class="field"><span>Кому</span><select id="nwTo"></select></div>
+        <div class="field"><span>Заголовок (необязательно)</span><input type="text" id="nwHead" maxlength="100" placeholder="Сообщение от преподавателя"></div>
         <div class="field"><span>Текст</span><textarea id="nwText" maxlength="1000" placeholder="Например: Сегодня занятие переносится на 19:00"></textarea></div>
         <label class="check"><input type="checkbox" id="nwPush" checked> и пуш на телефон</label>
         <div class="btn-row" style="margin-bottom:0"><button class="btn" type="button" id="nwSend">Отправить сейчас</button></div>
@@ -943,8 +946,9 @@
 
       <div class="card" id="nfCard">
         <div class="chart-title" id="nfTitle">Новое уведомление</div>
+        <div class="field"><span>Заголовок (необязательно)</span><input type="text" id="nfHead" maxlength="100" placeholder="Напоминание о занятии"></div>
         <div class="field"><span>Текст</span><textarea id="nfText" maxlength="1000" placeholder="Например: Напоминаю: {дата} в {время} занятие. Подготовь тетрадь с ДЗ."></textarea></div>
-        <div class="hint" style="margin:-4px 0 12px">Можно вставить <b>{ученик}</b>, <b>{дата}</b>, <b>{время}</b> — подставятся для конкретного занятия.</div>
+        <div class="hint" style="margin:-4px 0 12px">Заголовок — крупная строка над текстом в кабинете и заголовок пуша на телефоне (например: «Напоминание», «Важно»). Пусто — «Напоминание о занятии» (перед занятием) или «Сообщение от преподавателя» (разово). В заголовок и текст можно вставить <b>{ученик}</b>, <b>{дата}</b>, <b>{время}</b> — подставятся для конкретного занятия.</div>
         <div class="field"><span>Когда</span></div>
         <label class="check"><input type="radio" name="nfMode" value="before" checked> Перед каждым занятием</label>
         <div class="nf-inline" data-mode="before">за
@@ -3332,7 +3336,7 @@
     const shareBtn = e.target.closest("[data-key-share]");
     if (shareBtn) {
       const k = keyById(shareBtn.dataset.keyShare);
-      if (k && navigator.share) navigator.share({ title: "Кабинет", text: `Личный кабинет: ${k.studentId}`, url: cabinetUrl(k.role, k.id) }).catch(() => {});
+      if (k && navigator.share) navigator.share({ title: "Тьютор Онлайн", text: `Тьютор Онлайн — кабинет: ${studentLabel(k.studentId)}`, url: cabinetUrl(k.role, k.id) }).catch(() => {});
       return;
     }
     const revokeBtn = e.target.closest("[data-key-revoke]");
@@ -4470,7 +4474,7 @@
       const now = Date.now();
       try {
         await window.TutorFB.saveNotification(newId("n"), {
-          text, mode: "now", times: 1, target: { scope: "student", role: "any", studentId: l.studentId },
+          title: "Отчёт о занятии", text, mode: "now", times: 1, target: { scope: "student", role: "any", studentId: l.studentId },
           push: true, active: true, lessonIds: [l.id], source: "report", createdAt: now, updatedAt: now,
         });
         notifCache = null;
@@ -4768,6 +4772,14 @@
     }));
   }
 
+  // свой заголовок (пусто — в кабинете и пуше будет стандартный)
+  const headOf = (id) => $(id).value.replace(/\s+/g, " ").trim().slice(0, NotifyCore.TITLE_MAX);
+  // Подсказка в пустом поле — какой заголовок будет по умолчанию.
+  function syncHeadPlaceholder() {
+    const mode = document.querySelector('input[name="nfMode"]:checked');
+    $("nfHead").placeholder = NotifyCore.DEFAULT_TITLE[mode && mode.value === "before" ? "rem" : "msg"];
+  }
+  document.querySelectorAll('input[name="nfMode"]').forEach(i => i.addEventListener("change", syncHeadPlaceholder));
   function nfMsg(id, t, kind) { const m = $(id); m.textContent = t; m.className = "msg" + (kind ? " " + kind : ""); }
   let nfEditing = null; // уведомление, которое сейчас правим
 
@@ -4777,11 +4789,13 @@
     $("nfSave").textContent = "Сохранить уведомление";
     $("nfCancel").style.display = "none";
     $("nfText").value = "";
+    $("nfHead").value = "";
     document.querySelector('input[name="nfMode"][value="before"]').checked = true;
     $("nfOffset").value = "90"; $("nfUnit").value = "min"; $("nfTimes").value = "1";
     document.querySelector('input[name="nfLessonsMode"][value="all"]').checked = true;
     $("nfPush").checked = true;
     $("nfLessons").querySelectorAll("input").forEach(i => { i.checked = false; });
+    syncHeadPlaceholder();
   }
   function editNotification(r) {
     nfEditing = r;
@@ -4789,9 +4803,11 @@
     $("nfSave").textContent = "Сохранить изменения";
     $("nfCancel").style.display = "";
     $("nfText").value = r.text || "";
+    $("nfHead").value = r.title || "";
     document.querySelector(`input[name="nfMode"][value="${r.mode === "once" ? "once" : "before"}"]`).checked = true;
     if (r.mode === "before") { $("nfOffset").value = String(r.offsetValue); $("nfUnit").value = r.offsetUnit; }
     if (r.mode === "once") $("nfTimes").value = String(r.times || 1);
+    syncHeadPlaceholder();
     setRecipient($("nfTo"), r.target || { scope: "all", role: "any" });
     const some = Array.isArray(r.lessonIds) && r.lessonIds.length;
     document.querySelector(`input[name="nfLessonsMode"][value="${some ? "some" : "all"}"]`).checked = true;
@@ -4842,6 +4858,7 @@
         : `Отправлено сейчас · ${fmtAt(r.createdAt || now)}${now - (r.createdAt || 0) > NotifyCore.NOW_TTL_MS ? " (в кабинете уже не показывается)" : ""}`;
       const off = r.active === false;
       return `<div class="nf-item${off ? " off" : ""}" data-nf="${escHtml(r.id)}">
+        <div class="nf-head${r.title ? "" : " dflt"}">${escHtml(r.title || NotifyCore.DEFAULT_TITLE[r.mode === "before" ? "rem" : "msg"])}</div>
         <div class="nf-text">${escHtml(r.text || "")}</div>
         <div class="nf-meta">${escHtml(when)} · ${escHtml(targetText(r.target))}${off ? " · <b>выключено</b>" : ""}</div>
         <div class="nf-meta">${escHtml(pushLine)}</div>
@@ -4879,6 +4896,7 @@
   // тронули число или единицу — выбираем и сам вариант «Когда»
   document.querySelectorAll("#nfCard .nf-inline").forEach(row => row.addEventListener("focusin", () => {
     document.querySelector(`input[name="nfMode"][value="${row.dataset.mode}"]`).checked = true;
+    syncHeadPlaceholder();
   }));
   $("nfCancel").addEventListener("click", () => { resetNfForm(); renderNfLessons([]); nfMsg("nfMsg", ""); });
 
@@ -4890,7 +4908,7 @@
     if (!text) { nfMsg("nfMsg", "Напиши текст уведомления.", "err"); return; }
     if (!target) { nfMsg("nfMsg", "Выбери, кому.", "err"); return; }
     const now = Date.now();
-    const data = { text: text.slice(0, 1000), mode, target, push: $("nfPush").checked, active: true, updatedAt: now };
+    const data = { title: headOf("nfHead"), text: text.slice(0, 1000), mode, target, push: $("nfPush").checked, active: true, updatedAt: now };
     if (mode === "once") {
       const n = parseInt($("nfTimes").value, 10);
       if (!(n >= 1 && n <= 50)) { nfMsg("nfMsg", "Сколько раз показать — число от 1 до 50.", "err"); return; }
@@ -4942,10 +4960,11 @@
     btn.disabled = true;
     nfMsg("nwMsg", "Отправляю…");
     try {
-      await window.TutorFB.saveNotification(newId("n"), { text: text.slice(0, 1000), mode: "now", times: 1, target, push: $("nwPush").checked, active: true, lessonIds: [], createdAt: now, updatedAt: now });
+      await window.TutorFB.saveNotification(newId("n"), { title: headOf("nwHead"), text: text.slice(0, 1000), mode: "now", times: 1, target, push: $("nwPush").checked, active: true, lessonIds: [], createdAt: now, updatedAt: now });
       notifCache = null;
       await publishViews(matched);
       $("nwText").value = "";
+      $("nwHead").value = "";
       nfMsg("nwMsg", `Отправлено: ${targetText(target)} (${matched.length} ${NotifyCore.plural(matched.length, ["кабинет", "кабинета", "кабинетов"])}).${$("nwPush").checked ? " Пуш уйдёт с ближайшей фоновой рассылкой." : ""}`, "ok");
       renderNfList();
     } catch (err) {

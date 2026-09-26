@@ -528,9 +528,13 @@ test("«На экран «Домой»»: адрес всегда с ключо�
     title: document.querySelector('meta[name="apple-mobile-web-app-title"]')?.content,
     icon: document.querySelector('link[rel="apple-touch-icon"]')?.href,
     manifest: !!document.querySelector('link[rel="manifest"]'),
+    appName: document.querySelector('meta[name="application-name"]')?.content,
+    doc: document.title,
   }));
   assert.equal(tags.capable, "yes");
-  assert.equal(tags.title, "Кабинет");
+  assert.equal(tags.title, "Тьютор Онлайн");
+  assert.equal(tags.appName, "Тьютор Онлайн", "Android берёт имя значка отсюда");
+  assert.equal(tags.doc, "Тьютор Онлайн");
   assert.equal(tags.manifest, false);
   assert.equal((await cab.request.get(tags.icon)).status(), 200);
   const saved = cab.url();

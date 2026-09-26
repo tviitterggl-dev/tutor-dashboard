@@ -11,11 +11,12 @@
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Кабинет">
+<meta name="apple-mobile-web-app-title" content="Тьютор Онлайн">
+<meta name="application-name" content="Тьютор Онлайн">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#F7F5F0" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#1C1D21" media="(prefers-color-scheme: dark)">
-<title>Личный кабинет</title>
+<title>Тьютор Онлайн</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Spectral:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -173,7 +174,7 @@
 </head>
 <body>
 <div class="wrap">
-  <h1 id="title">Личный кабинет</h1>
+  <h1 id="title">Тьютор Онлайн</h1>
   <div class="sub" id="subtitle">Загрузка…</div>
   <div id="switcher"></div>
   <div id="notices"></div>
@@ -344,7 +345,7 @@
   }
 
   function showMessage(text) {
-    $("title").textContent = "Личный кабинет";
+    $("title").textContent = "Тьютор Онлайн";
     $("subtitle").textContent = "";
     $("root").innerHTML = `<div class="card"><div class="empty">${esc(text)}</div></div>`;
     $("notices").innerHTML = "";
@@ -1153,22 +1154,22 @@
     // счётчик — на этом устройстве и для этой ссылки (на общем планшете мама и
     // ребёнок видят сообщение каждый свои N раз)
     const sk = (id) => `${current.key.slice(0, 12)}:${id}`;
+    const label = view.studentLabel || view.studentId;
     notices.filter((n) => n.mode === "once" || n.mode === "now").forEach((n) => {
       const times = n.times || 1;
       const counted = countedNow.has(sk(n.id));
       if (!counted && (seen[sk(n.id)] || 0) >= times) return;
       if (!counted) { seen[sk(n.id)] = (seen[sk(n.id)] || 0) + 1; countedNow.add(sk(n.id)); }
       const bound = (n.lessonIds || []).map((id) => lessonById(id)).filter(Boolean).sort((a, b) => a.startMs - b.startMs);
-      cards.push({ id: sk(n.id), kind: "msg", text: n.text, sub: bound.length ? "К занятию: " + bound.map((l) => fmtWhen(l.startMs, l.endMs)).join("; ") : "" });
+      cards.push({ id: sk(n.id), kind: "msg", title: window.NotifyCore.titleFor(n, null, label), text: n.text, sub: bound.length ? "К занятию: " + bound.map((l) => fmtWhen(l.startMs, l.endMs)).join("; ") : "" });
     });
-    const label = view.studentLabel || view.studentId;
     window.NotifyCore.dueReminders(notices, myLessons(), now, label).forEach((r) => {
-      if (!seen[sk(r.id)]) cards.push({ id: sk(r.id), kind: "rem", text: r.text, sub: fmtWhen(r.startMs) });
+      if (!seen[sk(r.id)]) cards.push({ id: sk(r.id), kind: "rem", title: r.title, text: r.text, sub: fmtWhen(r.startMs) });
     });
     saveSeen(seen);
     el.innerHTML = cards.map((c) => `
       <div class="notice ${c.kind}" data-notice="${esc(c.id)}">
-        <div class="notice-head">${c.kind === "rem" ? "Напоминание о занятии" : "Сообщение от преподавателя"}</div>
+        <div class="notice-head">${esc(c.title)}</div>
         <div class="notice-text">${esc(c.text)}</div>
         ${c.sub ? `<div class="who">${esc(c.sub)}</div>` : ""}
         <button class="link-btn notice-close" type="button" data-notice-close="${esc(c.id)}">Понятно, скрыть</button>

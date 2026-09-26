@@ -178,11 +178,13 @@ test("п.3: «Отчёт» — публикация и уведомление р
   assert.equal(n.length, 1);
   assert.deepEqual([n[0].mode, n[0].target.scope, n[0].target.studentId, n[0].push, n[0].source], ["now", "student", "Тест, 7 класс", true, "report"]);
   assert.match(n[0].text, /^Отчёт по занятию Ср 23\.09\.2026, 10:00–11:00:\nРазобрали дроби/);
+  assert.equal(n[0].title, "Отчёт о занятии");
   // родитель видит сообщение с отчётом
   const cab = await app.context.newPage();
   await cab.clock.setFixedTime(new Date(NOW));
   await cab.goto(page.url().replace(/\/index\.html.*$/, "") + `/cabinet.html#p=${PK}`);
   await cab.waitForFunction(() => /Разобрали дроби/.test(document.querySelector("#notices")?.textContent || ""));
+  assert.equal(await cab.textContent("#notices .notice-head"), "Отчёт о занятии");
   // повторное нажатие без изменений — второго уведомления нет
   await page.click("#mSaveReport");
   await page.waitForFunction(() => /изменений нет/.test(document.querySelector("#mMsg").textContent));

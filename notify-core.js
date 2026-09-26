@@ -4,8 +4,12 @@
 // window.NotifyCore, в Node — module.exports.
 //
 // Уведомление (teacherSpaces/{uid}/notifications/{id}):
+//   title       — заголовок (необязательно, до 100 символов): в кабинете над
+//                 текстом и заголовком пуша; пусто — «Сообщение от
+//                 преподавателя» / «Напоминание о занятии», как раньше;
 //   text        — текст, который пишет учитель; можно вставить {ученик},
-//                 {дата}, {время} — подставятся для конкретного занятия;
+//                 {дата}, {время} — подставятся для конкретного занятия
+//                 (в заголовке тоже);
 //   mode        — "now"    — «Отправить сейчас» (один раз, одному адресату);
 //                 "once"   — разово: показать при следующих N открытиях
 //                            кабинета (times = N) + один пуш;
@@ -23,6 +27,10 @@
   const UNIT_RU = { min: ["минуту", "минуты", "минут"], hour: ["час", "часа", "часов"], day: ["день", "дня", "дней"] };
   const NOW_TTL_MS = 3 * 86400000;      // «Отправить сейчас» висит в кабинете 3 дня
   const PUSH_GRACE_MS = 3 * 3600000;    // напоминание, опоздавшее больше чем на 3 ч, не шлём
+  const TITLE_MAX = 100;
+  // Заголовок, если учитель его не задал (старое поведение).
+  const DEFAULT_TITLE = { msg: "Сообщение от преподавателя", rem: "Напоминание о занятии" };
+  const cleanTitle = (t) => String(t == null ? "" : t).replace(/\s+/g, " ").trim().slice(0, TITLE_MAX);
 
   function plural(n, forms) {
     const a = Math.abs(n) % 100, b = a % 10;
@@ -89,11 +97,17 @@
     out = out.replace(/\{время\}/giu, when ? when.time : "");
     return out.trim();
   }
+  // Заголовок для показа: свой (с подстановками) или стандартный.
+  function titleFor(rule, lesson, studentLabel) {
+    const own = cleanTitle(fillText(cleanTitle(rule && rule.title), lesson, studentLabel));
+    return own || DEFAULT_TITLE[rule && rule.mode === "before" ? "rem" : "msg"];
+  }
 
   // Что опубликовать в витрину этого ключа (кабинет сам решает, когда показать).
   function noticesForKey(rules, key, keys, now) {
     return (rules || []).filter((r) => isLive(r, now) && keyMatches(r.target, key)).map((r) => {
       const n = { id: r.id, mode: r.mode, text: String(r.text).slice(0, 1000), createdAt: r.createdAt || 0 };
+      if (cleanTitle(r.title)) n.title = cleanTitle(r.title);
       if (r.mode === "once") n.times = Math.max(1, Math.min(50, parseInt(r.times, 10) || 1));
       if (r.mode === "now") n.times = 1;
       if (r.mode === "before") n.offsetMs = offsetMs(r);
@@ -109,7 +123,7 @@
     (notices || []).filter((n) => n.mode === "before" && n.offsetMs > 0).forEach((n) => {
       const only = n.lessonIds && n.lessonIds.length ? new Set(n.lessonIds) : null;
       (lessons || []).filter((l) => l.status === "planned" && (!only || only.has(l.id))).forEach((l) => {
-        if (now >= l.startMs - n.offsetMs && now < l.endMs) out.push({ id: `${n.id}__${l.id}`, noticeId: n.id, lessonId: l.id, startMs: l.startMs, text: fillText(n.text, l, label) });
+        if (now >= l.startMs - n.offsetMs && now < l.endMs) out.push({ id: `${n.id}__${l.id}`, noticeId: n.id, lessonId: l.id, startMs: l.startMs, title: titleFor(n, l, label), text: fillText(n.text, l, label) });
       });
     });
     return out.sort((a, b) => a.startMs - b.startMs);
@@ -141,7 +155,7 @@
         if (log && log[logId]) return;
         const to = uniq(matched.flatMap((k) => byKey[k.id] || []));
         const sid = targetStudent(r, keys);
-        out.push({ logId, ruleId: r.id, lessonId: null, title: "Сообщение от преподавателя", body: fillText(r.text, null, sid ? lbl(sid) : ""), to });
+        out.push({ logId, ruleId: r.id, lessonId: null, title: titleFor(r, null, sid ? lbl(sid) : ""), body: fillText(r.text, null, sid ? lbl(sid) : ""), to });
         return;
       }
       const off = offsetMs(r);
@@ -152,13 +166,13 @@
         const logId = `${r.id}__${l.id}`;
         if (log && log[logId]) return;
         const to = uniq(matched.filter((k) => k.studentId === l.studentId).flatMap((k) => byKey[k.id] || []));
-        out.push({ logId, ruleId: r.id, lessonId: l.id, title: "Напоминание о занятии", body: fillText(r.text, l, lbl(l.studentId)), to });
+        out.push({ logId, ruleId: r.id, lessonId: l.id, title: titleFor(r, l, lbl(l.studentId)), body: fillText(r.text, l, lbl(l.studentId)), to });
       });
     });
     return out;
   }
 
-  const api = { UNIT_MS, NOW_TTL_MS, PUSH_GRACE_MS, offsetMs, offsetText, keyMatches, targetStudent, ruleLessons, isLive, fillText, noticesForKey, dueReminders, planPushes, plural };
+  const api = { UNIT_MS, TITLE_MAX, DEFAULT_TITLE, titleFor, NOW_TTL_MS, PUSH_GRACE_MS, offsetMs, offsetText, keyMatches, targetStudent, ruleLessons, isLive, fillText, noticesForKey, dueReminders, planPushes, plural };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.NotifyCore = api;
 })(typeof window !== "undefined" ? window : globalThis);

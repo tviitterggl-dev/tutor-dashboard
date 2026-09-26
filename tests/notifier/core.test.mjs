@@ -112,3 +112,22 @@ test("кабинет: что опубликовать адресату и ког
   assert.deepEqual(due(NOW + 2 * H + 31 * M), [], "занятие кончилось");
   assert.equal(core.dueReminders(mom, lessons, NOW, "Маша")[0].text, "За 11:30");
 });
+
+test("свой заголовок: в пуше и в кабинете; пусто — стандартный, как раньше", () => {
+  const own = { id: "t1", title: "  Важно:   {ученик} ", text: "Завтра в {время}", mode: "before", offsetValue: 2, offsetUnit: "hour", target: { scope: "student", role: "any", studentId: "Маша, 7 класс" }, lessonIds: ["m1"], active: true, createdAt: 1 };
+  const plain = { id: "t2", title: "", text: "Оплата", mode: "once", times: 1, target: { scope: "key", key: "kMashaDad" }, active: true, createdAt: NOW - H };
+  const msg = { id: "t3", title: "Отчёт о прошедшем занятии", text: "Всё хорошо", mode: "now", target: { scope: "key", key: "kMashaDad" }, active: true, createdAt: NOW - H };
+  const p = core.planPushes({ now: NOW - 30 * M, rules: [own, plain, msg], lessons, keys, devices, log: {}, label: (s) => s.replace(",", "") });
+  const byRule = Object.fromEntries(p.map((x) => [x.ruleId, x.title]));
+  assert.equal(byRule.t1, "Важно: Маша 7 класс", "подстановка и лишние пробелы");
+  assert.equal(byRule.t2, "Сообщение от преподавателя");
+  assert.equal(byRule.t3, "Отчёт о прошедшем занятии");
+  const dad = core.noticesForKey([own, plain, msg], keys.find((k) => k.id === "kMashaDad"), keys, NOW - 30 * M);
+  assert.equal(dad.find((n) => n.id === "t1").title, "Важно: {ученик}");
+  assert.equal("title" in dad.find((n) => n.id === "t2"), false, "пустой заголовок в витрину не пишем");
+  assert.equal(core.titleFor(dad.find((n) => n.id === "t2")), "Сообщение от преподавателя");
+  assert.equal(core.titleFor({ mode: "before" }), "Напоминание о занятии");
+  assert.equal(core.titleFor({ mode: "now", title: "x".repeat(300) }).length, 100);
+  const due = core.dueReminders(dad, lessons.filter((l) => l.studentId === "Маша, 7 класс"), NOW - 30 * M, "Маша");
+  assert.equal(due[0].title, "Важно: Маша");
+});

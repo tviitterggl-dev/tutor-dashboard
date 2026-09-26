@@ -268,3 +268,67 @@ test("service worker: пуш в формате FCM показывает увед
   assert.deepEqual(shown, [{ title: "Напоминание о занятии", body: "В 10:00 занятие", url, tag: "r1__m1" }]);
   await app.close();
 });
+
+test("заголовок: свой — в кабинете вместо стандартной подписи и в пуше; пустой — как раньше", async () => {
+  const app = await openFamily();
+  const { page } = app;
+  await page.click('.tab[data-tab="notify"]');
+  await page.waitForSelector("#nfList .empty, #nfList .nf-item");
+  // подсказка в пустом поле — стандартный заголовок выбранного режима
+  assert.equal(await page.getAttribute("#nfHead", "placeholder"), "Напоминание о занятии");
+  await page.check('input[name="nfMode"][value="once"]');
+  assert.equal(await page.getAttribute("#nfHead", "placeholder"), "Сообщение от преподавателя");
+  await page.check('input[name="nfMode"][value="before"]');
+
+  // «перед занятием» со своим заголовком и подстановкой
+  await page.fill("#nfHead", "Важно: {ученик}");
+  await page.fill("#nfText", "Завтра в {время}");
+  await page.fill("#nfOffset", "26");
+  await page.selectOption("#nfUnit", "hour");
+  await page.selectOption("#nfTo", { label: "Тест, 7 класс — родители" });
+  await page.click("#nfSave");
+  await page.waitForFunction(() => /Уведомление сохранено/.test(document.querySelector("#nfMsg").textContent));
+  assert.equal(await page.inputValue("#nfHead"), "", "форма очистилась");
+  // «Отправить сейчас»: один со своим заголовком, второй без
+  await page.selectOption("#nwTo", { label: "Тест, 7 класс — папа (родитель)" });
+  await page.fill("#nwHead", "Отчёт о прошедшем занятии");
+  await page.fill("#nwText", "Всё получилось");
+  await page.click("#nwSend");
+  await page.waitForFunction(() => /Отправлено/.test(document.querySelector("#nwMsg").textContent));
+  assert.equal(await page.inputValue("#nwHead"), "");
+  await page.fill("#nwText", "Без заголовка");
+  await page.click("#nwSend");
+  await page.waitForFunction(() => /Отправлено/.test(document.querySelector("#nwMsg").textContent) && !document.querySelector("#nwText").value);
+
+  const list = notifs(await app.db());
+  assert.equal(list.find((n) => n.mode === "before").title, "Важно: {ученик}");
+  assert.equal(list.find((n) => n.text === "Всё получилось").title, "Отчёт о прошедшем занятии");
+  assert.equal(list.find((n) => n.text === "Без заголовка").title, "");
+  // в списке учителя — заголовок над текстом (стандартный — бледнее)
+  await page.waitForFunction(() => document.querySelectorAll("#nfList .nf-item").length === 3);
+  const heads = await page.$$eval("#nfList .nf-head", (h) => h.map((x) => [x.textContent, x.classList.contains("dflt")]));
+  assert.deepEqual(heads.sort(), [["Важно: {ученик}", false], ["Отчёт о прошедшем занятии", false], ["Сообщение от преподавателя", true]]);
+
+  // кабинет папы: свой заголовок, стандартный у пустого, подстановка в напоминании
+  await waitFor(async () => (await app.db())[`parentAccess/${PK2}`].notices?.length === 3, "витрина");
+  const dad = await openCabinet(app, `#p=${PK2}`);
+  await dad.waitForFunction(() => document.querySelectorAll("#notices .notice").length === 3);
+  const cards = await dad.$$eval("#notices .notice", (els) => els.map((e) => [e.querySelector(".notice-head").textContent, e.querySelector(".notice-text").textContent]));
+  assert.deepEqual(cards.sort(), [
+    ["Важно: Тест, 7 класс", "Завтра в 10:00"],
+    ["Отчёт о прошедшем занятии", "Всё получилось"],
+    ["Сообщение от преподавателя", "Без заголовка"],
+  ]);
+
+  // правка: заголовок подставляется в форму и меняется
+  await page.locator(".nf-item", { hasText: "Завтра в" }).locator("[data-nf-edit]").click();
+  assert.equal(await page.inputValue("#nfHead"), "Важно: {ученик}");
+  await page.fill("#nfHead", "");
+  await page.click("#nfSave");
+  await page.waitForFunction(() => /Изменения сохранены/.test(document.querySelector("#nfMsg").textContent));
+  assert.equal(notifs(await app.db()).find((n) => n.mode === "before").title, "");
+  await waitFor(async () => !(await app.db())[`parentAccess/${PK2}`].notices.find((n) => n.mode === "before").title, "витрина без заголовка");
+  assert.deepEqual(dad.errors, []);
+  assert.deepEqual(app.errors, []);
+  await app.close();
+});
