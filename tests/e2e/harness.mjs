@@ -23,6 +23,9 @@ export const NOW = "2026-09-24T12:00:00+03:00"; // четверг
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "application/javascript", ".css": "text/css", ".json": "application/json", ".png": "image/png", ".svg": "image/svg+xml" };
 
 let server = null;
+// Запросы service worker'а (он теперь кэширует CDN для офлайна) тоже должны
+// идти через подмены context.route — иначе SW ходит в настоящую сеть.
+process.env.PW_EXPERIMENTAL_SERVICE_WORKER_NETWORK_EVENTS = "1";
 let testVapidKey = null; // см. opts.vapidKey
 let baseUrl = null;
 let browser = null;
@@ -38,7 +41,7 @@ async function ensureServer() {
     // Тестовый публичный ключ пушей (opts.vapidKey; "" — как будто ключа нет).
     // Подставляет сервер, а не перехват
     // запросов: страницу под service worker перехват не видит.
-    if (testVapidKey !== null && p.endsWith("cabinet.html")) {
+    if (testVapidKey !== null && (p.endsWith("cabinet.html") || p.endsWith("index.html"))) {
       res.writeHead(200, { "Content-Type": MIME[".html"] });
       res.end(fs.readFileSync(p, "utf8").replace(/const FCM_VAPID_KEY = "[^"]*";/, `const FCM_VAPID_KEY = ${JSON.stringify(testVapidKey)};`));
       return;
@@ -180,7 +183,9 @@ export async function openApp(opts = {}) {
   await context.route("**/*", async (route) => {
     const req = route.request();
     const u = new URL(req.url());
-    const file = (p, type = "application/javascript") => route.fulfill({ status: 200, contentType: type, body: fs.readFileSync(p) });
+    // CORS-заголовок: запросы к CDN теперь делает и service worker (кэш для
+    // офлайна), а ему без заголовка ответ с чужого адреса не отдадут.
+    const file = (p, type = "application/javascript") => route.fulfill({ status: 200, contentType: type, headers: { "Access-Control-Allow-Origin": "*" }, body: fs.readFileSync(p) });
     const json = (obj, status = 200) => route.fulfill({ status, contentType: "application/json", body: JSON.stringify(obj) });
 
     if (u.origin === url0) return route.continue();

@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "npm run test:rules && npm run test:notifier && npm run test:e2e",
-    "test:e2e": "node --test --test-concurrency=1 \"e2e/*.test.mjs\"",
+    "test:e2e": "PW_EXPERIMENTAL_SERVICE_WORKER_NETWORK_EVENTS=1 node --test --test-concurrency=1 \"e2e/*.test.mjs\"",
     "test:rules": "cd .. && firebase emulators:exec --only firestore --project demo-tutor \"node --test tests/rules/*.test.mjs\"",
     "test:notifier": "cd .. && firebase emulators:exec --only firestore --project demo-tutor \"node --test tests/notifier/*.test.mjs\""
   },

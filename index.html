@@ -28,7 +28,7 @@
     sendPasswordResetEmail, signOut,
   } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
   import {
-    getFirestore, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where,
+    getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, getDoc, setDoc, updateDoc, deleteDoc, collection, query, where,
     orderBy, getDocs, writeBatch, FieldPath, deleteField, onSnapshot,
   } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
@@ -60,7 +60,29 @@
   }
 
   const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
+  // Локальный кэш Firestore (IndexedDB): без интернета кабинет открывается с
+  // последними загруженными данными. Не вышло (приватный режим) — без кэша.
+  let db;
+  try {
+    db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
+  } catch (e) {
+    db = getFirestore(app);
+  }
+  // Без интернета ничего не пишем: иначе запись «повисла» бы в очереди, а
+  // кабинет не сказал бы, что изменение пока никуда не ушло. Любой метод
+  // записи сразу отказывает с понятной ошибкой (err.offline).
+  const WRITE_RE = /^(set|patch|save|update|delete|publish|add)/;
+  function guardWrites(api) {
+    Object.keys(api).forEach((k) => {
+      const fn = api[k];
+      if (typeof fn !== "function" || !WRITE_RE.test(k)) return;
+      api[k] = async (...args) => {
+        if (!navigator.onLine) { const e = new Error("offline"); e.offline = true; throw e; }
+        return fn.apply(api, args);
+      };
+    });
+    return api;
+  }
   const auth = getAuth(app);
 
   const chunk = (arr, n) => Array.from({ length: Math.ceil(arr.length / n) }, (_, i) => arr.slice(i * n, i * n + n));
@@ -86,6 +108,14 @@
       },
       async setStudentProfile(studentId, value) {
         await updateDoc(stateRef, new FieldPath("studentProfiles", studentId), value == null ? deleteField() : value);
+      },
+      // устройства учителя для пушей (state.teacherDevices.{id} = { token, createdAt, device })
+      // шаблоны сообщений (state.msgTemplates.{id} = { name, title, text, updatedAt })
+      async setTemplate(id, value) {
+        await updateDoc(stateRef, new FieldPath("msgTemplates", id), value == null ? deleteField() : value);
+      },
+      async setTeacherDevice(id, value) {
+        await updateDoc(stateRef, new FieldPath("teacherDevices", id), value == null ? deleteField() : value);
       },
       async setStudentChannels(studentId, value) {
         await updateDoc(stateRef, new FieldPath("studentChannels", studentId), value == null ? deleteField() : value);
@@ -241,6 +271,19 @@
     return counts;
   }
 
+  // Пуши самому учителю (оплата, пояснение, ДЗ от семей). Публичный ключ
+  // Web Push — тот же, что в cabinet.html (он публичный по замыслу Firebase).
+  const FCM_VAPID_KEY = "BPW_d18oS3UpZ-L_Ypube_ZYPy1R99VB2hFw3cUGK23X-8hUNWYD5T_gU7y4UgkCaCf6InBlOyhEk3xY9j92HZM";
+  const FCM_URL = "https://www.gstatic.com/firebasejs/10.13.2/firebase-messaging.js";
+  window.TutorPush = {
+    hasKey: () => !!FCM_VAPID_KEY,
+    async token(reg) {
+      const m = await import(FCM_URL);
+      if (m.isSupported && !(await m.isSupported())) return null;
+      return m.getToken(m.getMessaging(app), { vapidKey: FCM_VAPID_KEY, serviceWorkerRegistration: reg });
+    },
+  };
+
   const legacyKey = readLegacyKey();
   window.TutorFB = null;
   window.TutorAuth = {
@@ -264,7 +307,7 @@
   onAuthStateChanged(auth, (user) => {
     window.TutorAuth.user = user;
     window.TutorAuth.ready = true;
-    window.TutorFB = user ? teacherApi(user.uid) : null;
+    window.TutorFB = user ? guardWrites(teacherApi(user.uid)) : null;
     window.dispatchEvent(new CustomEvent("tutor-auth", { detail: { user } }));
   });
 </script>
@@ -861,6 +904,7 @@
   <div id="appRoot" style="display:none">
     <!-- наверху — только то, что требует внимания; почта и статус базы — во вкладке «Ещё» -->
     <button class="req-alert" id="syncAlert" type="button" style="display:none"></button>
+    <div class="offline-bar" id="offlineBar" role="status" hidden>Офлайн — показаны последние загруженные данные, они могут быть неактуальными. Изменения сейчас не сохранятся — нужен интернет.</div>
     <button class="req-alert" id="reqAlert" type="button" style="display:none"></button>
     <button class="req-alert pkg-alert" id="pkgAlert" type="button" style="display:none"></button>
 
@@ -939,8 +983,10 @@
       <div class="card">
         <div class="chart-title">Отправить сейчас</div>
         <div class="field"><span>Кому</span><select id="nwTo"></select></div>
+        <div class="field"><span>Шаблон</span><select id="nwTpl" class="tpl-select"></select></div>
         <div class="field"><span>Заголовок (необязательно)</span><input type="text" id="nwHead" maxlength="100" placeholder="Сообщение от преподавателя"></div>
         <div class="field"><span>Текст</span><textarea id="nwText" maxlength="1000" placeholder="Например: Сегодня занятие переносится на 19:00"></textarea></div>
+        <button class="link-btn" type="button" data-tpl-save="nw">Сохранить как шаблон</button>
         <label class="check"><input type="checkbox" id="nwPush" checked> и пуш на телефон</label>
         <div class="btn-row" style="margin-bottom:0"><button class="btn" type="button" id="nwSend">Отправить сейчас</button></div>
         <div class="msg" id="nwMsg"></div>
@@ -949,6 +995,7 @@
 
       <div class="card" id="nfCard">
         <div class="chart-title" id="nfTitle">Новое уведомление</div>
+        <div class="field"><span>Шаблон</span><select id="nfTpl" class="tpl-select"></select></div>
         <div class="field"><span>Заголовок (необязательно)</span><input type="text" id="nfHead" maxlength="100" placeholder="Напоминание о занятии"></div>
         <div class="field"><span>Текст</span><textarea id="nfText" maxlength="1000" placeholder="Например: Напоминаю: {дата} в {время} занятие. Подготовь тетрадь с ДЗ."></textarea></div>
         <div class="hint" style="margin:-4px 0 12px">Заголовок — крупная строка над текстом в кабинете и заголовок пуша на телефоне (например: «Напоминание», «Важно»). Пусто — «Напоминание о занятии» (перед занятием) или «Сообщение от преподавателя» (разово). В заголовок и текст можно вставить <b>{ученик}</b>, <b>{дата}</b>, <b>{время}</b> — подставятся для конкретного занятия.</div>
@@ -968,12 +1015,30 @@
           <label class="check"><input type="radio" name="nfLessonsMode" value="some"> только к выбранным:</label>
           <div id="nfLessons" class="nf-lessons"></div>
         </div>
+        <button class="link-btn" type="button" data-tpl-save="nf">Сохранить как шаблон</button>
         <label class="check"><input type="checkbox" id="nfPush" checked> и пуш на телефон</label>
         <div class="btn-row" style="margin-bottom:0">
           <button class="btn" type="button" id="nfSave">Сохранить уведомление</button>
           <button class="btn secondary" type="button" id="nfCancel" style="display:none">Отменить правку</button>
         </div>
         <div class="msg" id="nfMsg"></div>
+      </div>
+
+      <div class="card" id="tplCard">
+        <div class="chart-title">Шаблоны сообщений</div>
+        <div id="tplList"><div class="empty">Загрузка…</div></div>
+        <div class="btn-row" style="margin-top:8px"><button class="btn secondary" type="button" id="tplAdd">+ Новый шаблон</button></div>
+        <div id="tplForm" style="display:none; margin-top:8px">
+          <div class="field"><span>Название шаблона (для списка)</span><input type="text" id="tplName" maxlength="60" placeholder="Например: Нет занятия на этой неделе"></div>
+          <div class="field"><span>Заголовок</span><input type="text" id="tplTitle" maxlength="100" placeholder="Например: Занятия не будет"></div>
+          <div class="field"><span>Текст</span><textarea id="tplText" maxlength="1000" placeholder="Текст сообщения; можно {ученик}, {дата}, {время}"></textarea></div>
+          <div class="btn-row" style="margin-bottom:0">
+            <button class="btn" type="button" id="tplSave">Сохранить шаблон</button>
+            <button class="btn secondary" type="button" id="tplCancel">Отмена</button>
+          </div>
+        </div>
+        <div class="msg" id="tplMsg"></div>
+        <div class="hint">Шаблоны хранятся в твоей базе и доступны с любого твоего устройства. В форме выше выбери шаблон — заголовок и текст подставятся, их можно поправить перед отправкой.</div>
       </div>
 
       <div class="card">
@@ -986,8 +1051,21 @@
         <div id="nfPushStatus"><div class="empty">Загрузка…</div></div>
         <div class="hint">Пуши рассылает GitHub Actions по расписанию (раз в ~15 минут) — нужен разовый шаг настройки, см. README.md → «Уведомления». Родителю или ученику нужно один раз нажать «Включить уведомления» в своём кабинете («Ещё»). На iPhone — только если кабинет добавлен на экран «Домой» (Safari → «Поделиться» → «На экран Домой»), в обычной вкладке Safari пуши не приходят. В самом кабинете сообщения видны всегда, даже без пушей.</div>
       </div>
+
+      <div class="card" id="tpCard">
+        <div class="chart-title">Уведомления мне на телефон</div>
+        <div id="tpBody"><div class="empty">Загрузка…</div></div>
+        <div style="margin-top:10px">
+          <label class="check"><input type="checkbox" data-tp="paid" checked> родитель отметил «Оплачено»</label>
+          <label class="check"><input type="checkbox" data-tp="note" checked> родитель или ученик написал «Пояснение» к занятию</label>
+          <label class="check"><input type="checkbox" data-tp="homework" checked> прислали файл домашнего задания</label>
+        </div>
+        <div class="msg" id="tpMsg"></div>
+        <div class="hint">Пуш приходит с фоновой рассылкой — в пределах ~15 минут. Включать нужно на каждом своём устройстве отдельно; галочки общие для всех устройств. На iPhone — только если кабинет открыт со значка на экране «Домой».</div>
+      </div>
     </div>
 
+    <!-- (карточка «Уведомления мне» — внутри вкладки «Уведомления», см. tpCard) -->
     <!-- ИТОГИ -->
     <div class="tabview" id="view-summary" style="display:none">
       <div class="card">
@@ -1136,6 +1214,7 @@
   </div>
 </div>
 
+<div class="offline-toast" id="offlineToast" role="alert" hidden></div>
 <div class="modal-back" id="modalBack" style="display:none">
   <div class="modal" id="modal" role="dialog" aria-modal="true"></div>
 </div>
@@ -1614,7 +1693,45 @@
   let remoteStateReady = false;
   let remoteState = {};
 
+  // ---------- ОФЛАЙН ----------
+  // Без интернета: данные — из локального кэша Firestore (последние
+  // загруженные), сверху плашка; любые изменения честно отказывают.
+  const OFFLINE_TEXT = "Нет подключения к интернету — изменение не сохранено. Подключись к интернету и повтори.";
+  const isOfflineError = (e) => !!(e && (e.offline || e.code === "unavailable")) || !navigator.onLine;
+  let pendingPublish = false;
+  let toastTimer = null;
+  function offlineToast(text) {
+    const t = $("offlineToast");
+    t.textContent = text || OFFLINE_TEXT;
+    t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.hidden = true; }, 4500);
+  }
+  function updateOfflineBar() {
+    $("offlineBar").hidden = navigator.onLine;
+  }
+  window.addEventListener("offline", updateOfflineBar);
+  window.addEventListener("online", () => {
+    updateOfflineBar();
+    $("offlineToast").hidden = true;
+    if (window.TutorFB && remoteStateReady) {
+      if (pendingPublish) { pendingPublish = false; publishViewsSoon(); }
+      if (typeof showTab === "function" && activeTab) showTab(activeTab); // перечитать свежее
+    }
+  });
+  // Кнопки, которые что-то меняют, без сети сразу говорят, что нужен интернет.
+  document.addEventListener("click", (e) => {
+    if (navigator.onLine) return;
+    const b = e.target.closest(".mark-btn, [data-pf-save], .pkg-save-btn, .pkg-new-btn, #pkgAddSaveBtn, #stAddSave, #nwSend, #nfSave, [data-nf-toggle], [data-nf-delete], #tplSave, [data-tpl-delete], [data-tpl-save], #akIssue, [data-key-revoke], #mCreate, #mSaveReport, [data-req], #markPastBtn");
+    if (!b) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    offlineToast();
+  }, true);
+  updateOfflineBar();
+
   function reportSaveError(e) {
+    if (isOfflineError(e)) { offlineToast(); return; }
     console.error("Не удалось сохранить в Firestore", e);
     setBadge($("calBadge"), "База: не сохранилось!", "err");
     alert("Не получилось сохранить изменение в облако (нет интернета?). Обнови страницу и повтори.");
@@ -1682,6 +1799,7 @@
   }
 
   async function toggleMark(ev, currentMark) {
+    if (!navigator.onLine) { offlineToast(); return; } // иначе отметка поменялась бы только на экране
     const wasMarked = !!(currentMark && currentMark.marked);
     const overrideAmount = currentMark ? currentMark.overrideAmount : null;
     let lockedRate = currentMark ? currentMark.lockedRate : null;
@@ -1711,6 +1829,7 @@
   }
 
   function setOverride(ev, value) {
+    if (!navigator.onLine) { offlineToast(); renderLessons(); return; }
     const amount = value === "" ? null : parseFloat(value);
     const prev = marks[ev.id] || { marked: false, overrideAmount: null, lockedRate: null };
     const newState = {
@@ -3316,6 +3435,7 @@
   function publishViewsSoon() {
     clearTimeout(publishTimer);
     publishTimer = setTimeout(() => {
+      if (!navigator.onLine) { pendingPublish = true; return; } // опубликуем, когда появится сеть
       publishViews().catch(e => console.error("Кабинеты родителей/учеников не обновились", e));
     }, 2500);
   }
@@ -3966,6 +4086,7 @@
   async function onFcDrop(info) {
     const l = info.event.extendedProps.lesson;
     if (!l) { info.revert(); return; }
+    if (!navigator.onLine) { info.revert(); offlineToast(); return; }
     const startMs = info.event.start.getTime();
     const endMs = info.event.end ? info.event.end.getTime() : startMs + (l.endMs - l.startMs);
     if (isPersonal(l)) {
@@ -3994,6 +4115,7 @@
   async function onFcResize(info) {
     const l = info.event.extendedProps.lesson;
     if (!l) { info.revert(); return; }
+    if (!navigator.onLine) { info.revert(); offlineToast(); return; }
     const endMs = info.event.end.getTime();
     try {
       await window.TutorFB.updateLesson(l.id, { endMs, end: mskIso(endMs), durationMin: Math.round((endMs - l.startMs) / 60000), updatedAt: Date.now() });
@@ -4435,7 +4557,8 @@
     const scope = () => (mq("#mScope") ? mq("#mScope").value : "one");
     const busy = async (btn, fn) => {
       if (btn) btn.disabled = true;
-      try { await fn(); } catch (e) { console.error(e); if (!e.shown) modalMsg("Не удалось сохранить (нет интернета?). Попробуй ещё раз.", "err"); }
+      if (!navigator.onLine) { modalMsg(OFFLINE_TEXT, "err"); return; }
+      try { await fn(); } catch (e) { console.error(e); if (!e.shown) modalMsg(isOfflineError(e) ? OFFLINE_TEXT : "Не удалось сохранить (нет интернета?). Попробуй ещё раз.", "err"); }
       finally { if (btn && document.body.contains(btn)) btn.disabled = false; }
     };
     const reopen = async (note) => {
@@ -4449,6 +4572,7 @@
 
     if (mq("#mAmount")) {
       mq("#mAmount").addEventListener("change", (e) => {
+        if (!navigator.onLine) { renderLessonModal(l); modalMsg(OFFLINE_TEXT, "err"); return; }
         setOverride(lessonToEv(l), e.target.value);
         renderLessonModal(l, "Сумма сохранена");
       });
@@ -4893,6 +5017,7 @@
   async function renderNotifyTab() {
     try { await getAccessKeys(); } catch (e) { /* без списка доступов */ }
     fillRecipientSelect($("nwTo"));
+    renderTemplates();
     const nfTarget = nfEditing ? null : $("nfTo").value;
     fillRecipientSelect($("nfTo"));
     if (nfEditing) setRecipient($("nfTo"), nfEditing.target);
@@ -4900,7 +5025,226 @@
     renderNfLessons();
     renderNfList();
     renderPushStatus();
+    renderTeacherPush();
+    await ensureStarterTemplates();
+    renderTemplates();
   }
+
+  // ---- шаблоны сообщений ----
+  // state.msgTemplates.{id} = { name, title, text, updatedAt } — в пространстве
+  // учителя, общие для всех её устройств. В первый раз — три примера.
+  const TPL_STARTERS = [
+    { name: "Напоминание о занятии", title: "Напоминание", text: "Напоминаю: скоро занятие. Подготовь, пожалуйста, тетрадь и домашнее задание." },
+    { name: "Поздравление", title: "Поздравляю!", text: "{ученик}, поздравляю с праздником! Желаю успехов и отличного настроения." },
+    { name: "Нет занятия на этой неделе", title: "Занятия не будет", text: "На этой неделе занятия не будет. Следующее — по обычному расписанию." },
+  ];
+  const templates = () => remoteState.msgTemplates || {};
+  const tplSorted = () => Object.entries(templates()).map(([id, t]) => Object.assign({ id }, t)).sort((a, b) => String(a.name).localeCompare(String(b.name), "ru"));
+  let tplEditing = null;
+  function tplMsg(t, kind) { const m = $("tplMsg"); m.textContent = t || ""; m.className = "msg" + (kind ? " " + kind : ""); }
+  async function ensureStarterTemplates() {
+    if (remoteState.msgTemplates !== undefined || !navigator.onLine) return;
+    const now = Date.now();
+    const seed = {};
+    TPL_STARTERS.forEach((t, i) => { seed[newId("tpl")] = Object.assign({ updatedAt: now + i }, t); });
+    try {
+      await window.TutorFB.patchState({ msgTemplates: seed });
+      remoteState.msgTemplates = seed;
+    } catch (e) { /* не страшно — попробуем в следующий раз */ }
+  }
+  function renderTemplates() {
+    const list = tplSorted();
+    $("tplList").innerHTML = list.length ? list.map(t => `<div class="nf-item" data-tpl="${escHtml(t.id)}">
+        <div class="nf-head">${escHtml(t.name || t.title || "Без названия")}</div>
+        ${t.title ? `<div class="nf-meta" style="margin-top:0">Заголовок: ${escHtml(t.title)}</div>` : ""}
+        <div class="nf-text">${escHtml(t.text || "")}</div>
+        <div class="nf-actions">
+          <button class="link-btn" type="button" data-tpl-edit>Изменить</button>
+          <button class="link-btn" type="button" data-tpl-delete>Удалить</button>
+        </div>
+      </div>`).join("") : '<div class="empty">Шаблонов пока нет — добавь ниже.</div>';
+    for (const sel of [$("nwTpl"), $("nfTpl")]) {
+      const prev = sel.value;
+      sel.innerHTML = '<option value="">— без шаблона —</option>' + list.map(t => `<option value="${escHtml(t.id)}">${escHtml(t.name || t.title)}</option>`).join("");
+      if (prev && templates()[prev]) sel.value = prev;
+    }
+  }
+  function openTplForm(t) {
+    tplEditing = t ? t.id : null;
+    $("tplForm").style.display = "block";
+    $("tplName").value = t ? (t.name || "") : "";
+    $("tplTitle").value = t ? (t.title || "") : "";
+    $("tplText").value = t ? (t.text || "") : "";
+    $("tplSave").textContent = t ? "Сохранить изменения" : "Сохранить шаблон";
+    tplMsg("");
+    $("tplName").focus();
+  }
+  function closeTplForm() { tplEditing = null; $("tplForm").style.display = "none"; }
+  async function saveTemplate(id, value) {
+    await window.TutorFB.setTemplate(id, value);
+    remoteState.msgTemplates = Object.assign({}, templates(), { [id]: value });
+    if (value == null) delete remoteState.msgTemplates[id];
+    renderTemplates();
+  }
+  // выбрали шаблон → подставили заголовок и текст (поправить можно)
+  [["nwTpl", "nwHead", "nwText"], ["nfTpl", "nfHead", "nfText"]].forEach(([sel, head, text]) => $(sel).addEventListener("change", () => {
+    const t = templates()[$(sel).value];
+    if (!t) return;
+    if ($(text).value.trim() && $(text).value.trim() !== (t.text || "") && !confirm("Заменить уже написанный текст шаблоном?")) { $(sel).value = ""; return; }
+    $(head).value = t.title || "";
+    $(text).value = t.text || "";
+  }));
+  $("tplAdd").addEventListener("click", () => openTplForm(null));
+  $("tplCancel").addEventListener("click", closeTplForm);
+  $("tplSave").addEventListener("click", async (e) => {
+    const name = $("tplName").value.trim().slice(0, 60);
+    const title = $("tplTitle").value.replace(/\s+/g, " ").trim().slice(0, NotifyCore.TITLE_MAX);
+    const text = $("tplText").value.trim().slice(0, 1000);
+    if (!text) { tplMsg("Напиши текст шаблона.", "err"); return; }
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    try {
+      await saveTemplate(tplEditing || newId("tpl"), { name: name || title || text.slice(0, 40), title, text, updatedAt: Date.now() });
+      const was = !!tplEditing;
+      closeTplForm();
+      tplMsg(was ? "Шаблон изменён." : "Шаблон сохранён.", "ok");
+    } catch (err) {
+      tplMsg(isOfflineError(err) ? OFFLINE_TEXT : "Не сохранилось (нет интернета?)", "err");
+    }
+    btn.disabled = false;
+  });
+  $("tplList").addEventListener("click", async (e) => {
+    const item = e.target.closest("[data-tpl]");
+    if (!item) return;
+    const t = templates()[item.dataset.tpl];
+    if (!t) return;
+    if (e.target.closest("[data-tpl-edit]")) { openTplForm(Object.assign({ id: item.dataset.tpl }, t)); $("tplForm").scrollIntoView({ behavior: "smooth", block: "center" }); return; }
+    if (e.target.closest("[data-tpl-delete]")) {
+      if (!confirm(`Удалить шаблон «${t.name || t.title}»?`)) return;
+      try { await saveTemplate(item.dataset.tpl, null); tplMsg("Шаблон удалён.", "ok"); }
+      catch (err) { tplMsg(isOfflineError(err) ? OFFLINE_TEXT : "Не удалилось (нет интернета?)", "err"); }
+    }
+  });
+  // «Сохранить как шаблон» из формы отправки
+  document.querySelectorAll("[data-tpl-save]").forEach(b => b.addEventListener("click", async () => {
+    const pre = b.dataset.tplSave; // nw | nf
+    const title = $(pre + "Head").value.replace(/\s+/g, " ").trim().slice(0, NotifyCore.TITLE_MAX);
+    const text = $(pre + "Text").value.trim().slice(0, 1000);
+    const msgId = pre + "Msg";
+    if (!text) { nfMsg(msgId, "Сначала напиши текст — его и сохраним как шаблон.", "err"); return; }
+    const name = prompt("Название шаблона (как он будет в списке):", title || text.slice(0, 40));
+    if (name === null) return;
+    try {
+      const id = newId("tpl");
+      await saveTemplate(id, { name: name.trim().slice(0, 60) || title || text.slice(0, 40), title, text, updatedAt: Date.now() });
+      $(pre + "Tpl").value = id;
+      nfMsg(msgId, "Шаблон сохранён — теперь его можно выбрать из списка.", "ok");
+    } catch (err) {
+      nfMsg(msgId, isOfflineError(err) ? OFFLINE_TEXT : "Шаблон не сохранился (нет интернета?)", "err");
+    }
+  }));
+
+  // ---- пуши самому учителю: подписка этого устройства ----
+  // state.teacherDevices.{id} = { token, createdAt, device } — только в своём
+  // пространстве учителя; state.teacherPush = { paid, note, homework }.
+  // Отправляет фоновая рассылка (notifier/send.mjs → teacherPushes).
+  const TP_STORE = "teacherPushDevice"; // { id, token } этого устройства
+  const tpSaved = () => { try { return JSON.parse(localStorage.getItem(TP_STORE) || "null"); } catch (e) { return null; } };
+  const tpSave = (v) => { try { if (v) localStorage.setItem(TP_STORE, JSON.stringify(v)); else localStorage.removeItem(TP_STORE); } catch (e) { /* приватный режим */ } };
+  const tpIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const tpStandalone = () => window.navigator.standalone === true || (window.matchMedia && matchMedia("(display-mode: standalone)").matches);
+  function tpSupport() {
+    if (!window.TutorPush || !window.TutorPush.hasKey()) return "Пуши пока не настроены (нет публичного ключа).";
+    if (!("serviceWorker" in navigator) || !("Notification" in window) || !("PushManager" in window)) {
+      return tpIOS && !tpStandalone()
+        ? "На iPhone уведомления приходят, только если кабинет открыт со значка на экране «Домой» (Safari → «Поделиться» → «На экран «Домой»»)."
+        : "Этот браузер не умеет получать уведомления.";
+    }
+    if (Notification.permission === "denied") return "Уведомления для этого сайта запрещены в настройках браузера или телефона — разрешите их там и обновите страницу.";
+    return "";
+  }
+  const tpDevices = () => remoteState.teacherDevices || {};
+  const tpOn = () => { const m = tpSaved(); return !!(m && tpDevices()[m.id] && "Notification" in window && Notification.permission === "granted"); };
+  function tpMsg(t, kind) { const m = $("tpMsg"); m.textContent = t || ""; m.className = "msg" + (kind ? " " + kind : ""); }
+  function renderTeacherPush() {
+    const el = $("tpBody");
+    const prefs = remoteState.teacherPush || {};
+    document.querySelectorAll("[data-tp]").forEach(c => { c.checked = prefs[c.dataset.tp] !== false; });
+    const n = Object.keys(tpDevices()).length;
+    const devLine = n ? `<div class="hint" style="margin-top:6px">Подписано устройств: ${n}.</div>` : "";
+    const why = tpSupport();
+    if (why) { el.innerHTML = `<div class="hint" style="margin-top:0">${escHtml(why)}</div>${devLine}`; return; }
+    el.innerHTML = tpOn()
+      ? `<div>Приходят на это устройство ✓</div><div class="btn-row"><button class="btn secondary" type="button" id="tpTest">Проверить</button><button class="btn secondary" type="button" id="tpOff">Выключить на этом устройстве</button></div>${devLine}`
+      : `<div class="btn-row" style="margin-top:0"><button class="btn" type="button" id="tpOnBtn">Включить на этом устройстве</button></div>${devLine}`;
+    if ($("tpOnBtn")) $("tpOnBtn").addEventListener("click", enableTeacherPush);
+    if ($("tpOff")) $("tpOff").addEventListener("click", disableTeacherPush);
+    if ($("tpTest")) $("tpTest").addEventListener("click", async () => {
+      try {
+        const reg = await navigator.serviceWorker.register("sw.js");
+        await reg.showNotification("Оплата", { body: "Так будут выглядеть уведомления: «Маша, 7 класс: родитель отметил «Оплачено»…»", icon: "icons/icon-192.png" });
+        tpMsg("Уведомление показано.", "ok");
+      } catch (e) { tpMsg("Не получилось показать уведомление.", "err"); }
+    });
+  }
+  // Разрешение — первым делом и синхронно в нажатии (Safari на iPhone).
+  function tpAskPermission() {
+    return new Promise((resolve) => {
+      const r = Notification.requestPermission(resolve);
+      if (r && typeof r.then === "function") r.then(resolve, () => resolve("denied"));
+    });
+  }
+  async function enableTeacherPush() {
+    if (!navigator.onLine) { tpMsg(OFFLINE_TEXT, "err"); return; }
+    const permission = tpAskPermission();
+    const btn = $("tpOnBtn");
+    if (btn) btn.disabled = true;
+    tpMsg("Включаю…");
+    try {
+      if ((await permission) !== "granted") throw Object.assign(new Error("perm"), { userText: "Без разрешения уведомления не придут. Если передумаете — разрешите их и нажмите ещё раз." });
+      const reg = await navigator.serviceWorker.register("sw.js");
+      const token = await window.TutorPush.token(reg);
+      if (!token) throw Object.assign(new Error("token"), { userText: "Устройство не выдало адрес для уведомлений — попробуйте ещё раз." });
+      const old = tpSaved();
+      const id = old && tpDevices()[old.id] ? old.id : newId("d");
+      const value = { token, createdAt: Date.now(), device: tpIOS ? "iPhone/iPad" : /Android/.test(navigator.userAgent) ? "Android" : "компьютер" };
+      await window.TutorFB.setTeacherDevice(id, value);
+      remoteState.teacherDevices = Object.assign({}, tpDevices(), { [id]: value });
+      tpSave({ id, token });
+      renderTeacherPush();
+      tpMsg("Готово! Уведомления об оплате, пояснениях и ДЗ будут приходить на это устройство.", "ok");
+    } catch (err) {
+      console.error(err);
+      renderTeacherPush();
+      tpMsg(err.userText || (isOfflineError(err) ? OFFLINE_TEXT : "Не получилось включить уведомления. Проверьте интернет и попробуйте ещё раз."), "err");
+    }
+  }
+  async function disableTeacherPush() {
+    const m = tpSaved();
+    if (!m) return;
+    try {
+      await window.TutorFB.setTeacherDevice(m.id, null);
+      const rest = Object.assign({}, tpDevices());
+      delete rest[m.id];
+      remoteState.teacherDevices = rest;
+      tpSave(null);
+      renderTeacherPush();
+      tpMsg("Уведомления на этом устройстве выключены.", "ok");
+    } catch (err) {
+      tpMsg(isOfflineError(err) ? OFFLINE_TEXT : "Не получилось выключить (нет интернета?)", "err");
+    }
+  }
+  document.querySelectorAll("[data-tp]").forEach(c => c.addEventListener("change", async () => {
+    const prefs = Object.assign({ paid: true, note: true, homework: true }, remoteState.teacherPush || {}, { [c.dataset.tp]: c.checked });
+    try {
+      await window.TutorFB.patchState({ teacherPush: prefs });
+      remoteState.teacherPush = prefs;
+      tpMsg("Сохранено.", "ok");
+    } catch (err) {
+      c.checked = !c.checked;
+      tpMsg(isOfflineError(err) ? OFFLINE_TEXT : "Не сохранилось (нет интернета?)", "err");
+    }
+  }));
 
   async function renderNfList() {
     const el = $("nfList");

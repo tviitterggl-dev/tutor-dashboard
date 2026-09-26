@@ -121,3 +121,51 @@ test("журнал: старше 60 дней чистится, но «разов
   assert.equal(again.filter((m) => m.data.tag === "once1__once").length, 0);
   assert.equal(sent.filter((m) => m.data.tag === "once1__once").length, 0, "уже было отправлено раньше");
 });
+
+test("пуши учителю: оплата/пояснение/ДЗ от родителя и ученика — один раз, со своим текстом; события учителя и до подписки — нет", async () => {
+  const st = tRef.collection("state").doc("main");
+  await st.set({ teacherDevices: { dev1: { token: "tok-teacher-" + "x".repeat(30), createdAt: NOW - 2 * H } }, teacherPush: { paid: true, note: true, homework: true } }, { merge: true });
+  const L = tRef.collection("lessons");
+  const lesson = { title: "Маша 7 класс", studentId: "Маша, 7 класс", startMs: Date.parse("2026-09-25T10:00:00+03:00"), endMs: Date.parse("2026-09-25T11:00:00+03:00"), status: "done" };
+  await L.doc("p1").set(Object.assign({}, lesson, { paid: { value: true, by: "parent", at: NOW - H }, updatedAt: NOW - H }));
+  await L.doc("p2").set(Object.assign({}, lesson, { paid: { value: true, by: "teacher", at: NOW - H }, updatedAt: NOW - H })); // сама учитель — не шлём
+  await L.doc("p3").set(Object.assign({}, lesson, { paid: { value: true, by: "parent", at: NOW - 3 * H }, updatedAt: NOW - 3 * H })); // до подписки
+  await L.doc("n1").set(Object.assign({}, lesson, { familyNote: { text: "Разберём пробник", by: "student", at: NOW - 30 * M }, updatedAt: NOW - 30 * M }));
+  await L.doc("h1").set(Object.assign({}, lesson, { homework: [{ url: "https://res.cloudinary.com/x/1.jpg", by: "parent", uploadedAt: NOW - 20 * M }, { url: "https://res.cloudinary.com/x/2.jpg", by: "parent", uploadedAt: NOW - 19 * M }, { url: "https://res.cloudinary.com/x/t.pdf", by: "teacher", uploadedAt: NOW - 19 * M }], updatedAt: NOW - 19 * M }));
+  // ещё не разобранное учителем сообщение в канале: «оплачено» в родительском канале
+  await db.collection("channels").doc("channel_parent_for_tests_0123456").collection("items").doc("pd").set({ type: "paid", lessonId: "m1", by: "parent", createdAt: NOW - 10 * M, paid: true });
+  const sent = [];
+  await runOnce({ db, send: fakeSend(sent), now: NOW, siteUrl: SITE, logger: quiet });
+  const mine = sent.filter((m) => m.token.startsWith("tok-teacher"));
+  const bodies = mine.map((m) => `${m.data.title} | ${m.data.body}`).sort();
+  assert.deepEqual(bodies, [
+    "Домашнее задание | Маша Иванова, 7 класс: родитель прислал 2 файла ДЗ к занятию 25 сентября",
+    "Оплата | Маша Иванова, 7 класс: родитель отметил «Оплачено» за занятие 25 сентября",
+    "Оплата | Маша Иванова, 7 класс: родитель отметил «Оплачено» за занятие 26 сентября",
+    "Пояснение к занятию | Маша Иванова, 7 класс: ученик написал пояснение к занятию 25 сентября",
+  ]);
+  assert.ok(mine.every((m) => m.data.url === `${SITE}index.html`));
+  // второй запуск — ничего нового
+  const again = [];
+  await runOnce({ db, send: fakeSend(again), now: NOW + 15 * M, siteUrl: SITE, logger: quiet });
+  assert.equal(again.filter((m) => m.token.startsWith("tok-teacher")).length, 0);
+  // выключила «ДЗ» — новый файл не приходит, а новая оплата — приходит
+  await st.set({ teacherPush: { paid: true, note: true, homework: false } }, { merge: true });
+  await L.doc("h1").set({ homework: [{ url: "https://res.cloudinary.com/x/3.jpg", by: "student", uploadedAt: NOW + 20 * M }], updatedAt: NOW + 20 * M }, { merge: true });
+  await L.doc("p4").set(Object.assign({}, lesson, { paid: { value: true, by: "parent", at: NOW + 21 * M }, updatedAt: NOW + 21 * M }));
+  const third = [];
+  await runOnce({ db, send: fakeSend(third), now: NOW + 30 * M, siteUrl: SITE, logger: quiet });
+  assert.deepEqual(third.filter((m) => m.token.startsWith("tok-teacher")).map((m) => m.data.title), ["Оплата"]);
+});
+
+test("пуши учителю: нет подписанных устройств — ничего не читаем и не шлём; мёртвый токен удаляется", async () => {
+  await tRef.collection("lessons").doc("p1").set({ title: "Маша 7 класс", studentId: "Маша, 7 класс", startMs: NOW, endMs: NOW + H, status: "done", paid: { value: true, by: "parent", at: NOW - M }, updatedAt: NOW - M });
+  let sent = [];
+  await runOnce({ db, send: fakeSend(sent), now: NOW, siteUrl: SITE, logger: quiet });
+  assert.equal(sent.filter((m) => m.data.title === "Оплата").length, 0);
+  await tRef.collection("state").doc("main").set({ teacherDevices: { dead: { token: "tok-teacher-DEAD" + "x".repeat(30), createdAt: NOW - H } } }, { merge: true });
+  sent = [];
+  await runOnce({ db, send: fakeSend(sent), now: NOW + M, siteUrl: SITE, logger: quiet });
+  assert.equal(sent.filter((m) => m.data.title === "Оплата").length, 1);
+  assert.equal(((await tRef.collection("state").doc("main").get()).data().teacherDevices || {}).dead, undefined, "мёртвая подписка удалена");
+});

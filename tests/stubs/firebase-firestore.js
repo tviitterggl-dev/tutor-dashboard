@@ -38,6 +38,14 @@ export class FieldPath {
 }
 
 export function getFirestore() { return { __fake: true }; }
+// Локальный кэш (как persistentLocalCache в настоящем SDK). Без сети
+// (navigator.onLine === false) чтения отдаются «из кэша» (metadata.fromCache);
+// window.__FAKE_OFFLINE_NOCACHE = true — кэша на устройстве нет (пусто).
+export function initializeFirestore() { window.__fakePersistence = true; return { __fake: true }; }
+export function persistentLocalCache(opts) { return { kind: "persistent", opts }; }
+export function persistentMultipleTabManager() { return { kind: "multi-tab" }; }
+const offlineNow = () => typeof navigator !== "undefined" && navigator.onLine === false;
+const noCache = () => offlineNow() && window.__FAKE_OFFLINE_NOCACHE;
 
 function joinPath(base, segs) {
   return [base, ...segs].filter(Boolean).join("/");
@@ -84,12 +92,13 @@ function snapshotOf(path, data) {
     ref: { type: "document", path, id: path.split("/").pop() },
     exists: () => data !== undefined,
     data: () => clone(data),
+    metadata: { fromCache: offlineNow(), hasPendingWrites: false },
   };
 }
 
 export async function getDoc(ref) {
   checkDeny(ref.path);
-  return snapshotOf(ref.path, load()[ref.path]);
+  return snapshotOf(ref.path, noCache() ? undefined : load()[ref.path]);
 }
 
 function applySet(db, ref, data, opts) {
@@ -174,7 +183,7 @@ export async function getDocs(q) {
   checkDeny(q.path + "/");
   const db = load();
   const prefix = q.path + "/";
-  let docs = Object.keys(db)
+  let docs = Object.keys(noCache() ? {} : db)
     .filter((p) => p.startsWith(prefix) && !p.slice(prefix.length).includes("/"))
     .map((p) => snapshotOf(p, db[p]));
   for (const c of q.constraints || []) {
@@ -183,12 +192,14 @@ export async function getDocs(q) {
   const ob = (q.constraints || []).find((c) => c.kind === "orderBy");
   if (ob) docs.sort((a, b) => (a.data()[ob.field] > b.data()[ob.field] ? 1 : -1) * (ob.dir === "desc" ? -1 : 1));
   window.__fakeQueries = (window.__fakeQueries || 0) + 1;
-  return { docs, size: docs.length, empty: !docs.length, forEach: (fn) => docs.forEach(fn) };
+  return { docs, size: docs.length, empty: !docs.length, forEach: (fn) => docs.forEach(fn), metadata: { fromCache: offlineNow() } };
 }
 
 // Живые обновления: опрашиваем «базу» и зовём callback при изменениях
 // (как настоящий onSnapshot, но через localStorage, общий для вкладок).
-export function onSnapshot(target, onNext, onError) {
+export function onSnapshot(target, a, b, c) {
+  // onSnapshot(ref, onNext, onError) или onSnapshot(ref, options, onNext, onError)
+  const [onNext, onError] = typeof a === "function" ? [a, b] : [b, c];
   let last = null;
   let stopped = false;
   async function tick() {
@@ -198,7 +209,8 @@ export function onSnapshot(target, onNext, onError) {
       const sig = target.type === "document"
         ? JSON.stringify(snap.exists() ? snap.data() : null)
         : JSON.stringify(snap.docs.map((d) => [d.id, d.data()]));
-      if (sig !== last) { last = sig; onNext(snap); }
+      const sigFull = sig + "|" + offlineNow();
+      if (sigFull !== last) { last = sigFull; onNext(snap); }
     } catch (e) {
       stopped = true;
       if (onError) onError(e);

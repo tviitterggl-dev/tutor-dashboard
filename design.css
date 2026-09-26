@@ -172,3 +172,9 @@ button:not(:disabled):active, .btn:not(:disabled):active, .tab:active, .subtab:a
   color: var(--muted); font-size: 12.5px; text-decoration: underline; text-underline-offset: 3px;
 }
 .theme-system[hidden] { display: none; }
+
+/* Офлайн: плашка «показаны последние загруженные данные» (оба кабинета) */
+.offline-bar { background: var(--pending-bg); color: var(--pending-text); border: 1px solid var(--pending-border); border-radius: var(--r-md, 12px); padding: 10px 14px; font-size: 13px; font-weight: 600; line-height: 1.45; margin-bottom: 14px; }
+.offline-bar[hidden] { display: none; }
+.offline-toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); max-width: min(92vw, 460px); background: var(--text); color: var(--card-bg); padding: 12px 16px; border-radius: 12px; font-size: 14px; line-height: 1.4; box-shadow: var(--shadow); z-index: 1000; text-align: center; }
+.offline-toast[hidden] { display: none; }

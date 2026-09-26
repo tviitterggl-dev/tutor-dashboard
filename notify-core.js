@@ -193,7 +193,72 @@
     return out;
   }
 
-  const api = { pushKeyId, isPushKeyId, pushKeyMap, pushItemKey, UNIT_MS, TITLE_MAX, DEFAULT_TITLE, titleFor, NOW_TTL_MS, PUSH_GRACE_MS, offsetMs, offsetText, keyMatches, targetStudent, ruleLessons, isLive, fillText, noticesForKey, dueReminders, planPushes, plural };
+  // ---- Обратные пуши — учителю: что сделали родитель/ученик ----
+  // События берутся из занятий (учитель уже перенёс их из каналов:
+  // lesson.paid / familyNote / homework[] сохраняют время события) и из ещё
+  // не разобранных сообщений каналов. У события стабильный ключ — по нему
+  // журнал рассылки не шлёт одно и то же дважды, откуда бы оно ни пришло.
+  //   lessons — [{ id, studentId, startMs, paid, familyNote, homework }];
+  //   items   — [{ item, studentId }] из каналов учеников;
+  //   since   — старее не берём (окно + момент подписки).
+  const TEACHER_KINDS = ["paid", "note", "homework"];
+  const fromFamily = (by) => by === "parent" || by === "student";
+  function urlHash(u) {
+    let h = 5381;
+    const s = String(u || "");
+    for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+    return h.toString(36);
+  }
+  function teacherEvents({ lessons, items, since }) {
+    const out = new Map();
+    const byId = {};
+    (lessons || []).forEach((l) => { if (l && l.id) byId[l.id] = l; });
+    const add = (key, e) => { if ((e.at || 0) >= (since || 0) && !out.has(key)) out.set(key, Object.assign({ key }, e)); };
+    (lessons || []).forEach((l) => {
+      if (!l || !l.studentId) return;
+      const base = { lessonId: l.id, studentId: l.studentId, startMs: l.startMs || null };
+      if (l.paid && l.paid.value === true && l.paid.by === "parent") add(`tp__${l.id}__${l.paid.at}`, Object.assign({ kind: "paid", by: "parent", at: l.paid.at }, base));
+      if (l.familyNote && l.familyNote.text && fromFamily(l.familyNote.by)) add(`tn__${l.id}__${l.familyNote.at}`, Object.assign({ kind: "note", by: l.familyNote.by, at: l.familyNote.at }, base));
+      (Array.isArray(l.homework) ? l.homework : []).forEach((h) => {
+        if (h && fromFamily(h.by) && h.uploadedAt) add(`th__${l.id}__${h.uploadedAt}__${urlHash(h.url)}`, Object.assign({ kind: "homework", by: h.by, at: h.uploadedAt }, base));
+      });
+    });
+    (items || []).forEach(({ item: i, studentId }) => {
+      if (!i || !studentId || !i.lessonId) return;
+      const l = byId[i.lessonId];
+      if (l && l.studentId !== studentId) return; // сообщение про чужое занятие — не наше дело
+      const base = { lessonId: i.lessonId, studentId, startMs: l ? l.startMs : null, at: i.createdAt };
+      if (i.type === "paid" && i.paid === true && i.by === "parent") add(`tp__${i.lessonId}__${i.createdAt}`, Object.assign({ kind: "paid", by: "parent" }, base));
+      if (i.type === "note" && i.comment && fromFamily(i.by)) add(`tn__${i.lessonId}__${i.createdAt}`, Object.assign({ kind: "note", by: i.by }, base));
+      if (i.type === "homework" && i.file && fromFamily(i.by)) add(`th__${i.lessonId}__${i.createdAt}__${urlHash(i.file.url)}`, Object.assign({ kind: "homework", by: i.by }, base));
+    });
+    return [...out.values()].sort((a, b) => a.at - b.at);
+  }
+  // Что отправить учителю: одно уведомление на (что, занятие, кто) — три
+  // файла ДЗ одним пушем. prefs — { paid, note, homework } (по умолчанию все).
+  function planTeacherPushes({ lessons, items, since, log, label, prefs }) {
+    const lbl = label || ((sid) => sid);
+    const on = (k) => !prefs || prefs[k] !== false;
+    const groups = new Map();
+    teacherEvents({ lessons, items, since }).forEach((e) => {
+      if (!on(e.kind) || (log && log[e.key])) return;
+      const g = `${e.kind}|${e.lessonId}|${e.by}`;
+      if (!groups.has(g)) groups.set(g, Object.assign({}, e, { keys: [] }));
+      groups.get(g).keys.push(e.key);
+    });
+    return [...groups.values()].map((g) => {
+      const who = g.by === "parent" ? "родитель" : "ученик";
+      const when = g.startMs ? ` ${msk(g.startMs).date}` : "";
+      const n = g.keys.length;
+      const title = g.kind === "paid" ? "Оплата" : g.kind === "note" ? "Пояснение к занятию" : "Домашнее задание";
+      const what = g.kind === "paid" ? `${who} отметил «Оплачено» за занятие${when}`
+        : g.kind === "note" ? `${who} написал пояснение к занятию${when}`
+        : `${who} прислал ${n > 1 ? `${n} ${plural(n, ["файл", "файла", "файлов"])}` : "файл"} ДЗ к занятию${when}`;
+      return { logIds: g.keys, kind: g.kind, lessonId: g.lessonId, title, body: `${lbl(g.studentId)}: ${what}`, tag: g.keys[0] };
+    });
+  }
+
+  const api = { TEACHER_KINDS, teacherEvents, planTeacherPushes, pushKeyId, isPushKeyId, pushKeyMap, pushItemKey, UNIT_MS, TITLE_MAX, DEFAULT_TITLE, titleFor, NOW_TTL_MS, PUSH_GRACE_MS, offsetMs, offsetText, keyMatches, targetStudent, ruleLessons, isLive, fillText, noticesForKey, dueReminders, planPushes, plural };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.NotifyCore = api;
 })(typeof window !== "undefined" ? window : globalThis);

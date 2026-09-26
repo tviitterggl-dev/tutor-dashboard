@@ -119,10 +119,10 @@ test("конструктор: «перед занятием» (свободно�
   assert.deepEqual(await noticeTexts(kid), ["Оплата за октябрь — до 5-го числа"]);
 
   // Выключить и удалить
-  await page.locator(".nf-item", { hasText: "Оплата за октябрь" }).locator("[data-nf-toggle]").click();
+  await page.locator("#nfList .nf-item", { hasText: "Оплата за октябрь" }).locator("[data-nf-toggle]").click();
   await waitFor(async () => notifs(await app.db()).find((n) => n.mode === "once").active === false, "выключено");
   await waitFor(async () => (await app.db())[`studentAccess/${SK}`].notices.length === 0, "из витрины пропало");
-  await page.locator(".nf-item", { hasText: "Напоминаю" }).locator("[data-nf-delete]").click();
+  await page.locator("#nfList .nf-item", { hasText: "Напоминаю" }).locator("[data-nf-delete]").click();
   await waitFor(async () => !notifs(await app.db()).some((n) => n.mode === "before"), "удалено");
   assert.deepEqual(mom.errors, []);
   assert.deepEqual(kid.errors, []);
@@ -141,7 +141,7 @@ test("изменить уведомление: форма заполняется
   await page.click("#nfSave");
   await page.waitForFunction(() => /сохранено/.test(document.querySelector("#nfMsg").textContent));
   const id = notifs(await app.db())[0].id;
-  await page.locator(".nf-item").first().locator("[data-nf-edit]").click();
+  await page.locator("#nfList .nf-item").first().locator("[data-nf-edit]").click();
   assert.equal(await page.inputValue("#nfText"), "За 90 минут");
   assert.equal(await page.inputValue("#nfOffset"), "90");
   assert.equal(await page.textContent("#nfTitle"), "Изменить уведомление");
@@ -336,7 +336,7 @@ test("заголовок: свой — в кабинете вместо стан
   ]);
 
   // правка: заголовок подставляется в форму и меняется
-  await page.locator(".nf-item", { hasText: "Завтра в" }).locator("[data-nf-edit]").click();
+  await page.locator("#nfList .nf-item", { hasText: "Завтра в" }).locator("[data-nf-edit]").click();
   assert.equal(await page.inputValue("#nfHead"), "Важно: {ученик}");
   await page.fill("#nfHead", "");
   await page.click("#nfSave");
