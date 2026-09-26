@@ -834,7 +834,9 @@
     const clean = {};
     // пустую строку оставляем: пустое «пояснение» = «убрать» (правилам нужен comment-строка)
     Object.entries(data).forEach(([k, v]) => { if (v !== undefined && v !== null) clean[k] = v; });
-    await setDoc(doc(db, "channels", channel, "items", newId()), clean);
+    const id = newId();
+    await setDoc(doc(db, "channels", channel, "items", id), clean);
+    return Object.assign({ id }, clean);
   }
 
   function slotProblem(l, s, e) {
@@ -1093,7 +1095,10 @@
         if (text === ((cur && cur.text) || "")) { msg("Изменений нет."); return; }
         e.currentTarget.disabled = true;
         try {
-          await addItem(view.channel, { type: "note", lessonId: l.id, by: current.role, createdAt: Date.now(), comment: text });
+          const item = await addItem(view.channel, { type: "note", lessonId: l.id, by: current.role, createdAt: Date.now(), comment: text });
+          // сразу в свой список — не ждём обновления из базы (иначе на
+          // мгновение показывалось прежнее пояснение)
+          if (!shared.some((i) => i.id === item.id)) shared = shared.concat([item]);
           modalNote = [text ? "Пояснение сохранено — преподаватель его увидит." : "Пояснение убрано.", "ok"];
         } catch (err) {
           modalNote = [errText(err, "Не сохранилось — проверьте интернет."), "err"];

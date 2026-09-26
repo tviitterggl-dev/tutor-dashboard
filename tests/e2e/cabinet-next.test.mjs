@@ -108,7 +108,8 @@ test("«Пояснение»: родитель пишет → видно уче�
   await student.waitForFunction(() => /Пояснение убрано/.test(document.querySelector("#mMsg").textContent));
   await waitFor(async () => (await noteOf())?.text === "", "пояснение убрано у учителя");
   await student.click("#mClose");
-  assert.equal(await student.locator(`#pane-lessons .lesson[data-lesson="${FIRST}"] .note-line`).count(), 0);
+  // кабинет обновляется по данным из базы — даём ему дойти до итогового вида
+  await student.waitForFunction((id) => !document.querySelector(`#pane-lessons .lesson[data-lesson="${id}"] .note-line`), FIRST, { timeout: 5000 });
   // старые сообщения чистятся — в канале остаётся одно последнее
   const ch = (await app.db())[`parentAccess/${PK}`].channel;
   await waitFor(async () => { const db = await app.db(); return Object.keys(db).filter((p) => p.startsWith(`channels/${ch}/items/`) && db[p].type === "note").length === 1; }, "одно последнее пояснение в канале");
