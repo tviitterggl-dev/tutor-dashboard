@@ -111,7 +111,12 @@ export function defaultSeed(opts = {}) {
     anna3: { marked: true, overrideAmount: 1400, lockedRate: 1500, updatedAt: 1 },
   };
   const seed = {
-    [`teacherSpaces/${uid}/state/main`]: { marks, pkgOverrides: {}, studentProfiles: JSON.parse(JSON.stringify(PROFILES)) },
+    // Пакеты — счётчики по отметкам «Провёл» (схема с 2026-09-27, pkgByMarks: 1).
+    // Названия фикстуры с «k/8» — как старые данные; opts.legacyPackages — ещё
+    // до переноса (проверка миграции).
+    [`teacherSpaces/${uid}/state/main`]: opts.legacyPackages
+      ? { marks, pkgOverrides: {}, studentProfiles: JSON.parse(JSON.stringify(PROFILES)) }
+      : { marks, pkgByMarks: 1, pkgOverrides: { "Тест, 7 класс": { manual: true, totalOverride: 8, doneBase: 0, countFrom: 0, hidden: false } }, studentProfiles: JSON.parse(JSON.stringify(PROFILES)) },
   };
   for (const e of opts.lessons || defaultLessonsFixture()) seed[`teacherSpaces/${uid}/lessons/${e.id}`] = lessonDoc(e, marks);
   return seed;

@@ -134,7 +134,7 @@ test("пакет заканчивается: плашка, подсветка п
   const PK = "parent_key_test_student_0000000001";
   const seed = defaultSeed();
   seed[`teacherSpaces/${T}/accessKeys/${PK}`] = { role: "parent", studentId: "Тест, 7 класс", createdAt: 1, active: true };
-  seed[statePath].pkgOverrides = { "Тест, 7 класс": { doneOverride: 7, totalOverride: 8 } };
+  seed[statePath].pkgOverrides = { "Тест, 7 класс": { manual: true, totalOverride: 8, doneBase: 5, countFrom: 0 } }; // 5 + 2 отметки
   const app = await openImported({ seed });
   const { page } = app;
   await page.waitForSelector("#pkgAlert", { state: "visible" });

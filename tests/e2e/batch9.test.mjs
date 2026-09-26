@@ -1,6 +1,6 @@
 // Правки по списку из 9 пунктов: зона для файлов ДЗ и вставка из буфера,
 // «Оплачено» у родителя (в family.test.mjs), «Отчёт» с рассылкой, замена в
-// конец пакета при отмене, «Провёл» ↔ пакет, клик по карточке, ДЗ к
+// (было: замена в конец пакета при отмене — убрано, пакет теперь счётчик «Провёл»), клик по карточке, ДЗ к
 // следующему занятию, шапка, поле отчёта.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
@@ -40,79 +40,82 @@ const pasteImage = (page) => page.evaluate(() => {
   document.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
 });
 
-test("п.4: отмена занятия пакета — замена в конец, номера следующих −1, даты не двигаются; «Вернуть» откатывает", async () => {
+const card = (page, sid) => page.locator(`.pkg-card[data-key="${sid}"]`);
+const waitCard = (page, sid, re) => page.waitForFunction(([k, r]) => new RegExp(r).test(document.querySelector(`.pkg-card[data-key="${k}"]`)?.textContent || ""), [sid, re.source], { timeout: 8000 });
+const later = (page, min) => page.clock.setFixedTime(new Date(Date.parse(NOW) + min * 60000));
+
+test("пакет: отмена занятия — просто отмена; счётчик и названия других занятий не меняются", async () => {
   const app = await openApp();
   const { page } = app;
   await page.waitForSelector("#lessonsList .lesson");
-  const before = Object.fromEntries(lessonsOf(await app.db(), "Тест, 7 класс").map((l) => [l.id, l.startMs]));
+  const before = Object.fromEntries(lessonsOf(await app.db(), "Тест, 7 класс").map((l) => [l.id, [l.title, l.startMs]]));
   await openLesson(page, "Тест 7 класс 6/8");
-  assert.equal(await page.isChecked("#mMakeup"), true, "по умолчанию — с заменой");
+  assert.equal(await page.locator("#mMakeup").count(), 0, "галочки «замена в конец пакета» больше нет");
   await page.click("#mCancelLesson");
-  await page.waitForFunction(() => /Замена —/.test(document.querySelector("#mMsg").textContent));
-  let db = await app.db();
-  const own = lessonsOf(db, "Тест, 7 класс");
+  await page.waitForFunction(() => /Занятие отменено/.test(document.querySelector("#mMsg").textContent));
+  const db = await app.db();
   assert.equal(db[L(S("20260925"))].status, "cancelled");
-  assert.equal(db[L(S("20260928"))].title, "Тест 7 класс 6/8");
-  assert.equal(db[L(S("20260930"))].title, "Тест 7 класс 7/8");
-  const mk = own.find((l) => l.makeupFor === S("20260925"));
-  assert.ok(mk, "замена создана");
-  assert.equal(mk.title, "Тест 7 класс 8/8");
-  assert.equal(mk.start, "2026-10-07T10:00:00+03:00", "через неделю после последнего, в то же время");
-  assert.equal(mk.status, "planned");
-  for (const [id, s] of Object.entries(before)) assert.equal(db[L(id)].startMs, s, "даты не двигаются: " + id);
-  // пакет по-прежнему 8 занятий, 2 проведено
+  const own = lessonsOf(db, "Тест, 7 класс");
+  assert.equal(own.length, 8, "замена не создаётся");
+  for (const l of own) assert.deepEqual([l.title, l.startMs], before[l.id], "не тронуто: " + l.id);
   await page.click("#mClose");
   await page.click('.tab[data-tab="students"]');
-  await page.waitForFunction(() => /2 из 8, осталось 6/.test(document.querySelector("#packagesList").textContent));
-
-  // «Вернуть занятие» — всё назад
-  await openLesson(page, "Тест 7 класс 6/8");
-  await page.waitForFunction(() => document.querySelector("#mRestore"));
-  await page.click("#mRestore");
-  await page.waitForFunction(() => /Замена в конце пакета убрана/.test(document.querySelector("#mMsg").textContent));
-  db = await app.db();
-  assert.equal(db[L(S("20260925"))].status, "planned");
-  assert.equal(db[L(S("20260928"))].title, "Тест 7 класс 7/8");
-  assert.equal(db[L(S("20260930"))].title, "Тест 7 класс 8/8");
-  assert.equal(db[L(mk.id)], undefined, "замена удалена");
+  await waitCard(page, "Тест, 7 класс", /2 из 8, осталось 6/);
   assert.deepEqual(app.errors, []);
   await app.close();
 });
 
-test("п.4: без галочки — просто отмена, остальные занятия не трогаются", async () => {
-  const app = await openApp();
-  const { page } = app;
-  await page.waitForSelector("#lessonsList .lesson");
-  await openLesson(page, "Тест 7 класс 6/8");
-  await page.uncheck("#mMakeup");
-  await page.click("#mCancelLesson");
-  await page.waitForFunction(() => /Занятие отменено/.test(document.querySelector("#mMsg").textContent));
-  const db = await app.db();
-  assert.equal(db[L(S("20260928"))].title, "Тест 7 класс 7/8");
-  assert.equal(lessonsOf(db, "Тест, 7 класс").length, 8, "замены нет");
-  await app.close();
-});
-
-test("п.5: «Провёл» сам меняет счётчик пакета — и после ручной правки, и у пакета, добавленного вручную", async () => {
-  const app = await openApp();
+test("пакет = счётчик «Провёл»: отметка +1, снятие −1; «Исправить»; «Новый пакет» — с нуля; правка суммы не считается повторно", async () => {
+  const dialogs = [];
+  const app = await openApp({ onDialog: (d) => { dialogs.push(d.message()); return d.type() === "prompt" ? "10" : true; } });
   const { page } = app;
   await page.waitForSelector("#lessonsList .lesson");
   await page.click('.tab[data-tab="students"]');
-  const card = page.locator('.pkg-card[data-key="Тест, 7 класс"]');
-  await page.waitForFunction(() => /2 из 8/.test(document.querySelector('.pkg-card[data-key="Тест, 7 класс"]')?.textContent || ""));
-  // ручная правка: «проведено 3»
-  await card.locator(".pkg-edit-btn").click();
-  await card.locator(".pkg-edit-done").fill("3");
-  await card.locator(".pkg-save-btn").click();
-  await page.waitForFunction(() => /3 из 8/.test(document.querySelector('.pkg-card[data-key="Тест, 7 класс"]').textContent));
-  assert.equal((await app.db())[statePath].pkgOverrides["Тест, 7 класс"].doneAdjust, 1);
-  // отметка «Провёл» у занятия 3/8 — пакет сам становится 4 из 8
+  await waitCard(page, "Тест, 7 класс", /2 из 8/);
+  assert.equal(await card(page, "Тест, 7 класс").locator(".pkg-shift-btn").count(), 0, "«Сдвинуть номера» больше нет");
+  // «Исправить»: проведено 3
+  await later(page, 1);
+  await card(page, "Тест, 7 класс").locator(".pkg-edit-btn").click();
+  await card(page, "Тест, 7 класс").locator(".pkg-edit-done").fill("3");
+  await card(page, "Тест, 7 класс").locator(".pkg-save-btn").click();
+  await waitCard(page, "Тест, 7 класс", /3 из 8/);
+  let ov = (await app.db())[statePath].pkgOverrides["Тест, 7 класс"];
+  assert.deepEqual([ov.manual, ov.doneBase, ov.totalOverride, ov.countFrom], [true, 3, 8, Date.parse(NOW) + 60000]);
+  // «Провёл» у занятия (любого, номер в названии не важен) → 4 из 8
+  await later(page, 2);
   await openLesson(page, "Тест 7 класс 3/8", true);
   await page.click("#mMark");
   await page.waitForFunction(() => /Провёл \(снять\)/.test(document.querySelector("#mMark").textContent));
+  const mark = (await app.db())[statePath].marks[S("20260918")];
+  assert.equal(mark.markedAt, Date.parse(NOW) + 120000);
+  // правка суммы у отмеченного — время отметки прежнее
+  await later(page, 3);
+  await page.fill("#mAmount", "1900");
+  await page.dispatchEvent("#mAmount", "change");
+  await page.waitForFunction(() => JSON.parse(localStorage.getItem("__fakeDb"))["teacherSpaces/teacherUid0123456789abcdef/state/main"].marks["serA_20260918T070000Z"].overrideAmount === 1900);
+  assert.equal((await app.db())[statePath].marks[S("20260918")].markedAt, Date.parse(NOW) + 120000);
   await page.click("#mClose");
   await page.click('.tab[data-tab="students"]');
-  await page.waitForFunction(() => /4 из 8, осталось 4/.test(document.querySelector('.pkg-card[data-key="Тест, 7 класс"]').textContent), null, { timeout: 8000 });
+  await waitCard(page, "Тест, 7 класс", /4 из 8, осталось 4/);
+  // сняли «Провёл» — снова 3 (календарь всё ещё на прошлой неделе)
+  await openLesson(page, "Тест 7 класс 3/8");
+  await page.click("#mMark");
+  await page.waitForFunction(() => /Провёл занятие/.test(document.querySelector("#mMark").textContent));
+  await page.click("#mClose");
+  await page.click('.tab[data-tab="students"]');
+  await waitCard(page, "Тест, 7 класс", /3 из 8, осталось 5/);
+  // «Новый пакет» на 10: 0 из 10, старые отметки не считаются
+  await later(page, 4);
+  await card(page, "Тест, 7 класс").locator(".pkg-new-btn").click();
+  await waitCard(page, "Тест, 7 класс", /0 из 10, осталось 10/);
+  assert.ok(dialogs.some((m) => /Новый пакет для Тест, 7 класс/.test(m)), JSON.stringify(dialogs));
+  // снятие «Провёл» со старого занятия нового пакета не трогает; новая отметка — +1
+  await later(page, 5);
+  await page.click('.tab[data-tab="lessons"]');
+  await page.click('.subtab[data-lessonmode="week"]');
+  await page.locator("#lessonsList .lesson", { hasText: "Тест" }).locator(".mark-btn:not(.done):not([disabled])").first().click();
+  await page.click('.tab[data-tab="students"]');
+  await waitCard(page, "Тест, 7 класс", /1 из 10, осталось 9/);
 
   // пакет вручную для Анны: 0 из 4 → отметка «Провёл» у её занятия → 1 из 4
   await page.click("#pkgAddBtn");
@@ -121,13 +124,44 @@ test("п.5: «Провёл» сам меняет счётчик пакета —
   await page.fill("#pkgAddTotal", "4");
   await page.fill("#pkgAddDone", "0");
   await page.click("#pkgAddSaveBtn");
-  await page.waitForFunction(() => /0 из 4/.test(document.querySelector('.pkg-card[data-key="Анна, 6 класс"]')?.textContent || ""));
+  await waitCard(page, "Анна, 6 класс", /0 из 4/);
+  await later(page, 6);
   await page.click('.tab[data-tab="lessons"]');
   await page.click('.subtab[data-lessonmode="week"]');
   const row = page.locator("#lessonsList .lesson", { hasText: "Анна" }).first();
   await row.locator(".mark-btn").click();
   await page.click('.tab[data-tab="students"]');
-  await page.waitForFunction(() => /1 из 4, осталось 3/.test(document.querySelector('.pkg-card[data-key="Анна, 6 класс"]').textContent), null, { timeout: 8000 });
+  await waitCard(page, "Анна, 6 класс", /1 из 4, осталось 3/);
+  assert.deepEqual(app.errors, []);
+  await app.close();
+});
+
+test("переход со старых номеров «k/M»: счётчик сохраняется, номера из названий убираются", async () => {
+  const seed = defaultSeed({ legacyPackages: true });
+  seed[statePath].pkgOverrides = { "Тест, 7 класс": { doneAdjust: 1, totalOverride: 8 } }; // было «3 из 8»
+  const app = await openApp({ seed });
+  const { page } = app;
+  await page.waitForSelector("#lessonsList .lesson");
+  await waitFor(async () => (await app.db())[statePath].pkgByMarks === 1, "перенос");
+  const db = await app.db();
+  const own = lessonsOf(db, "Тест, 7 класс");
+  assert.ok(own.length === 8 && own.every((l) => l.title === "Тест 7 класс"), JSON.stringify(own.map((l) => l.title)));
+  assert.ok(lessonsOf(db, "Анна, 6 класс").every((l) => l.title === "Анна 6 класс"), "остальные названия как были");
+  const ov = db[statePath].pkgOverrides["Тест, 7 класс"];
+  assert.deepEqual([ov.manual, ov.totalOverride, ov.doneBase, ov.countFrom], [true, 8, 3, Date.parse(NOW)]);
+  await page.click('.tab[data-tab="students"]');
+  await waitCard(page, "Тест, 7 класс", /3 из 8, осталось 5/);
+  // дальше — по отметкам
+  await later(page, 1);
+  await page.click('.tab[data-tab="lessons"]');
+  await page.click('.subtab[data-lessonmode="week"]');
+  await page.locator("#lessonsList .lesson", { hasText: "Тест" }).locator(".mark-btn:not(.done):not([disabled])").first().click();
+  await page.click('.tab[data-tab="students"]');
+  await waitCard(page, "Тест, 7 класс", /4 из 8, осталось 4/);
+  // окно нового занятия — без нумерации
+  await page.click('.tab[data-tab="calendar"]');
+  await page.click("#fcAddBtn");
+  assert.equal(await page.locator("#mPkg").count(), 0);
   assert.deepEqual(app.errors, []);
   await app.close();
 });

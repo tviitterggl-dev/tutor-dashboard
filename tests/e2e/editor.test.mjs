@@ -27,7 +27,7 @@ async function openImported(opts = {}) {
   return app;
 }
 
-test("создание серии-пакета, проверка пересечений", async () => {
+test("создание серии (без номеров пакета), проверка пересечений", async () => {
   const dialogs = [];
   const app = await openImported({ onDialog: (d) => { dialogs.push(d.message()); return true; } });
   const { page } = app;
@@ -39,10 +39,8 @@ test("создание серии-пакета, проверка пересеч�
   await page.fill("#mDate", "2026-09-29"); // вторник, в 15:00 уже стоит Анна → пересечение
   await page.fill("#mTime", "15:00");
   await page.check("#mRepeat");
-  await page.check("#mPkg");
-  await page.fill("#mPkgFrom", "1");
-  await page.fill("#mPkgTotal", "4");
-  assert.equal(await page.inputValue("#mCount"), "4");
+  assert.equal(await page.locator("#mPkg").count(), 0, "нумерации «1/8» при создании больше нет");
+  await page.fill("#mCount", "4");
   await page.click("#mCreate");
   await page.waitForSelector("#modalBack", { state: "hidden" });
   assert.ok(dialogs.some((m) => /Пересекается/.test(m)), "предупреждение о пересечении");
@@ -50,11 +48,10 @@ test("создание серии-пакета, проверка пересеч�
   const docs = lessonDocs(await app.db());
   const created = docs.filter((d) => d.source === "app").sort((a, b) => a.startMs - b.startMs);
   assert.equal(docs.length, before + 4);
-  assert.deepEqual(created.map((d) => d.title), ["Анна 6 класс 1/4", "Анна 6 класс 2/4", "Анна 6 класс 3/4", "Анна 6 класс 4/4"]);
+  assert.deepEqual(created.map((d) => d.title), ["Анна 6 класс", "Анна 6 класс", "Анна 6 класс", "Анна 6 класс"]);
   assert.deepEqual(created.map((d) => d.date), ["2026-09-29", "2026-10-06", "2026-10-13", "2026-10-20"]);
   assert.ok(created.every((d) => d.time === "15:00" && d.durationMin === 60 && d.status === "planned"));
   assert.equal(new Set(created.map((d) => d.recurrenceId)).size, 1);
-  assert.equal(new Set(created.map((d) => d.packageId)).size, 1);
   assert.equal(created[0].studentId, "Анна, 6 класс");
   assert.deepEqual(app.errors, []);
   await app.close();

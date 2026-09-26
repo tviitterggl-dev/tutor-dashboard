@@ -141,7 +141,8 @@ test("личное время: из окна нового занятия, изм
 
 test("смена класса: занятия, профиль, пакет, доступы, каналы и заявки переезжают, связи не рвутся", async () => {
   const seed = seedWithParent();
-  seed[statePath].pkgOverrides = { "Тест, 7 класс": { doneOverride: 3, totalOverride: 8 } };
+  const pkg = { manual: true, totalOverride: 8, doneBase: 1, countFrom: 0, hidden: false }; // 1 + 2 отметки = 3
+  seed[statePath].pkgOverrides = { "Тест, 7 класс": pkg };
   seed[statePath].studentProfiles["Тест, 7 класс"].callUrl = "https://t.me/call";
   seed[`teacherSpaces/${T}/requests/r1`] = { type: "cancel", lessonId: "serA_20260930T070000Z", studentId: "Тест, 7 класс", status: "rejected", reason: "", decidedAt: Date.parse(NOW) - 1000, createdAt: 1, by: "parent" };
   const app = await openApp({ seed, onDialog: () => true });
@@ -170,8 +171,8 @@ test("смена класса: занятия, профиль, пакет, до�
   assert.equal(st.studentProfiles["Тест, 8 класс"].callUrl, "https://t.me/call");
   assert.equal(st.studentProfiles["Тест, 8 класс"].cls, 8);
   assert.equal(st.studentProfiles["Тест, 8 класс"].rate, 2000);
-  // старая «замороженная» правка (3 проведено) перенесена в поправку к автоподсчёту: 2 отметки + 1
-  assert.deepEqual(st.pkgOverrides["Тест, 8 класс"], { doneOverride: null, doneAdjust: 1, totalOverride: 8 });
+  // пакет (счётчик) переехал целиком; отметки занятий по-прежнему считаются
+  assert.deepEqual(st.pkgOverrides["Тест, 8 класс"], pkg);
   assert.equal(st.pkgOverrides["Тест, 7 класс"], undefined);
   assert.deepEqual(st.studentChannels["Тест, 8 класс"], channelBefore, "каналы те же — ссылки родителей не ломаются");
   assert.equal(db[`teacherSpaces/${T}/accessKeys/${PK}`].studentId, "Тест, 8 класс");

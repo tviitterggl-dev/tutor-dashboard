@@ -605,10 +605,8 @@
   .pkg-money { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px; flex-wrap: wrap; }
   .pkg-money .earned { color: var(--accent-2); font-weight: 700; }
   .pkg-money .left { color: var(--muted); }
-  .pkg-shift-step { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; font-size: 13px; }
-  .pkg-shift-step .btn { min-width: 44px; padding: 8px 0; font-size: 17px; line-height: 1; }
-  .pkg-shift-delta { min-width: 30px; text-align: center; font-size: 16px; }
-  .pkg-shift-preview .session-row b { color: var(--accent-2); }
+  .pkg-lbl { flex: 1; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); min-width: 0; }
+  .pkg-since { font-size: 11.5px; color: var(--muted); margin-top: 8px; }
   .pkg-input {
     flex: 1;
     min-width: 0;
@@ -1059,7 +1057,7 @@
         <div class="chart-title">Пакеты (предоплата)</div>
         <div id="packagesList"><div class="empty">Загрузка…</div></div>
         <div class="btn-row" style="margin-top:8px">
-          <button class="btn secondary block" id="pkgAddBtn" type="button">+ Добавить пакет вручную</button>
+          <button class="btn secondary block" id="pkgAddBtn" type="button">+ Добавить пакет</button>
         </div>
         <div id="pkgAddForm" style="display:none; margin-top:8px;">
           <div style="display:flex; gap:6px; margin-bottom:6px;">
@@ -1076,7 +1074,7 @@
             <button class="btn secondary block" id="pkgAddCancelBtn" type="button">Отмена</button>
           </div>
         </div>
-        <div class="hint">Считается по занятиям с номером пакета в названии («N/M» в конце). «Проведено» и «отработано» считаются сами по отметкам «Провёл» — отдельно править пакет не нужно. Если авто-подсчёт ошибся — «Исправить»: поправка запомнится, а следующие отметки «Провёл» будут прибавляться к ней. Пакет, добавленный вручную, считает отметки «Провёл» этого ученика с момента добавления. При отмене занятия пакета в карточке занятия можно сразу добавить замену в конец пакета.</div>
+        <div class="hint">Пакет — это счётчик «проведено X из N». Каждое занятие ученика, отмеченное «Провёл», прибавляет 1 — неважно, что переносили или отменяли, номера в названиях не нужны. «Исправить» — поставить своё число (дальше «Провёл» прибавляются к нему). «Новый пакет» — ученик оплатил следующий: счётчик с нуля.</div>
       </div>
       <div class="card" id="accessCard">
         <div class="chart-title">Доступы для родителей и учеников</div>
@@ -1665,7 +1663,10 @@
       }
     }
 
-    const newState = { marked: !wasMarked, overrideAmount, lockedRate, updatedAt: Date.now() };
+    // markedAt — когда нажали «Провёл»: по нему пакет считает проведённые
+    // (правка суммы потом его не меняет).
+    const now = Date.now();
+    const newState = { marked: !wasMarked, overrideAmount, lockedRate, markedAt: wasMarked ? null : now, updatedAt: now };
     saveMark(ev.id, newState);
     if (ev._lesson && (ev._lesson.status === "planned" || ev._lesson.status === "done")) {
       const status = newState.marked ? "done" : "planned";
@@ -1684,6 +1685,7 @@
       marked: prev.marked,
       overrideAmount: Number.isNaN(amount) ? null : amount,
       lockedRate: prev.lockedRate,
+      markedAt: prev.markedAt != null ? prev.markedAt : (prev.marked ? (prev.updatedAt || 0) : null),
       updatedAt: Date.now(),
     };
     saveMark(ev.id, newState);
@@ -2137,10 +2139,10 @@
     publishViewsSoon();
   }
 
-  // Разбираем занятия с суффиксом "N/M" в названии, группируем по ученику,
+  // СТАРАЯ схема (до 2026-09-27), нужна только для переноса: разбираем занятия с суффиксом "N/M" в названии, группируем по ученику,
   // делим на циклы (новый цикл — когда номер не больше предыдущего в
   // хронологии), текущий пакет — последний уже начавшийся цикл.
-  function computePackages(evs) {
+  function legacyComputePackages(evs) {
     const withPkg = evs
       .map(ev => {
         const pkg = parsePackage(ev.summary || "");
@@ -2200,8 +2202,8 @@
 
   // Накладывает ручные правки на авто-найденные пакеты: скрытие, ручная
   // подмена "всего"/"проведено", и полностью вручную добавленные пакеты.
-  function buildPackages(evs) {
-    const auto = computePackages(evs);
+  function legacyBuildPackages(evs) {
+    const auto = legacyComputePackages(evs);
     const autoByKey = {};
     auto.forEach(p => { autoByKey[p.key] = p; });
 
@@ -2249,19 +2251,80 @@
     return result.sort((a, b) => a.key.localeCompare(b.key, "ru"));
   }
 
-  // Ручной пакет: сколько занятий этого ученика отмечено «Провёл» ПОСЛЕ того,
-  // как пакет добавили (по времени отметки, countFrom); без countFrom (старые) — 0,
-  // пока не перенесены.
+  // Пакет = счётчик «проведено X из N» по ученику. Номеров «k/M» в названиях
+  // больше нет: каждое занятие ученика, отмеченное «Провёл» после начала
+  // пакета (countFrom — время начала/правки), прибавляет 1 к doneBase.
+  // Отмены и переносы на счётчик не влияют — считается только «Провёл».
+  // pkgOverrides[studentId] = { manual: true, totalOverride: N, doneBase, countFrom, hidden }.
+  function buildPackages(evs) {
+    const result = [];
+    Object.entries(packageOverrides).forEach(([key, ov]) => {
+      if (!ov || !ov.manual || ov.hidden) return;
+      const total = ov.totalOverride > 0 ? ov.totalOverride : 8;
+      const doneCount = Math.max(0, (ov.doneBase != null ? ov.doneBase : (ov.doneOverride || 0)) + manualDone(key, ov.countFrom, evs));
+      const remaining = Math.max(0, total - doneCount);
+      const sp = splitStudentId(key);
+      const rate = sp ? findRate(sp.name, sp.cls, sp.surname) : null;
+      result.push({
+        key, total, doneCount, remaining, rate, since: ov.countFrom || null,
+        doneSum: rate != null ? doneCount * rate : 0,
+        unearned: rate != null ? remaining * rate : null,
+      });
+    });
+    return result.sort((a, b) => a.key.localeCompare(b.key, "ru"));
+  }
+
+  // Сколько занятий ученика отмечено «Провёл» с момента countFrom (по времени
+  // нажатия «Провёл»; у старых отметок без markedAt — по updatedAt).
   function manualDone(key, countFrom, evs) {
     if (countFrom == null) return 0;
     return (evs || []).filter(ev => {
       const m = marks[ev.id];
-      return m && m.marked && (m.updatedAt || 0) >= countFrom && studentKey(ev) === key;
+      if (!m || !m.marked) return false;
+      const at = m.markedAt != null ? m.markedAt : (m.updatedAt || 0);
+      const sid = (ev._lesson && ev._lesson.studentId) || studentKey(ev);
+      return at >= countFrom && sid === key;
     }).length;
+  }
+
+  // Разовый переход на новую схему (state.pkgByMarks = 1): каждый пакет,
+  // найденный по номерам «k/M», становится счётчиком с тем же «X из N» на
+  // сегодня, а номера «k/M» убираются из названий всех занятий.
+  let pkgMigration = null;
+  function ensurePkgMigrated(evs) {
+    if (remoteState.pkgByMarks) return Promise.resolve(false);
+    if (!pkgMigration) pkgMigration = migrateToMarkPackages(evs).catch(e => { pkgMigration = null; throw e; });
+    return pkgMigration;
+  }
+  async function migrateToMarkPackages(evs) {
+    migratePackageOverrides(evs);
+    const now = Date.now();
+    const legacy = legacyBuildPackages(evs);
+    const next = {};
+    legacy.forEach(p => {
+      next[p.key] = { manual: true, totalOverride: p.total, doneBase: p.doneCount, countFrom: now, hidden: false };
+    });
+    Object.entries(packageOverrides).forEach(([key, ov]) => {
+      if (!ov || next[key]) return;
+      if (ov.hidden) next[key] = { manual: true, totalOverride: ov.totalOverride || 8, doneBase: ov.doneBase || 0, countFrom: ov.countFrom || now, hidden: true };
+    });
+    // номера из названий — у всех занятий (и прошлых, и будущих)
+    const all = await window.TutorFB.listLessons(0, now + 10 * 365 * DAY_MS);
+    const renames = all.filter(l => PKG_SUFFIX_RE.test(l.title || "") && !isPersonal(l))
+      .map(l => ({ id: l.id, merge: true, data: { title: baseTitle(l.title), updatedAt: now } }));
+    if (renames.length) await window.TutorFB.saveLessons(renames);
+    const removed = Object.keys(packageOverrides).filter(k => !next[k]);
+    packageOverrides = next;
+    for (const k of Object.keys(next)) await window.TutorFB.setPkgOverride(k, next[k]);
+    for (const k of removed) await window.TutorFB.setPkgOverride(k, null);
+    await window.TutorFB.patchState({ pkgByMarks: 1 });
+    remoteState.pkgByMarks = 1;
+    remoteState.pkgOverrides = packageOverrides;
+    return true;
   }
   // Разовый перенос старых правок на новую схему (без изменения видимых чисел).
   function migratePackageOverrides(evs) {
-    const autoByKey = Object.fromEntries(computePackages(evs).map(p => [p.key, p]));
+    const autoByKey = Object.fromEntries(legacyComputePackages(evs).map(p => [p.key, p]));
     Object.entries(packageOverrides).forEach(([key, ov]) => {
       if (!ov) return;
       let changed = false;
@@ -2308,7 +2371,11 @@
   const PKG_FUTURE_DAYS = 240;
   async function fetchPackageEvents() {
     const now = Date.now();
-    return fetchLessons(new Date(now - PKG_PAST_DAYS * DAY_MS), new Date(now + PKG_FUTURE_DAYS * DAY_MS));
+    const load = () => fetchLessons(new Date(now - PKG_PAST_DAYS * DAY_MS), new Date(now + PKG_FUTURE_DAYS * DAY_MS));
+    const evs = await load();
+    // первый запуск после обновления — перенос на счётчики (названия меняются)
+    if (await ensurePkgMigrated(evs)) { afterLessonsChanged(); return load(); }
+    return evs;
   }
   // После отметки «Провёл» (и любых правок занятий) пакеты пересчитываются
   // сами: плашка, вкладка «Ученики», кабинеты родителей.
@@ -2344,25 +2411,24 @@
       return `
         <div class="pkg-card${ending ? " " + ending.cls : ""}" data-key="${escAttr(p.key)}">
           <div class="pkg-head">
-            <div class="pkg-name">${escHtml(studentLabel(p.key))}${p.isManual ? ' <span class="unmatched">(вручную)</span>' : ""}</div>
+            <div class="pkg-name">${escHtml(studentLabel(p.key))}</div>
             <div class="pkg-progress-text">${p.doneCount} из ${p.total}, осталось ${p.remaining}</div>
           </div>
           ${ending ? `<div class="pkg-ending">${escHtml(ending.text)}</div>` : ""}
           <div class="pkg-bar"><div class="pkg-bar-fill" style="width:${pct}%"></div></div>
           ${moneyLine}
           <div class="btn-row" style="margin-top:8px; margin-bottom:0;">
-            <button class="btn secondary pkg-edit-btn" type="button">Исправить${p.isOverridden ? " ✓" : ""}</button>
-            ${p.isManual ? "" : '<button class="btn secondary pkg-shift-btn" type="button">Сдвинуть номера</button>'}
+            <button class="btn secondary pkg-edit-btn" type="button">Исправить</button>
+            <button class="btn secondary pkg-new-btn" type="button">Новый пакет</button>
           </div>
-          <div class="pkg-shift-panel" style="display:none; margin-top:8px;"></div>
+          ${p.since ? `<div class="pkg-since">с ${escHtml(new Date(p.since).toLocaleDateString("ru-RU", { day: "numeric", month: "long" }))} : каждое «Провёл» +1</div>` : ""}
           <div class="pkg-edit-panel" style="display:none; margin-top:8px;">
             <div style="display:flex; gap:6px; margin-bottom:6px;">
-              <input type="number" class="pkg-input pkg-edit-total" placeholder="Всего" value="${p.total}">
-              <input type="number" class="pkg-input pkg-edit-done" placeholder="Проведено" value="${p.doneCount}">
+              <label class="pkg-lbl">Проведено<input type="number" class="pkg-input pkg-edit-done" min="0" inputmode="numeric" value="${p.doneCount}"></label>
+              <label class="pkg-lbl">из (всего в пакете)<input type="number" class="pkg-input pkg-edit-total" min="1" inputmode="numeric" value="${p.total}"></label>
             </div>
             <div class="btn-row">
               <button class="btn pkg-save-btn" type="button">Сохранить</button>
-              ${p.isOverridden ? '<button class="btn secondary pkg-reset-btn" type="button">Сбросить к авто</button>' : ""}
               <button class="btn secondary pkg-hide-btn" type="button">Убрать из списка</button>
             </div>
           </div>
@@ -2370,7 +2436,7 @@
       `;
     }).join("");
 
-    const emptyHtml = packages.length ? "" : '<div class="empty">Нет пакетов — добавь вручную ниже или отметь занятия «N/M» в календаре</div>';
+    const emptyHtml = packages.length ? "" : '<div class="empty">Пакетов пока нет — добавь ниже</div>';
 
     const hiddenHtml = hiddenKeys.length ? `
       <div class="hint" style="margin-top:2px">Скрытые пакеты:
@@ -2378,93 +2444,6 @@
       </div>` : "";
 
     list.innerHTML = cardsHtml + emptyHtml + hiddenHtml;
-    // панель «Сдвинуть номера» была открыта — открываем снова
-    if (pkgShift) {
-      const card = [...list.querySelectorAll(".pkg-card")].find(c => c.dataset.key === pkgShift.key);
-      if (card) renderPkgShift(card); else pkgShift = null;
-    }
-  }
-
-  // «Сдвинуть номера»: с какого занятия, на сколько (−/+), что получится.
-  let pkgShift = null; // { key, lessons, fromId, delta, msg }
-  function pkgShiftChoices(lessons) {
-    const from = Date.now() - 60 * DAY_MS;
-    return lessons.filter(x => isActiveStatus(x.status) && parsePackage(x.title) && x.startMs >= from)
-      .sort((a, b) => a.startMs - b.startMs);
-  }
-  function renderPkgShift(card) {
-    const panel = card.querySelector(".pkg-shift-panel");
-    const st = pkgShift;
-    panel.style.display = "block";
-    if (!st.lessons) { panel.innerHTML = '<div class="hint" style="margin:0">Загрузка занятий…</div>'; return; }
-    const choices = pkgShiftChoices(st.lessons);
-    if (!choices.length) { panel.innerHTML = '<div class="hint" style="margin:0">Нет занятий с номером пакета за последние 2 месяца и дальше.</div>'; return; }
-    if (!choices.some(x => x.id === st.fromId)) st.fromId = (choices.find(x => x.startMs >= Date.now()) || choices[choices.length - 1]).id;
-    const plan = shiftPlan(st.lessons, st.fromId, st.delta);
-    const rows = plan.error ? `<div class="msg err">${escHtml(plan.error)}</div>`
-      : plan.slice(0, 10).map(r => `<div class="session-row"><span class="when">${escHtml(fmtWhen(r.lesson.startMs))}</span><span>${r.from}/${r.total} → <b>${r.to}/${r.total}</b>${r.wraps ? (st.delta > 0 ? " (след. пакет)" : " (пред. пакет)") : ""}</span></div>`).join("")
-        + (plan.length > 10 ? `<div class="hint" style="margin:4px 0 0">…и ещё ${plan.length - 10} ${NotifyCore.plural(plan.length - 10, ["занятие", "занятия", "занятий"])}</div>` : "");
-    // сдвиг назад: номер догнал предыдущее занятие — дальше посчитается новый пакет
-    let warn = "";
-    if (!plan.error) {
-      const f = plan[0];
-      const prev = st.lessons.filter(x => isActiveStatus(x.status) && x.startMs < f.lesson.startMs && parsePackage(x.title) && parsePackage(x.title).total === f.total)
-        .sort((a, b) => b.startMs - a.startMs)[0];
-      const pk = prev && parsePackage(prev.title);
-      if (pk && f.to <= pk.current && f.from > pk.current) warn = `Внимание: у предыдущего занятия (${fmtWhen(prev.startMs)}) номер ${pk.current}/${pk.total}. После сдвига с этого места программа посчитает новый пакет.`;
-    }
-    const sign = st.delta > 0 ? "+" + st.delta : String(st.delta);
-    panel.innerHTML = `
-      <div class="hint" style="margin:0 0 8px">Меняются только номера, даты и время — нет. Сдвигается выбранное занятие и все следующие занятия пакета (и следующих пакетов).</div>
-      <div class="field" style="margin-bottom:8px"><span>С какого занятия</span>
-        <select class="pkg-input pkg-shift-from">${choices.map(x => `<option value="${escAttr(x.id)}"${x.id === st.fromId ? " selected" : ""}>${escHtml(fmtWhen(x.startMs))} · ${escHtml(pkgSuffix(x.title).trim())}${x.status === "done" ? " · проведено" : ""}</option>`).join("")}</select></div>
-      <div class="pkg-shift-step">
-        <span>На сколько:</span>
-        <button class="btn secondary" type="button" data-shift-step="-1" aria-label="Назад на 1">−</button>
-        <b class="pkg-shift-delta">${escHtml(sign)}</b>
-        <button class="btn secondary" type="button" data-shift-step="1" aria-label="Вперёд на 1">+</button>
-        <span class="hint" style="margin:0">${st.delta > 0 ? "вперёд (номера больше)" : "назад (номера меньше)"}</span>
-      </div>
-      <div class="pkg-shift-preview">${rows}</div>
-      ${warn ? `<div class="hint pkg-shift-warn" style="color:var(--pending-text)">${escHtml(warn)}</div>` : ""}
-      <div class="btn-row" style="margin:10px 0 0">
-        <button class="btn pkg-shift-apply" type="button"${plan.error ? " disabled" : ""}>Сдвинуть${plan.error ? "" : ` ${plan.length} ${NotifyCore.plural(plan.length, ["занятие", "занятия", "занятий"])}`}</button>
-        <button class="btn secondary pkg-shift-cancel" type="button">Закрыть</button>
-      </div>
-      ${st.msg ? `<div class="msg ${st.msg[1]}">${escHtml(st.msg[0])}</div>` : ""}`;
-  }
-  async function openPkgShift(card) {
-    const key = card.dataset.key;
-    pkgShift = { key, lessons: null, fromId: null, delta: 1, msg: null };
-    renderPkgShift(card);
-    try {
-      const lessons = await window.TutorFB.listLessonsOfStudent(key);
-      if (!pkgShift || pkgShift.key !== key) return;
-      pkgShift.lessons = lessons;
-    } catch (e) {
-      if (!pkgShift || pkgShift.key !== key) return;
-      pkgShift.lessons = [];
-      pkgShift.msg = ["Не удалось загрузить занятия (нет интернета?)", "err"];
-    }
-    const c = [...$("packagesList").querySelectorAll(".pkg-card")].find(x => x.dataset.key === key);
-    if (c) renderPkgShift(c);
-  }
-  async function applyPkgShift(card, btn) {
-    const st = pkgShift;
-    const plan = shiftPlan(st.lessons, st.fromId, st.delta);
-    if (plan.error) return;
-    btn.disabled = true;
-    const now = Date.now();
-    try {
-      await window.TutorFB.saveLessons(plan.map(r => ({ id: r.lesson.id, merge: true, data: { title: setPkgNumber(r.lesson.title, r.to), updatedAt: now } })));
-      plan.forEach(r => { r.lesson.title = setPkgNumber(r.lesson.title, r.to); });
-      st.msg = [`Готово: номера сдвинуты у ${plan.length} ${NotifyCore.plural(plan.length, ["занятия", "занятий", "занятий"])}.`, "ok"];
-      afterLessonsChanged();
-    } catch (e) {
-      reportSaveError(e);
-      st.msg = ["Не сохранилось (нет интернета?)", "err"];
-    }
-    renderPkgShift(card);
   }
 
   function getPackageOverride(key) {
@@ -2479,7 +2458,6 @@
     try {
       lastPackageEvents = await fetchPackageEvents();
       loadMarksFor(lastPackageEvents.map(e => e.id));
-      migratePackageOverrides(lastPackageEvents);
       renderPackages(buildPackages(lastPackageEvents));
     } catch (e) {
       $("packagesList").innerHTML = '<div class="empty">Не удалось загрузить пакеты</div>';
@@ -2505,24 +2483,6 @@
     if (!card) return;
     const key = card.dataset.key;
 
-    if (e.target.closest(".pkg-shift-btn")) {
-      const panel = card.querySelector(".pkg-shift-panel");
-      if (panel.style.display !== "none" && pkgShift && pkgShift.key === key) { panel.style.display = "none"; pkgShift = null; return; }
-      $("packagesList").querySelectorAll(".pkg-shift-panel").forEach(x => { x.style.display = "none"; });
-      openPkgShift(card);
-      return;
-    }
-    const step = e.target.closest("[data-shift-step]");
-    if (step && pkgShift) {
-      let d = pkgShift.delta + parseInt(step.dataset.shiftStep, 10);
-      if (d === 0) d += parseInt(step.dataset.shiftStep, 10); // ноль пропускаем: −1 ↔ +1
-      pkgShift.delta = Math.max(-20, Math.min(20, d));
-      pkgShift.msg = null;
-      renderPkgShift(card);
-      return;
-    }
-    if (e.target.closest(".pkg-shift-apply") && pkgShift) { applyPkgShift(card, e.target.closest(".pkg-shift-apply")); return; }
-    if (e.target.closest(".pkg-shift-cancel")) { card.querySelector(".pkg-shift-panel").style.display = "none"; pkgShift = null; return; }
     if (e.target.closest(".pkg-edit-btn")) {
       const panel = card.querySelector(".pkg-edit-panel");
       panel.style.display = panel.style.display === "none" ? "block" : "none";
@@ -2531,25 +2491,22 @@
     if (e.target.closest(".pkg-save-btn")) {
       const total = parseInt(card.querySelector(".pkg-edit-total").value, 10);
       const done = parseInt(card.querySelector(".pkg-edit-done").value, 10);
+      if (!(total >= 1) || !(done >= 0)) { alert("Проведено — число от 0, всего — от 1"); return; }
       const ov = getPackageOverride(key);
-      const pk = lastPackagesByKey[key];
-      ov.totalOverride = Number.isNaN(total) ? null : total;
-      ov.doneOverride = null;
-      if (!Number.isNaN(done)) {
-        if (ov.manual) { ov.doneBase = done; ov.countFrom = Date.now(); }
-        else ov.doneAdjust = done - (pk ? pk.autoDone : 0); // дальше отметки «Провёл» считаются сами
-      }
+      // с этого момента новые «Провёл» прибавляются к введённому числу
+      Object.assign(ov, { manual: true, totalOverride: total, doneBase: done, countFrom: Date.now(), doneOverride: null, doneAdjust: null });
       packageOverrides[key] = ov;
       savePackageOverride(key);
       rerenderPackages();
       return;
     }
-    if (e.target.closest(".pkg-reset-btn")) {
-      const ov = getPackageOverride(key);
-      ov.totalOverride = null;
-      ov.doneOverride = null;
-      ov.doneAdjust = null;
-      if (!ov.manual) delete packageOverrides[key]; else packageOverrides[key] = ov;
+    if (e.target.closest(".pkg-new-btn")) {
+      const pk = lastPackagesByKey[key];
+      const ans = prompt(`Новый пакет для ${studentLabel(key)}: счётчик начнётся с 0, дальше считаются отметки «Провёл».\n\nСколько занятий в новом пакете?`, String((pk && pk.total) || 8));
+      if (ans === null) return;
+      const total = parseInt(ans, 10);
+      if (!(total >= 1 && total <= 200)) { alert("Число занятий — от 1 до 200"); return; }
+      packageOverrides[key] = { manual: true, totalOverride: total, doneBase: 0, countFrom: Date.now(), hidden: false };
       savePackageOverride(key);
       rerenderPackages();
       return;
@@ -2562,14 +2519,6 @@
       rerenderPackages();
       return;
     }
-  });
-
-  $("packagesList").addEventListener("change", (e) => {
-    const sel = e.target.closest(".pkg-shift-from");
-    if (!sel || !pkgShift) return;
-    pkgShift.fromId = sel.value;
-    pkgShift.msg = null;
-    renderPkgShift(sel.closest(".pkg-card"));
   });
 
   $("pkgAddBtn").addEventListener("click", () => {
@@ -3731,8 +3680,7 @@
         await rescheduleLesson(l, item.newStartMs, item.newEndMs);
       } else {
         if (!confirm(`Отменить «${displayTitle(l.title)}», ${fmtWhen(l.startMs, l.endMs)}?`)) return;
-        if (parsePackage(l.title) && confirm("Это занятие пакета. Добавить замену в конец пакета?\n(«Отмена» — просто отменить, без замены.)")) await cancelWithMakeup(l);
-        else await setStatusScoped(l, "cancelled", "one", ["planned"]);
+        await setStatusScoped(l, "cancelled", "one", ["planned"]);
       }
     } else {
       const r = prompt("Причина отказа (увидит родитель/ученик, можно оставить пустым):", "");
@@ -4003,84 +3951,8 @@
     return series.filter(x => x.startMs >= l.startMs && (!statuses || statuses.includes(x.status)));
   }
 
-  // ---- отмена занятия пакета: замена в конец пакета ----
-  // Даты других занятий не трогаем. Отменённое выпадает из пакета, у
-  // следующих занятий ЭТОГО пакета номер уменьшается на 1 (8/8 → 7/8), а в
-  // конец добавляется одна замена «M/M» — через неделю после последнего
-  // занятия пакета, в то же время (если занято — ещё на неделю позже).
-  // «Вернуть занятие» всё откатывает.
-  function packageTail(l, list) {
-    const p = parsePackage(l.title);
-    if (!p) return [];
-    const out = [];
-    let prev = p.current;
-    list.filter(x => x.id !== l.id && isActiveStatus(x.status) && x.startMs > l.startMs)
-      .sort((a, b) => a.startMs - b.startMs)
-      .some(x => {
-        const q = parsePackage(x.title);
-        if (!q || q.total !== p.total || q.current <= prev) return true; // дальше — следующий пакет
-        out.push(x);
-        prev = q.current;
-        return false;
-      });
-    return out;
-  }
-  // ---- ручной сдвиг номеров пакета (вперёд или назад) ----
-  // Даты не трогаем, меняются только номера «k/M» в названиях: у выбранного
-  // занятия и у ВСЕХ следующих занятий ученика с тем же M (включая следующие
-  // пакеты) номер сдвигается на delta. Нумерация сквозная: 8/8 +1 → 1/8
-  // (переезжает в следующий пакет), 1/8 следующего пакета −1 → 8/8.
-  // Возвращает [{ lesson, from, to }] или { error }.
-  function shiftPlan(list, fromId, delta) {
-    const first = list.find(x => x.id === fromId);
-    const p = first && parsePackage(first.title);
-    if (!p) return { error: "У занятия нет номера в пакете" };
-    if (!Number.isInteger(delta) || !delta) return { error: "Сдвиг — целое число, не ноль" };
-    if (p.current + delta < 1) return { error: `Номер не может стать меньше 1 (сейчас ${p.current}/${p.total})` };
-    const chain = [first];
-    list.filter(x => x.id !== first.id && isActiveStatus(x.status) && x.startMs > first.startMs)
-      .sort((a, b) => a.startMs - b.startMs)
-      .some(x => {
-        const q = parsePackage(x.title);
-        if (!q) return false;               // занятие без номера — пропускаем
-        if (q.total !== p.total) return true; // пакет другого размера — дальше не идём
-        chain.push(x);
-        return false;
-      });
-    const M = p.total;
-    let cycle = 0, prev = 0;
-    return chain.map(x => {
-      const k = parsePackage(x.title).current;
-      if (k <= prev) cycle++;
-      prev = k;
-      const abs = cycle * M + k + delta;
-      return { lesson: x, from: k, to: ((abs - 1) % M) + 1, total: M, wraps: Math.floor((abs - 1) / M) !== cycle };
-    });
-  }
-  const setPkgNumber = (title, k) => title.replace(PKG_SUFFIX_RE, (m, _k, n) => ` ${k}/${n}`);
-  const renumber = (title, delta) => title.replace(PKG_SUFFIX_RE, (m, k, n) => ` ${parseInt(k, 10) + delta}/${n}`);
-  async function cancelWithMakeup(l) {
-    const p = parsePackage(l.title);
-    const own = await window.TutorFB.listLessonsOfStudent(l.studentId);
-    const tail = packageTail(l, own);
-    const last = tail.length ? tail[tail.length - 1] : l;
-    const dur = l.endMs - l.startMs;
-    const all = await window.TutorFB.listLessons(last.startMs, last.startMs + 12 * 7 * DAY_MS);
-    let start = last.startMs + 7 * DAY_MS;
-    for (let i = 0; i < 8 && all.some(x => isActiveStatus(x.status) && x.startMs < start + dur && x.endMs > start); i++) start += 7 * DAY_MS;
-    const makeupId = newId("l");
-    const now = Date.now();
-    await window.TutorFB.saveLessons([
-      ...tail.map(x => ({ id: x.id, merge: true, data: { title: renumber(x.title, -1), updatedAt: now } })),
-      { id: makeupId, data: lessonData({
-        title: `${baseTitle(l.title)} ${p.total}/${p.total}`, startMs: start, endMs: start + dur, status: "planned",
-        packageId: l.packageId || null, recurrenceId: null, source: "app",
-        extra: { makeupFor: l.id, createdAt: now },
-      }) },
-      { id: l.id, merge: true, data: { status: "cancelled", makeup: { id: makeupId, renumbered: tail.map(x => x.id) }, updatedAt: now } },
-    ]);
-    return { makeupId, start, renumbered: tail.length };
-  }
+  // Старые отмены «с заменой в конец пакета» (до 2026-09-27): «Вернуть
+  // занятие» убирает ещё не проведённую замену. Номеров «k/M» больше нет.
   async function restoreWithMakeup(l) {
     const mk = l.makeup;
     const now = Date.now();
@@ -4089,11 +3961,7 @@
     const makeup = mk && mk.id ? await window.TutorFB.getLesson(mk.id) : null;
     if (makeup && makeup.status === "planned") {
       await window.TutorFB.deleteLessons([mk.id]);
-      for (const id of mk.renumbered || []) {
-        const x = await window.TutorFB.getLesson(id);
-        if (x && isActiveStatus(x.status)) items.push({ id, merge: true, data: { title: renumber(x.title, +1), updatedAt: now } });
-      }
-      note = " Замена в конце пакета убрана, номера вернулись.";
+      note = " Замена в конце пакета убрана.";
     } else if (makeup) {
       note = " Замена в конце пакета уже проведена — её оставили.";
     }
@@ -4135,16 +4003,15 @@
     return items.length;
   }
 
-  function buildSeries({ base, startMs, durMin, count, pkg }) {
+  function buildSeries({ base, startMs, durMin, count }) {
     const recurrenceId = count > 1 ? newId("ser") : null;
-    const packageId = pkg ? newId("pkg") : null;
+    const packageId = null;
     const items = [];
     for (let i = 0; i < count; i++) {
       const d = new Date(startMs);
       d.setDate(d.getDate() + 7 * i); // то же время на часах, даже через смену времени
       const s = d.getTime();
-      let title = base;
-      if (pkg && pkg.from + i <= pkg.total) title += ` ${pkg.from + i}/${pkg.total}`;
+      const title = base;
       items.push({
         id: newId("l"),
         data: lessonData({ title, startMs: s, endMs: s + durMin * 60000, status: "planned", packageId, recurrenceId, source: "app", extra: { createdAt: Date.now() } }),
@@ -4237,11 +4104,6 @@
       <div class="field-row" id="mRepeatRow" style="display:none">
         <div class="field"><span>Сколько занятий в серии</span><input type="number" id="mCount" min="2" max="104" value="8"></div>
       </div>
-      <label class="check"><input type="checkbox" id="mPkg"> Это пакет — нумеровать «1/8», «2/8»…</label>
-      <div class="field-row" id="mPkgRow" style="display:none">
-        <div class="field"><span>Номер первого занятия</span><input type="number" id="mPkgFrom" min="1" max="99" value="1"></div>
-        <div class="field"><span>Всего в пакете</span><input type="number" id="mPkgTotal" min="1" max="99" value="8"></div>
-      </div>
       <div class="msg" id="mMsg"></div>
       <div class="btn-row">
         <button class="btn" type="button" id="mCreate">Создать</button>
@@ -4252,17 +4114,7 @@
       const w = readWhen();
       openPersonalModal(w.ok ? new Date(w.startMs) : start, w.ok ? new Date(w.startMs + w.durMin * 60000) : end);
     });
-    const syncCount = () => {
-      if (mq("#mPkg").checked && mq("#mRepeat").checked) {
-        const from = parseInt(mq("#mPkgFrom").value, 10) || 1;
-        const total = parseInt(mq("#mPkgTotal").value, 10) || 8;
-        mq("#mCount").value = String(Math.max(2, total - from + 1));
-      }
-    };
-    mq("#mRepeat").addEventListener("change", () => { mq("#mRepeatRow").style.display = mq("#mRepeat").checked ? "flex" : "none"; syncCount(); });
-    mq("#mPkg").addEventListener("change", () => { mq("#mPkgRow").style.display = mq("#mPkg").checked ? "flex" : "none"; syncCount(); });
-    mq("#mPkgFrom").addEventListener("input", syncCount);
-    mq("#mPkgTotal").addEventListener("input", syncCount);
+    mq("#mRepeat").addEventListener("change", () => { mq("#mRepeatRow").style.display = mq("#mRepeat").checked ? "flex" : "none"; });
     mq("#mClose").addEventListener("click", closeModal);
     mq("#mCreate").addEventListener("click", async () => {
       const base = readStudentBase();
@@ -4270,13 +4122,7 @@
       if (!base) { modalMsg("Выбери ученика или впиши название.", "err"); return; }
       if (!when.ok) { modalMsg("Проверь дату и время.", "err"); return; }
       const count = mq("#mRepeat").checked ? Math.min(104, Math.max(2, parseInt(mq("#mCount").value, 10) || 2)) : 1;
-      let pkg = null;
-      if (mq("#mPkg").checked) {
-        const from = parseInt(mq("#mPkgFrom").value, 10), total = parseInt(mq("#mPkgTotal").value, 10);
-        if (!(from >= 1 && total >= from)) { modalMsg("Номер первого занятия должен быть от 1 до «всего в пакете».", "err"); return; }
-        pkg = { from, total };
-      }
-      const items = buildSeries({ base, startMs: when.startMs, durMin: when.durMin, count, pkg });
+      const items = buildSeries({ base, startMs: when.startMs, durMin: when.durMin, count });
       const btn = mq("#mCreate");
       btn.disabled = true;
       try {
@@ -4431,7 +4277,6 @@
           <button class="btn secondary" type="button" id="mMove">Перенести</button>
         </div>
         <div class="hint">«Сохранить» — просто исправить. «Перенести» — сдвинуть на новые дату/время и оставить в истории отметку «перенесено» (её видят родители).</div>
-        ${parsePackage(l.title) && l.status === "planned" ? `<label class="check" style="margin-top:10px"><input type="checkbox" id="mMakeup" checked> при отмене — замена в конец пакета (номера следующих занятий сдвинутся на 1, даты — нет)</label>` : ""}
         <div class="btn-row" style="margin-top:10px">
           <button class="btn secondary" type="button" id="mCancelLesson">Отменить занятие</button>
           <button class="btn danger" type="button" id="mDelete">Удалить</button>
@@ -4580,14 +4425,7 @@
     if (mq("#mCancelLesson")) {
       mq("#mCancelLesson").addEventListener("click", (e) => busy(e.currentTarget, async () => {
         const sc = scope();
-        const makeup = sc === "one" && mq("#mMakeup") && mq("#mMakeup").checked;
-        if (!confirm(sc === "following" ? "Отменить это и все следующие занятия серии?" : makeup ? "Отменить это занятие и добавить замену в конец пакета?" : "Отменить это занятие?")) return;
-        if (makeup) {
-          const r = await cancelWithMakeup(l);
-          afterLessonsChanged();
-          await reopen(`Занятие отменено. Замена — ${fmtWhen(r.start, r.start + (l.endMs - l.startMs))}${r.renumbered ? `, номера ${r.renumbered} ${r.renumbered === 1 ? "занятия" : "занятий"} после неё сдвинуты` : ""}.`);
-          return;
-        }
+        if (!confirm(sc === "following" ? "Отменить это и все следующие занятия серии?" : "Отменить это занятие?")) return;
         const n = await setStatusScoped(l, "cancelled", sc, ["planned"]);
         afterLessonsChanged();
         await reopen(n > 1 ? `Отменено занятий: ${n}` : "Занятие отменено");
