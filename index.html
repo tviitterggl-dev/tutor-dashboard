@@ -756,6 +756,8 @@
   .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: 12px; font-weight: 600; color: var(--muted); }
   .field-row { display: flex; gap: 10px; flex-wrap: wrap; }
   .field-row .field { flex: 1; min-width: 110px; }
+  .slot-row { align-items: flex-end; }
+  .slot-row [data-slot-remove] { flex: 0 0 auto; padding: 0 0 12px; }
   .field input, .field select, .field textarea, .modal select, .modal textarea {
     padding: 10px 11px; border: 1px solid var(--border); border-radius: var(--r-sm);
     background: var(--card-bg); color: var(--text); font-size: 14.5px; font-weight: 400;
@@ -4473,6 +4475,54 @@
     return items;
   }
 
+  // Несколько «день недели + время» за один раз (вт 16:00 и чт 17:30).
+  // Первый день — дата/время из формы, остальные — первый такой день недели
+  // начиная с этой даты. С «Повторять» — занятия по порядку, пока не наберётся
+  // count (8 занятий при двух днях — 4 недели); у каждого дня недели своя
+  // серия, чтобы «это и следующие» двигало только свой день. Без повтора — по
+  // одному занятию на каждый день.
+  const WD_SHORT = ["вс", "пн", "вт", "ср", "чт", "пт", "сб"];
+  function slotStarts(startMs, slots) {
+    const first = new Date(startMs);
+    const seen = new Set();
+    const out = [];
+    [{ wd: first.getDay(), time: hhmm(first) }, ...slots].forEach(sl => {
+      if (!/^\d{1,2}:\d{2}$/.test(sl.time || "")) return;
+      const k = sl.wd + " " + sl.time;
+      if (seen.has(k)) return;
+      seen.add(k);
+      const [h, m] = sl.time.split(":").map(Number);
+      const d = new Date(first.getFullYear(), first.getMonth(), first.getDate() + ((sl.wd - first.getDay() + 7) % 7), h, m);
+      out.push({ ms: d.getTime(), wd: sl.wd, time: sl.time });
+    });
+    return out;
+  }
+  function planSlots({ startMs, count, repeat, slots }) {
+    const starts = slotStarts(startMs, slots);
+    if (!repeat) return starts.map(st => ({ ms: st.ms, slot: st })).sort((a, b) => a.ms - b.ms);
+    // все дни — в пределах недели от первой даты, так что неделя = starts.length занятий
+    const out = [];
+    for (let w = 0; w < Math.ceil(count / starts.length); w++) {
+      starts.forEach(st => {
+        const d = new Date(st.ms);
+        d.setDate(d.getDate() + 7 * w); // то же время на часах, даже через смену времени
+        out.push({ ms: d.getTime(), slot: st });
+      });
+    }
+    return out.sort((a, b) => a.ms - b.ms).slice(0, count);
+  }
+  function buildMultiSeries({ base, startMs, durMin, count, repeat, slots }) {
+    const planned = planSlots({ startMs, count, repeat, slots });
+    const serOf = {};
+    planned.forEach(p => { const k = p.slot.wd + " " + p.slot.time; serOf[k] = (serOf[k] || 0) + 1; });
+    const ids = {};
+    Object.keys(serOf).forEach(k => { ids[k] = repeat && serOf[k] > 1 ? newId("ser") : null; });
+    return planned.map(p => ({
+      id: newId("l"),
+      data: lessonData({ title: base, startMs: p.ms, endMs: p.ms + durMin * 60000, status: "planned", packageId: null, recurrenceId: ids[p.slot.wd + " " + p.slot.time], source: "app", extra: { createdAt: Date.now() } }),
+    }));
+  }
+
   async function findConflicts(items, ignoreIds) {
     if (!items.length) return [];
     const from = Math.min(...items.map(i => i.data.startMs));
@@ -4553,10 +4603,13 @@
       <div class="btn-row" style="margin:0 0 10px"><button class="btn secondary" type="button" id="mToPersonal">Это не занятие — отметить «Личное время»</button></div>
       ${studentSelectHtml(lastStudentChoice)}
       ${whenFieldsHtml(startMs, durMin)}
+      <div id="mSlots"></div>
+      <div class="btn-row" style="margin:0 0 8px"><button class="link-btn" type="button" id="mAddSlot">+ ещё день и время</button></div>
       <label class="check"><input type="checkbox" id="mRepeat"> Повторять каждую неделю</label>
       <div class="field-row" id="mRepeatRow" style="display:none">
         <div class="field"><span>Сколько занятий в серии</span><input type="number" id="mCount" min="2" max="104" value="8"></div>
       </div>
+      <div class="hint" id="mSlotsHint" style="display:none"></div>
       <div class="msg" id="mMsg"></div>
       <div class="btn-row">
         <button class="btn" type="button" id="mCreate">Создать</button>
@@ -4567,6 +4620,38 @@
       const w = readWhen();
       openPersonalModal(w.ok ? new Date(w.startMs) : start, w.ok ? new Date(w.startMs + w.durMin * 60000) : end);
     });
+    // дополнительные «день недели + время»
+    const readSlots = () => [...mq("#mSlots").querySelectorAll(".slot-row")].map(r => ({ wd: Number(r.querySelector("[data-slot-wd]").value), time: r.querySelector("[data-slot-time]").value }));
+    const readCount = () => (mq("#mRepeat").checked ? Math.min(104, Math.max(2, parseInt(mq("#mCount").value, 10) || 2)) : 1);
+    const updateSlotsHint = () => {
+      const hint = mq("#mSlotsHint");
+      const when = readWhen();
+      const slots = readSlots();
+      if (!slots.length || !when.ok) { hint.style.display = "none"; return; }
+      const repeat = mq("#mRepeat").checked;
+      const plan = planSlots({ startMs: when.startMs, count: readCount(), repeat, slots });
+      const days = slotStarts(when.startMs, slots).sort((a, b) => ((a.wd + 6) % 7) - ((b.wd + 6) % 7) || a.time.localeCompare(b.time)).map(x => `${WD_SHORT[x.wd]} ${x.time}`).join(", ");
+      const n = plan.length;
+      const word = n % 10 === 1 && n % 100 !== 11 ? "занятие" : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? "занятия" : "занятий");
+      const d = (ms) => `${p2(new Date(ms).getDate())}.${p2(new Date(ms).getMonth() + 1)}`;
+      hint.textContent = `Будет ${n} ${word}: ${days}${repeat ? " каждую неделю" : ""} — с ${d(plan[0].ms)} по ${d(plan[n - 1].ms)}.`;
+      hint.style.display = "block";
+    };
+    const addSlot = () => {
+      const w = readWhen();
+      const base = w.ok ? new Date(w.startMs) : new Date(startMs);
+      const wd = (base.getDay() + 2) % 7;
+      const row = document.createElement("div");
+      row.className = "field-row slot-row";
+      row.innerHTML = `<div class="field"><span>Ещё день</span><select data-slot-wd>${[1, 2, 3, 4, 5, 6, 0].map(i => `<option value="${i}"${i === wd ? " selected" : ""}>${WEEKDAYS_RU[(i + 6) % 7]}</option>`).join("")}</select></div>
+        <div class="field"><span>Начало</span><input type="time" step="300" data-slot-time value="${hhmm(base)}"></div>
+        <button class="link-btn" type="button" data-slot-remove aria-label="Убрать этот день">убрать</button>`;
+      mq("#mSlots").appendChild(row);
+      updateSlotsHint();
+    };
+    mq("#mAddSlot").addEventListener("click", addSlot);
+    mq("#mSlots").addEventListener("click", (e) => { const b = e.target.closest("[data-slot-remove]"); if (b) { b.closest(".slot-row").remove(); updateSlotsHint(); } });
+    ["#mSlots", "#mDate", "#mTime", "#mCount", "#mRepeat"].forEach(sel => { mq(sel).addEventListener("input", updateSlotsHint); mq(sel).addEventListener("change", updateSlotsHint); });
     mq("#mRepeat").addEventListener("change", () => { mq("#mRepeatRow").style.display = mq("#mRepeat").checked ? "flex" : "none"; });
     mq("#mClose").addEventListener("click", closeModal);
     mq("#mCreate").addEventListener("click", async () => {
@@ -4574,8 +4659,12 @@
       const when = readWhen();
       if (!base) { modalMsg("Выбери ученика или впиши название.", "err"); return; }
       if (!when.ok) { modalMsg("Проверь дату и время.", "err"); return; }
-      const count = mq("#mRepeat").checked ? Math.min(104, Math.max(2, parseInt(mq("#mCount").value, 10) || 2)) : 1;
-      const items = buildSeries({ base, startMs: when.startMs, durMin: when.durMin, count });
+      const slots = readSlots();
+      if (slots.some(sl => !sl.time)) { modalMsg("Укажи время у каждого дня.", "err"); return; }
+      const count = readCount();
+      const items = slots.length
+        ? buildMultiSeries({ base, startMs: when.startMs, durMin: when.durMin, count, repeat: mq("#mRepeat").checked, slots })
+        : buildSeries({ base, startMs: when.startMs, durMin: when.durMin, count });
       const btn = mq("#mCreate");
       btn.disabled = true;
       try {

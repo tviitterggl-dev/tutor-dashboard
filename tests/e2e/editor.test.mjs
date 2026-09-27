@@ -57,6 +57,60 @@ test("создание серии (без номеров пакета), пров
   await app.close();
 });
 
+test("несколько дней и времени за один раз: вт 16:00 + чт 17:30, серия на 6 занятий; без повтора — по одному на каждый день", async () => {
+  const app = await openImported({ onDialog: () => true });
+  const { page } = app;
+  await page.click("#fcAddBtn");
+  await page.waitForSelector("#modal #mStudent");
+  await page.selectOption("#mStudent", "Борис 8 класс");
+  await page.fill("#mDate", "2026-09-29"); // вторник
+  await page.fill("#mTime", "16:00");
+  await page.selectOption("#mDur", "90");
+  await page.click("#mAddSlot");
+  await page.selectOption("#mSlots [data-slot-wd]", "4"); // четверг
+  await page.fill("#mSlots [data-slot-time]", "17:30");
+  // лишний день — и убрать его
+  await page.click("#mAddSlot");
+  assert.equal(await page.locator("#mSlots .slot-row").count(), 2);
+  await page.locator("#mSlots [data-slot-remove]").last().click();
+  assert.equal(await page.locator("#mSlots .slot-row").count(), 1);
+  await page.check("#mRepeat");
+  await page.fill("#mCount", "6");
+  await page.waitForFunction(() => /6 занятий[\s\S]*вт 16:00[\s\S]*чт 17:30[\s\S]*по 15\.10/.test(document.querySelector("#mSlotsHint").textContent));
+  await page.click("#mCreate");
+  await page.waitForSelector("#modalBack", { state: "hidden" });
+  let created = lessonDocs(await app.db()).filter((d) => d.source === "app").sort((a, b) => a.startMs - b.startMs);
+  assert.deepEqual(created.map((d) => `${d.date} ${d.time}`), [
+    "2026-09-29 16:00", "2026-10-01 17:30", "2026-10-06 16:00", "2026-10-08 17:30", "2026-10-13 16:00", "2026-10-15 17:30",
+  ]);
+  assert.ok(created.every((d) => d.studentId === "Борис, 8 класс" && d.durationMin === 90 && d.status === "planned"));
+  // у каждого дня недели — своя серия («это и следующие» двигает только свой день)
+  const tue = created.filter((d) => d.time === "16:00"), thu = created.filter((d) => d.time === "17:30");
+  assert.equal(new Set(tue.map((d) => d.recurrenceId)).size, 1);
+  assert.equal(new Set(thu.map((d) => d.recurrenceId)).size, 1);
+  assert.notEqual(tue[0].recurrenceId, thu[0].recurrenceId);
+  assert.ok(tue[0].recurrenceId && thu[0].recurrenceId);
+
+  // без «Повторять»: по одному занятию на каждый день; понедельник раньше
+  // вторника — встаёт на следующую неделю
+  await page.click("#fcAddBtn");
+  await page.waitForSelector("#modal #mStudent");
+  await page.selectOption("#mStudent", "Анна 6 класс");
+  await page.fill("#mDate", "2026-10-27"); // вторник
+  await page.fill("#mTime", "12:00");
+  await page.click("#mAddSlot");
+  await page.selectOption("#mSlots [data-slot-wd]", "1"); // понедельник
+  await page.fill("#mSlots [data-slot-time]", "09:00");
+  await page.waitForFunction(() => /2 занятия/.test(document.querySelector("#mSlotsHint").textContent));
+  await page.click("#mCreate");
+  await page.waitForSelector("#modalBack", { state: "hidden" });
+  created = lessonDocs(await app.db()).filter((d) => d.source === "app" && d.studentId === "Анна, 6 класс").sort((a, b) => a.startMs - b.startMs);
+  assert.deepEqual(created.map((d) => `${d.date} ${d.time} ${d.durationMin}`), ["2026-10-27 12:00 60", "2026-11-02 09:00 60"]);
+  assert.ok(created.every((d) => !d.recurrenceId));
+  assert.deepEqual(app.errors, []);
+  await app.close();
+});
+
 test("перенос с историей, отмена «это и следующие», возврат, удаление", async () => {
   const app = await openImported();
   const { page } = app;
