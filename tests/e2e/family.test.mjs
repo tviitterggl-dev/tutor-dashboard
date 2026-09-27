@@ -394,7 +394,7 @@ test("пока правила не обновлены: в кабинете по�
 });
 
 
-test("вкладки кабинета: Занятия по умолчанию, фильтр ленты, ДЗ с загрузкой, Ещё", async () => {
+test("вкладки кабинета: Занятия по умолчанию, фильтр ленты, ДЗ с загрузкой, Настройки", async () => {
   const app = await openFamily();
   const cab = await openCabinet(app, `#p=${PK_T}`);
   await cab.waitForSelector("#pane-lessons .lesson");
@@ -437,9 +437,9 @@ test("вкладки кабинета: Занятия по умолчанию, �
   }, "файлы в канале/занятии");
   assert.equal(app.calls.cloudinary.length, 2);
 
-  // Ещё
+  // Настройки
   await cab.click('.ctab[data-ctab="settings"]');
-  assert.deepEqual(await visible(), ["pane-more"]);
+  assert.deepEqual(await visible(), ["pane-settings"]);
   assert.equal(await cab.isVisible("#tgLink"), true);
   assert.equal(await cab.isVisible("#forgetBtn"), true);
   assert.deepEqual(cab.errors, []);
@@ -453,7 +453,7 @@ test("телефон: вкладки кабинета помещаются, ст
   await cab.clock.setFixedTime(new Date(NOW));
   await cab.goto(app.base + `/cabinet.html#p=${PK_T}`);
   await cab.waitForSelector("#pane-lessons .lesson");
-  for (const t of ["lessons", "calendar", "hw", "requests", "more"]) {
+  for (const t of ["lessons", "calendar", "hw", "requests", "settings"]) {
     await cab.click(`.ctab[data-ctab="${t}"]`);
     await cab.waitForTimeout(t === "calendar" ? 600 : 100);
     const over = await cab.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
