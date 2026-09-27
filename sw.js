@@ -5,11 +5,14 @@
 // Свои файлы (страницы, стили, скрипты, значки) — «сначала сеть»: берём
 // свежую версию, а сохранённую отдаём, только если сети нет. Поэтому
 // обновления приходят сразу, а офлайн кабинет всё равно открывается.
+// Запрос — мимо HTTP-кэша браузера (cache: "no-cache"): GitHub Pages
+// разрешает держать файлы 10 минут, и после публикации кабинет ещё показывал
+// старую страницу. no-cache — условный запрос: не изменилось — короткий 304.
 // Библиотеки с CDN (Firebase SDK, FullCalendar, шрифты) — адреса с номером
 // версии, не меняются: «сначала кэш». Данные (Firestore) SW не трогает —
 // их кэширует сам Firestore (IndexedDB), а кабинет родителя ещё и хранит
 // последнюю витрину в localStorage.
-const CACHE = "tutor-shell-v10";
+const CACHE = "tutor-shell-v11";
 const SHELL = ["./", "./index.html", "./cabinet.html", "./design.css", "./theme.js", "./notify-core.js", "./tab-order.js", "./manifest.json",
   "./icons/icon-192.png", "./icons/icon-512.png", "./icons/apple-touch-icon.png", "./icons/favicon-32.png"];
 const CDN = [
@@ -55,7 +58,7 @@ self.addEventListener("fetch", (e) => {
     return;
   }
   e.respondWith(
-    fetch(req).then((res) => {
+    fetch(req, { cache: "no-cache" }).then((res) => {
       if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {}); }
       return res;
     }).catch(() => caches.match(req, { ignoreSearch: true })

@@ -44,3 +44,19 @@ test("открыт только чужой кабинет (ученика) — �
   await sw.click(P);
   assert.deepEqual(sw.calls, [["open", P]]);
 });
+
+// Свои файлы — «сначала сеть», но мимо HTTP-кэша браузера (GitHub Pages
+// разрешает держать их 10 минут): иначе после публикации кабинет ещё долго
+// показывал старую страницу. no-cache — условный запрос: не изменилось — 304.
+test("свои страницы и стили — свежие с сайта (cache: no-cache), библиотеки CDN — из кэша", async () => {
+  const listeners = {};
+  const fetched = [];
+  const self = { addEventListener: (t, fn) => { listeners[t] = fn; }, location: { origin: "https://example.org" }, registration: { scope: SCOPE }, clients: {}, skipWaiting: () => {} };
+  const fetchStub = async (input, init) => { fetched.push({ url: typeof input === "string" ? input : input.url, cache: init && init.cache }); return { ok: true, clone() { return this; } }; };
+  const caches = { open: async () => ({ put: async () => {} }), match: async () => undefined };
+  vm.runInNewContext(fs.readFileSync(new URL("../../sw.js", import.meta.url), "utf8"), { self, caches, fetch: fetchStub, URL, Response: class {}, console });
+  const run = async (url, mode = "no-cors") => { let p; listeners.fetch({ request: { method: "GET", url, mode }, respondWith: (x) => { p = x; } }); await p; };
+  await run(`${SCOPE}index.html`, "navigate");
+  await run(`${SCOPE}design.css`);
+  assert.deepEqual(fetched.map((f) => f.cache), ["no-cache", "no-cache"]);
+});

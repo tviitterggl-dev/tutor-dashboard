@@ -72,3 +72,35 @@ test("полоса вкладок на телефоне по-прежнему л
   await page.waitForSelector("#view-settings", { state: "visible" });
   await app.close();
 });
+
+// Вид «месяц» на компьютере, светлая и тёмная тема: текст на заливке занятия
+// (запланировано, проведено, группа) — цвет --on-event, отменённое — серое.
+test("месяц на компьютере: текст занятий читается в светлой и тёмной теме (обычные, проведённые, группа, отмена)", async () => {
+  const { defaultSeed, lessonDoc, T } = await import("./harness.mjs");
+  for (const colorScheme of ["light", "dark"]) {
+    const seed = defaultSeed();
+    const L = (id) => `teacherSpaces/${T}/lessons/${id}`;
+    const iso = (ms) => new Date(ms + 3 * 3600000).toISOString().slice(0, 19) + "+03:00";
+    const s = Date.parse("2026-09-25T17:00:00+03:00");
+    seed[`teacherSpaces/${T}/state/main`].groups = { g: { name: "Мини", members: ["Анна, 6 класс", "Борис, 8 класс"] } };
+    for (const [id, t] of [["ga", "Анна 6 класс"], ["gb", "Борис 8 класс"]]) seed[L(id)] = Object.assign(lessonDoc({ id, summary: t, start: { dateTime: iso(s) }, end: { dateTime: iso(s + 3600000) } }), { groupId: "g", groupOcc: "o1", source: "app" });
+    seed[L("anna2")].status = "cancelled";
+    const app = await openApp({ seed, viewport: { width: 1280, height: 900 }, colorScheme });
+    const { page } = app;
+    await page.waitForSelector("#lessonsList .lesson");
+    await page.click('.tab[data-tab="calendar"]');
+    await page.waitForSelector("#fcRoot .fc-view");
+    await page.click("#fcRoot .fc-dayGridMonth-button");
+    await page.waitForSelector("#fcRoot .fc-dayGridMonth-view .st-group");
+    const probe = () => page.evaluate(() => {
+      const c = (v) => { const d = document.createElement("div"); d.style.color = v; document.body.appendChild(d); const r = getComputedStyle(d).color; d.remove(); return r; };
+      const col = (sel) => { const e = document.querySelector(`#fcRoot .fc-daygrid-event${sel} .fc-event-title`); return e && getComputedStyle(e).color; };
+      return { on: c("var(--on-event)"), muted: c("var(--muted)"), planned: col(".st-planned:not(.st-group)"), done: col(".st-done"), group: col(".st-group"), cancelled: col(".st-cancelled") };
+    });
+    const r = await probe();
+    assert.deepEqual([r.planned, r.done, r.group], [r.on, r.on, r.on], `${colorScheme}: на заливке — светлый текст`);
+    assert.equal(r.cancelled, r.muted, `${colorScheme}: отмена — серым`);
+    assert.deepEqual(app.errors, []);
+    await app.close();
+  }
+});
