@@ -175,7 +175,7 @@ test("«Ещё» → резервная копия: JSON со всеми дан�
   const csv = await (await import("node:fs")).promises.readFile(await csvDl.path(), "utf8");
   assert.equal(csv.charCodeAt(0), 0xfeff, "BOM для Excel");
   const lines = csv.slice(1).split("\r\n");
-  assert.equal(lines[0], "Дата;Время;Минут;Ученик;Название;Статус;Провёл;Сумма, ₽;Оплачено;Отчёт;Пояснение;Файлы ДЗ");
+  assert.equal(lines[0], "Дата;Время;Минут;Ученик;Название;Статус;Провёл;Сумма, ₽;Оплачено;Отчёт;Пояснение;Файлы ДЗ;Группа");
   assert.equal(lines.length - 1, lessonPaths.length);
   assert.ok(lines.some((l) => /^2026-09-14;10:00;60;Тест, 7 класс;Тест 7 класс 1\/8;проведено;да;2000;/.test(l)), lines.slice(0, 4).join("\n"));
   assert.deepEqual(app.errors, []);

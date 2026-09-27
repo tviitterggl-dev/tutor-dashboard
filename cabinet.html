@@ -584,7 +584,7 @@
       <div class="lesson${rank === 0 ? " next" : ""}" data-lesson="${esc(l.id || "")}">
         ${rank === 0 ? `<div class="next-label">${live ? "Идёт сейчас" : "Ближайшее занятие"}</div>` : ""}
         <div class="lesson-top">
-          <div class="lesson-when">${esc(fmtWhen(l.startMs, l.endMs))}${l.pkg ? ` · ${esc(l.pkg)}` : ""}</div>
+          <div class="lesson-when">${esc(fmtWhen(l.startMs, l.endMs))}${l.pkg ? ` · ${esc(l.pkg)}` : ""}${l.group ? " · групповое" : ""}</div>
           ${lessonPills(l, now)}
         </div>
         ${call || board ? `<div class="lesson-links">
@@ -719,7 +719,7 @@
       ${withFiles.length ? withFiles.map((l) => `
         <div class="lesson" data-lesson="${esc(l.id)}">
           <div class="lesson-top">
-            <div class="lesson-when">${esc(fmtWhen(l.startMs, l.endMs))}${l.pkg ? ` · ${esc(l.pkg)}` : ""}</div>
+            <div class="lesson-when">${esc(fmtWhen(l.startMs, l.endMs))}${l.pkg ? ` · ${esc(l.pkg)}` : ""}${l.group ? " · групповое" : ""}</div>
             ${lessonPills(l, now)}
           </div>
           <ul class="files">${homeworkOf(l).map((h) => `<li><a href="${esc(h.url)}" target="_blank" rel="noopener noreferrer">${esc(h.name || "файл")}</a> <span class="who">(${esc(ROLE[h.by] || ROLE.teacher)})</span></li>`).join("")}</ul>
