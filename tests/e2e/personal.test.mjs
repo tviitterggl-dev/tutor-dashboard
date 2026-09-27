@@ -349,3 +349,25 @@ test("iPhone (эмуляция iPhone 13): мета-теги Safari, значо�
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await app.close();
 });
+
+test("«Личное время» поверх занятия: ответ «нет» на пересечение — кнопка снова работает", async () => {
+  const dialogs = [];
+  const app = await openApp({ onDialog: (d) => { dialogs.push(d.message()); return d.type() !== "confirm"; } });
+  const { page } = app;
+  await page.waitForSelector("#appRoot", { state: "visible" });
+  await page.click('.tab[data-tab="calendar"]');
+  await page.waitForSelector("#fcRoot .fc-event");
+  await page.click("#fcAddBtn");
+  await page.waitForSelector("#mToPersonal");
+  await page.click("#mToPersonal");
+  await page.waitForSelector("#mPersonalSave");
+  await page.fill("#mDate", "2026-09-24");
+  await page.fill("#mTime", "18:00"); // Борис 18:00–19:30
+  // настоящая база отвечает не мгновенно — к ответу событие клика уже завершено
+  await page.evaluate(() => { const fb = window.TutorFB, o = fb.listLessons; fb.listLessons = (...a) => new Promise((r) => setTimeout(r, 50)).then(() => o.apply(fb, a)); });
+  await page.click("#mPersonalSave");
+  await page.waitForFunction(() => !document.querySelector("#mPersonalSave").disabled, null, { timeout: 3000 });
+  assert.ok(dialogs.some((m) => /уже есть занятия/.test(m)), JSON.stringify(dialogs));
+  assert.equal(await page.isVisible("#modalBack"), true, "окно не закрылось — можно поменять время");
+  await app.close();
+});

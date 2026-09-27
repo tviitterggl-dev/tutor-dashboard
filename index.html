@@ -3516,7 +3516,8 @@
       </div>`);
     mq("#mClose").addEventListener("click", closeModal);
     mq("#delConfirm").addEventListener("click", async (e) => {
-      e.currentTarget.disabled = true;
+      const btn = e.currentTarget; // после await у события его уже нет
+      btn.disabled = true;
       modalMsg("Удаляю…");
       try {
         await deleteStudent(sid, mq("#delPast").checked);
@@ -3528,7 +3529,7 @@
         afterLessonsChanged();
       } catch (err) {
         console.error(err);
-        e.currentTarget.disabled = false;
+        btn.disabled = false;
         modalMsg("Удалилось не всё (нет интернета?). Нажми ещё раз — повтор безопасен.", "err");
       }
     });
@@ -5085,7 +5086,8 @@
       const when = readWhen();
       const note = mq("#mNote").value.trim();
       if (!when.ok) { modalMsg("Проверь дату и время.", "err"); return; }
-      e.currentTarget.disabled = true;
+      const btn = e.currentTarget; // после await у события его уже нет
+      btn.disabled = true;
       try {
         if (editing) {
           const delta = when.startMs - block.startMs;
@@ -5100,7 +5102,7 @@
           items.forEach(it => Object.assign(it.data, { kind: "personal", note, studentId: null }));
           const conflicts = (await findConflicts(items)).filter(x => !isPersonal(x));
           if (conflicts.length && !confirm(`В это время уже есть занятия:\n${conflicts.slice(0, 4).map(x => `• ${x.title}, ${fmtWhen(x.startMs, x.endMs)}`).join("\n")}\n\nВсё равно отметить личное время?`)) {
-            e.currentTarget.disabled = false;
+            btn.disabled = false;
             return;
           }
           await window.TutorFB.saveLessons(items);
@@ -5109,7 +5111,7 @@
         afterLessonsChanged();
       } catch (err) {
         console.error(err);
-        e.currentTarget.disabled = false;
+        btn.disabled = false;
         modalMsg("Не удалось сохранить (нет интернета?). Попробуй ещё раз.", "err");
       }
     });
@@ -5117,13 +5119,14 @@
       mq("#mPersonalDelete").addEventListener("click", async (e) => {
         const sc = scope();
         if (!confirm(sc === "following" ? "Удалить этот и все следующие блоки личного времени?" : "Удалить этот блок личного времени?")) return;
-        e.currentTarget.disabled = true;
+        const btn = e.currentTarget;
+        btn.disabled = true;
         try {
           await deleteScoped(block, sc);
           closeModal();
           afterLessonsChanged();
         } catch (err) {
-          e.currentTarget.disabled = false;
+          btn.disabled = false;
           modalMsg("Не удалось удалить (нет интернета?).", "err");
         }
       });
