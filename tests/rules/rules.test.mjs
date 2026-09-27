@@ -182,3 +182,14 @@ test("прочие коллекции закрыты", async () => {
   assert.equal(await put(`random/doc`, { a: 1 }), 403);
   assert.equal(await get(`random/doc`), 403);
 });
+
+test("настройки кабинета (accessPrefs): по ключу — читать и писать порядок вкладок; перечислять нельзя; лишнее — нельзя", async () => {
+  assert.equal(await put(`accessPrefs/${PKEY}`, { tabOrder: ["hw", "lessons", "calendar", "requests", "settings"], updatedAt: 1 }), 200);
+  assert.equal(await get(`accessPrefs/${PKEY}`), 200);
+  assert.equal(await get("accessPrefs"), 403, "список всех настроек — нельзя");
+  assert.equal(await put(`accessPrefs/${PKEY}`, { tabOrder: ["a"], secret: "x" }), 403, "лишнее поле");
+  assert.equal(await put(`accessPrefs/${PKEY}`, { tabOrder: "hw,lessons" }), 403, "не список");
+  assert.equal(await put(`accessPrefs/${PKEY}`, { tabOrder: Array.from({ length: 13 }, (_, i) => "t" + i) }), 403, "слишком длинный");
+  assert.equal(await put("accessPrefs/shortkey", { tabOrder: ["hw"] }), 403, "короткий ключ");
+  assert.equal(await del(`accessPrefs/${PKEY}`), 200);
+});
