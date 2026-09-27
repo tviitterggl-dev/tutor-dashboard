@@ -113,7 +113,7 @@ test("кабинет учителя без сети: плашка, данные 
   await page.waitForSelector("#offlineToast", { state: "visible" });
   await page.click("#mClose");
   // шаблон
-  await page.click('.tab[data-tab="notify"]');
+  await page.click('.tab[data-tab="settings"]');
   await page.click("#tplAdd");
   await page.fill("#tplText", "Офлайн-шаблон");
   await page.evaluate(() => { document.querySelector("#offlineToast").hidden = true; });

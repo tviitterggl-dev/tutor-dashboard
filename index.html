@@ -21,6 +21,7 @@
 <link rel="stylesheet" href="design.css">
 <script src="theme.js"></script>
 <script src="notify-core.js"></script>
+<script src="tab-order.js"></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
   import {
@@ -935,7 +936,7 @@
       <div class="tab" data-tab="analytics">Аналитика</div>
       <div class="tab" data-tab="students">Ученики</div>
       <div class="tab" data-tab="schedule">Расписание</div>
-      <div class="tab" data-tab="more">Ещё</div>
+      <div class="tab" data-tab="settings">Настройки</div>
     </div>
 
     <!-- ЗАНЯТИЯ -->
@@ -1043,45 +1044,13 @@
         <div class="msg" id="nfMsg"></div>
       </div>
 
-      <div class="card" id="tplCard">
-        <div class="chart-title">Шаблоны сообщений</div>
-        <div id="tplList"><div class="empty">Загрузка…</div></div>
-        <div class="btn-row" style="margin-top:8px"><button class="btn secondary" type="button" id="tplAdd">+ Новый шаблон</button></div>
-        <div id="tplForm" style="display:none; margin-top:8px">
-          <div class="field"><span>Название шаблона (для списка)</span><input type="text" id="tplName" maxlength="60" placeholder="Например: Нет занятия на этой неделе"></div>
-          <div class="field"><span>Заголовок</span><input type="text" id="tplTitle" maxlength="100" placeholder="Например: Занятия не будет"></div>
-          <div class="field"><span>Текст</span><textarea id="tplText" maxlength="1000" placeholder="Текст сообщения; можно {ученик}, {дата}, {время}"></textarea></div>
-          <div class="btn-row" style="margin-bottom:0">
-            <button class="btn" type="button" id="tplSave">Сохранить шаблон</button>
-            <button class="btn secondary" type="button" id="tplCancel">Отмена</button>
-          </div>
-        </div>
-        <div class="msg" id="tplMsg"></div>
-        <div class="hint">Шаблоны хранятся в твоей базе и доступны с любого твоего устройства. В форме выше выбери шаблон — заголовок и текст подставятся, их можно поправить перед отправкой.</div>
-      </div>
 
       <div class="card">
         <div class="chart-title">Настроенные уведомления</div>
         <div id="nfList"><div class="empty">Загрузка…</div></div>
       </div>
 
-      <div class="card">
-        <div class="chart-title">Пуш на телефон</div>
-        <div id="nfPushStatus"><div class="empty">Загрузка…</div></div>
-        <div class="hint">Пуши рассылает GitHub Actions по расписанию (раз в ~15 минут) — нужен разовый шаг настройки, см. README.md → «Уведомления». Родителю или ученику нужно один раз нажать «Включить уведомления» в своём кабинете («Ещё»). На iPhone — только если кабинет добавлен на экран «Домой» (Safari → «Поделиться» → «На экран Домой»), в обычной вкладке Safari пуши не приходят. В самом кабинете сообщения видны всегда, даже без пушей.</div>
-      </div>
 
-      <div class="card" id="tpCard">
-        <div class="chart-title">Уведомления мне на телефон</div>
-        <div id="tpBody"><div class="empty">Загрузка…</div></div>
-        <div style="margin-top:10px">
-          <label class="check"><input type="checkbox" data-tp="paid" checked> родитель отметил «Оплачено»</label>
-          <label class="check"><input type="checkbox" data-tp="note" checked> родитель или ученик написал «Пояснение» к занятию</label>
-          <label class="check"><input type="checkbox" data-tp="homework" checked> прислали файл домашнего задания</label>
-        </div>
-        <div class="msg" id="tpMsg"></div>
-        <div class="hint">Пуш приходит с фоновой рассылкой — в пределах ~15 минут. Включать нужно на каждом своём устройстве отдельно; галочки общие для всех устройств. На iPhone — только если кабинет открыт со значка на экране «Домой».</div>
-      </div>
     </div>
 
     <!-- (карточка «Уведомления мне» — внутри вкладки «Уведомления», см. tpCard) -->
@@ -1168,14 +1137,6 @@
         <div class="chart-title">Доступы для родителей и учеников</div>
         <div id="accessBody"><div class="empty">Загрузка…</div></div>
       </div>
-      <div class="card">
-        <div class="chart-title">Аккаунт</div>
-        <div class="hint" style="margin-top:0" id="accountInfo"></div>
-        <div class="btn-row" style="margin:8px 0 0">
-          <button class="btn secondary" id="accountResetBtn" type="button">Сменить пароль (письмо на почту)</button>
-          <button class="btn secondary" id="accountSignOutBtn" type="button">Выйти на этом устройстве</button>
-        </div>
-      </div>
     </div>
 
     <!-- РАСПИСАНИЕ -->
@@ -1234,16 +1195,60 @@
       </div>
     </div>
 
-    <!-- ЕЩЁ: резервная копия, оформление -->
-    <div class="tabview" id="view-more" style="display:none">
+    <!-- НАСТРОЙКИ: всё, что настраивается один раз, а не делается каждый день -->
+    <div class="tabview" id="view-settings" style="display:none">
+      <div class="card" id="tabOrderCard">
+        <div class="chart-title">Порядок вкладок</div>
+        <div id="tabOrderEditor"></div>
+        <div class="msg" id="tabOrderMsg"></div>
+        <div class="hint">Перетащи вкладку за ⠿ или двигай кнопками ↑ ↓. Первая вкладка открывается при входе. Порядок хранится в твоей базе — одинаковый на всех твоих устройствах.</div>
+      </div>
+
       <div class="card">
         <div class="chart-title">Аккаунт и база</div>
         <div class="status-row" id="statusRow" style="margin-bottom:0">
           <span class="badge" id="calBadge">Занятия: …</span>
           <span class="badge" id="userBadge"></span>
         </div>
-        <div class="hint">Выйти на этом устройстве и сменить пароль — вкладка «Ученики» → «Аккаунт».</div>
+        <div class="hint" id="accountInfo"></div>
+        <div class="btn-row" style="margin:8px 0 0">
+          <button class="btn secondary" id="accountResetBtn" type="button">Сменить пароль (письмо на почту)</button>
+          <button class="btn secondary" id="accountSignOutBtn" type="button">Выйти на этом устройстве</button>
+        </div>
       </div>
+      <div class="card" id="tpCard">
+        <div class="chart-title">Уведомления мне на телефон</div>
+        <div id="tpBody"><div class="empty">Загрузка…</div></div>
+        <div style="margin-top:10px">
+          <label class="check"><input type="checkbox" data-tp="paid" checked> родитель отметил «Оплачено»</label>
+          <label class="check"><input type="checkbox" data-tp="note" checked> родитель или ученик написал «Пояснение» к занятию</label>
+          <label class="check"><input type="checkbox" data-tp="homework" checked> прислали файл домашнего задания</label>
+        </div>
+        <div class="msg" id="tpMsg"></div>
+        <div class="hint">Пуш приходит с фоновой рассылкой — в пределах ~15 минут. Включать нужно на каждом своём устройстве отдельно; галочки общие для всех устройств. На iPhone — только если кабинет открыт со значка на экране «Домой».</div>
+      </div>
+      <div class="card">
+        <div class="chart-title">Пуш на телефон</div>
+        <div id="nfPushStatus"><div class="empty">Загрузка…</div></div>
+        <div class="hint">Пуши рассылает GitHub Actions по расписанию (раз в ~15 минут) — нужен разовый шаг настройки, см. README.md → «Уведомления». Родителю или ученику нужно один раз нажать «Включить уведомления» в своём кабинете («Ещё»). На iPhone — только если кабинет добавлен на экран «Домой» (Safari → «Поделиться» → «На экран Домой»), в обычной вкладке Safari пуши не приходят. В самом кабинете сообщения видны всегда, даже без пушей.</div>
+      </div>
+      <div class="card" id="tplCard">
+        <div class="chart-title">Шаблоны сообщений</div>
+        <div id="tplList"><div class="empty">Загрузка…</div></div>
+        <div class="btn-row" style="margin-top:8px"><button class="btn secondary" type="button" id="tplAdd">+ Новый шаблон</button></div>
+        <div id="tplForm" style="display:none; margin-top:8px">
+          <div class="field"><span>Название шаблона (для списка)</span><input type="text" id="tplName" maxlength="60" placeholder="Например: Нет занятия на этой неделе"></div>
+          <div class="field"><span>Заголовок</span><input type="text" id="tplTitle" maxlength="100" placeholder="Например: Занятия не будет"></div>
+          <div class="field"><span>Текст</span><textarea id="tplText" maxlength="1000" placeholder="Текст сообщения; можно {ученик}, {дата}, {время}"></textarea></div>
+          <div class="btn-row" style="margin-bottom:0">
+            <button class="btn" type="button" id="tplSave">Сохранить шаблон</button>
+            <button class="btn secondary" type="button" id="tplCancel">Отмена</button>
+          </div>
+        </div>
+        <div class="msg" id="tplMsg"></div>
+        <div class="hint">Шаблоны хранятся в твоей базе и доступны с любого твоего устройства. Во вкладке «Уведомления» выбери шаблон в поле «Шаблон» — заголовок и текст подставятся, их можно поправить перед отправкой.</div>
+      </div>
+
       <div class="card">
         <div class="chart-title">Резервная копия</div>
         <div class="btn-row" style="margin-bottom:0">
@@ -1269,7 +1274,21 @@
 
 <script>
 (function () {
-  let activeTab = "lessons"; // lessons | calendar | requests | summary | students | schedule | more
+  let activeTab = "lessons"; // см. TEACHER_TABS
+  // Вкладки учителя — по умолчанию в этом порядке; свой порядок — state/main.tabOrder.
+  const TEACHER_TABS = ["lessons", "calendar", "requests", "notify", "summary", "analytics", "students", "schedule", "settings"];
+  const TAB_ORDER_STORE = "teacherTabOrder"; // копия на устройстве — чтобы порядок был сразу, до загрузки базы
+  function currentTabOrder() {
+    let local = null;
+    try { local = JSON.parse(localStorage.getItem(TAB_ORDER_STORE) || "null"); } catch (e) { /* нет */ }
+    return TabOrder.normalize((remoteStateReady && remoteState.tabOrder) || local, TEACHER_TABS);
+  }
+  function applyTabOrder() {
+    const order = currentTabOrder();
+    TabOrder.apply(document.querySelector(".tabs"), "data-tab", order);
+    try { localStorage.setItem(TAB_ORDER_STORE, JSON.stringify(order)); } catch (e) { /* приватный режим */ }
+    return order;
+  }
 
   // Занятия (день/неделя)
   let lessonMode = "day"; // day | week — по умолчанию «День»
@@ -1461,7 +1480,7 @@
   async function afterAuth() {
     showApp();
     if (!(await bootstrapRemoteState())) return;
-    showTab("lessons");
+    showTab(applyTabOrder()[0]); // первая вкладка в своём порядке — «главная»
     await startChannelWatch();
     publishViewsSoon(); // раз в заход освежаем «занято» в кабинетах родителей
     refreshPackageAlertsSoon();
@@ -1740,6 +1759,7 @@
 
   let remoteStateReady = false;
   let remoteState = {};
+  applyTabOrder(); // порядок вкладок сразу — из копии на устройстве; после входа — из базы
 
   // ---------- ОФЛАЙН ----------
   // Без интернета: данные — из локального кэша Firestore (последние
@@ -5141,7 +5161,7 @@
   function showTab(tab) {
     activeTab = tab;
     document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === tab));
-    ["lessons", "calendar", "requests", "notify", "summary", "analytics", "students", "schedule", "more"].forEach(t => {
+    TEACHER_TABS.forEach(t => {
       $("view-" + t).style.display = t === tab ? "block" : "none";
     });
     if (tab === "lessons") { stopPoll(); loadLessonEvents(); }
@@ -5152,7 +5172,7 @@
     else if (tab === "analytics") { stopPoll(); loadAnalytics(); loadTrend(); }
     else if (tab === "students") { stopPoll(); renderStudentsRoster(); loadPackages(); loadAccessCard(); }
     else if (tab === "schedule") { stopPoll(); loadSchedule(); }
-    else if (tab === "more") prepareBackup();
+    else if (tab === "settings") { stopPoll(); prepareBackup(); renderSettingsTab(); }
   }
 
   document.querySelectorAll(".tab").forEach(tab => {
@@ -5293,10 +5313,45 @@
     else if (nfTarget) $("nfTo").value = nfTarget;
     renderNfLessons();
     renderNfList();
-    renderPushStatus();
-    renderTeacherPush();
     await ensureStarterTemplates();
     renderTemplates();
+  }
+
+  // ---- «Настройки»: порядок вкладок, уведомления мне, шаблоны, статус пушей ----
+  const TAB_LABELS = () => Object.fromEntries([...document.querySelectorAll(".tabs .tab")].map(t => [t.dataset.tab, t.childNodes[0].textContent.trim()]));
+  let tabOrderEditor = null;
+  function renderSettingsTab() {
+    const labels = TAB_LABELS();
+    const items = TEACHER_TABS.map(id => ({ id, label: labels[id] || id }));
+    if (!tabOrderEditor) {
+      tabOrderEditor = TabOrder.mountEditor($("tabOrderEditor"), {
+        items, order: currentTabOrder(),
+        onChange: saveTabOrder,
+      });
+    } else tabOrderEditor.set(currentTabOrder());
+    renderTeacherPush();
+    (async () => {
+      try { await getAccessKeys(); } catch (e) { /* без списка доступов */ }
+      renderPushStatus();
+      await ensureStarterTemplates();
+      renderTemplates();
+    })();
+  }
+  async function saveTabOrder(order) {
+    const m = $("tabOrderMsg");
+    if (!navigator.onLine) { tabOrderEditor.set(currentTabOrder()); m.textContent = OFFLINE_TEXT; m.className = "msg err"; return; }
+    const prev = remoteState.tabOrder;
+    remoteState.tabOrder = order;
+    applyTabOrder();
+    try {
+      await window.TutorFB.patchState({ tabOrder: order });
+      m.textContent = "Сохранено — порядок одинаковый на всех твоих устройствах."; m.className = "msg ok";
+    } catch (err) {
+      remoteState.tabOrder = prev;
+      applyTabOrder();
+      tabOrderEditor.set(currentTabOrder());
+      m.textContent = isOfflineError(err) ? OFFLINE_TEXT : "Не сохранилось (нет интернета?)"; m.className = "msg err";
+    }
   }
 
   // ---- шаблоны сообщений ----

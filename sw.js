@@ -9,8 +9,8 @@
 // версии, не меняются: «сначала кэш». Данные (Firestore) SW не трогает —
 // их кэширует сам Firestore (IndexedDB), а кабинет родителя ещё и хранит
 // последнюю витрину в localStorage.
-const CACHE = "tutor-shell-v8";
-const SHELL = ["./", "./index.html", "./cabinet.html", "./design.css", "./theme.js", "./notify-core.js", "./manifest.json",
+const CACHE = "tutor-shell-v9";
+const SHELL = ["./", "./index.html", "./cabinet.html", "./design.css", "./theme.js", "./notify-core.js", "./tab-order.js", "./manifest.json",
   "./icons/icon-192.png", "./icons/icon-512.png", "./icons/apple-touch-icon.png", "./icons/favicon-32.png"];
 const CDN = [
   "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js",

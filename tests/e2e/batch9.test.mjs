@@ -258,8 +258,8 @@ test("п.6, п.8, п.9: карточка открывается по клику;
   // п.8
   assert.equal(await page.$("#logoutBtn"), null, "кнопки «выйти» в шапке нет");
   assert.equal(await page.isVisible("#userBadge"), false, "почта не в шапке");
-  assert.equal(await page.evaluate(() => document.querySelector("#calBadge").closest("#view-more") !== null), true);
-  await page.click('.tab[data-tab="more"]');
+  assert.equal(await page.evaluate(() => document.querySelector("#calBadge").closest("#view-settings") !== null), true);
+  await page.click('.tab[data-tab="settings"]');
   assert.match(await page.textContent("#userBadge"), /teacher@example\.org/);
   assert.match(await page.textContent("#calBadge"), /Занятия: в дашборде/);
   assert.equal(await page.isVisible("#syncAlert"), false);

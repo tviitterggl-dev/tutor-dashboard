@@ -21,7 +21,7 @@ test("шаблоны: три примера при первом открытии
   const app = await openApp({ seed, onDialog: (d) => { prompts.push(d.message()); return d.type() === "prompt" ? "Спасибо за оплату" : true; } });
   const { page } = app;
   await page.waitForSelector("#lessonsList .lesson");
-  await page.click('.tab[data-tab="notify"]');
+  await page.click('.tab[data-tab="settings"]'); // управление шаблонами — в «Настройках»
   await waitFor(async () => Object.keys(await tpls(app)).length === 3, "примеры шаблонов");
   const names = Object.values(await tpls(app)).map((t) => t.name).sort();
   assert.deepEqual(names, ["Напоминание о занятии", "Нет занятия на этой неделе", "Поздравление"]);
@@ -47,6 +47,7 @@ test("шаблоны: три примера при первом открытии
   assert.equal(Object.keys(await tpls(app)).length, 4, "изменение не плодит копий");
 
   // выбрать в «Отправить сейчас» → заголовок и текст подставились → отправить
+  await page.click('.tab[data-tab="notify"]');
   await page.selectOption("#nwTo", { label: "Тест, 7 класс — родители" });
   await page.selectOption("#nwTpl", pid);
   assert.equal(await page.inputValue("#nwHead"), "Важно");
@@ -70,6 +71,7 @@ test("шаблоны: три примера при первом открытии
   assert.ok(Object.values(all).some((t) => t.name === "Спасибо за оплату" && t.title === "Спасибо!" && t.text === "Оплату получили, спасибо!"));
 
   // удалить
+  await page.click('.tab[data-tab="settings"]');
   await page.locator(`#tplList [data-tpl="${pid}"] [data-tpl-delete]`).click();
   await page.waitForFunction(() => /Шаблон удалён/.test(document.querySelector("#tplMsg").textContent));
   assert.equal((await tpls(app))[pid], undefined);
@@ -78,7 +80,7 @@ test("шаблоны: три примера при первом открытии
   // на другом устройстве (перезагрузка) — те же шаблоны, примеры не добавляются повторно
   await page.reload();
   await page.waitForSelector("#lessonsList .lesson");
-  await page.click('.tab[data-tab="notify"]');
+  await page.click('.tab[data-tab="settings"]');
   await page.waitForFunction(() => document.querySelectorAll("#tplList [data-tpl]").length === 4);
   assert.equal(Object.keys(await tpls(app)).length, 4);
   assert.deepEqual(app.errors, []);
@@ -91,7 +93,7 @@ test("пуши учителю: «Включить на этом устройст
   const base = page.url().replace(/\/index\.html.*$/, "");
   await app.context.grantPermissions(["notifications"], { origin: base });
   await page.waitForSelector("#lessonsList .lesson");
-  await page.click('.tab[data-tab="notify"]');
+  await page.click('.tab[data-tab="settings"]'); // «Уведомления мне» — в «Настройках»
   await page.waitForSelector("#tpOnBtn");
   await page.click("#tpOnBtn");
   await page.waitForFunction(() => /Уведомления об оплате/.test(document.querySelector("#tpMsg").textContent), null, { timeout: 10000 });
@@ -109,7 +111,7 @@ test("пуши учителю: «Включить на этом устройст
   assert.deepEqual((await app.db())[statePath].teacherPush, { paid: true, note: true, homework: false });
   await page.reload();
   await page.waitForSelector("#lessonsList .lesson");
-  await page.click('.tab[data-tab="notify"]');
+  await page.click('.tab[data-tab="settings"]');
   await page.waitForSelector("#tpOff");
   assert.equal(await page.isChecked('[data-tp="homework"]'), false);
   assert.equal(await page.isChecked('[data-tp="paid"]'), true);

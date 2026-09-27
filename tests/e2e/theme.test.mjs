@@ -56,13 +56,13 @@ test("учитель: «Ещё» → ползунок темы; выбор за�
   const app = await openApp({ colorScheme: "light" });
   const { page } = app;
   await page.waitForSelector("#lessonsList .lesson");
-  await page.click('.tab[data-tab="more"]');
-  await page.waitForSelector("#view-more .theme-switch");
+  await page.click('.tab[data-tab="settings"]');
+  await page.waitForSelector("#view-settings .theme-switch");
   let st = await themeState(page);
   assert.equal(st.checked, false);
   assert.equal(await page.isVisible("[data-theme-system]"), false, "пока выбор не сделан — кнопки сброса нет");
 
-  await page.click("#view-more .theme-switch");
+  await page.click("#view-settings .theme-switch");
   st = await themeState(page);
   assert.deepEqual([st.attr, st.saved, st.checked], ["dark", "dark", true]);
   await waitBg(page, DARK_BG);
@@ -76,8 +76,8 @@ test("учитель: «Ещё» → ползунок темы; выбор за�
   await waitBg(page, DARK_BG);
 
   // обратно на светлую вручную, потом «Как в системе»
-  await page.click('.tab[data-tab="more"]');
-  await page.click("#view-more .theme-switch");
+  await page.click('.tab[data-tab="settings"]');
+  await page.click("#view-settings .theme-switch");
   st = await themeState(page);
   assert.deepEqual([st.attr, st.saved, st.checked], ["light", "light", false]);
   await page.click("[data-theme-system]");
@@ -101,15 +101,15 @@ test("родитель и ученик: ползунок темы во вкла�
     await cab.goto(base + "/cabinet.html" + hash);
     await cab.waitForSelector("#pane-lessons .lesson");
     await waitBg(cab, DARK_BG);
-    await cab.click('.ctab[data-ctab="more"]');
-    await cab.waitForSelector("#pane-more .theme-switch");
+    await cab.click('.ctab[data-ctab="settings"]');
+    await cab.waitForSelector("#pane-settings .theme-switch");
     assert.equal((await themeState(cab)).checked, true);
-    await cab.click("#pane-more .theme-switch");
+    await cab.click("#pane-settings .theme-switch");
     await waitBg(cab, LIGHT_BG);
     await cab.reload();
     await cab.waitForSelector("#pane-lessons .lesson");
     await waitBg(cab, LIGHT_BG);
-    await cab.click('.ctab[data-ctab="more"]');
+    await cab.click('.ctab[data-ctab="settings"]');
     await cab.click("[data-theme-system]");
     await waitBg(cab, DARK_BG);
     assert.deepEqual(errors, []);
@@ -151,7 +151,7 @@ test("«Ещё» → резервная копия: JSON со всеми дан�
   const app = await openApp();
   const { page } = app;
   await page.waitForSelector("#lessonsList .lesson");
-  await page.click('.tab[data-tab="more"]');
+  await page.click('.tab[data-tab="settings"]');
   // данные готовятся заранее, при открытии «Ещё»; кнопка отдаёт файл сразу
   await page.waitForFunction(() => /Копия готова/.test(document.querySelector("#backupMsg").textContent));
   const [dl] = await Promise.all([page.waitForEvent("download"), page.click("#backupJsonBtn")]);
@@ -195,7 +195,7 @@ test("резервная копия на iPhone: «Поделиться» пря
       return window.__shares.length === 1 ? Promise.resolve() : Promise.reject(new DOMException("cancel", "AbortError"));
     };
   });
-  await page.click('.tab[data-tab="more"]');
+  await page.click('.tab[data-tab="settings"]');
   await page.waitForFunction(() => /Копия готова/.test(document.querySelector("#backupMsg").textContent));
   await page.click("#backupJsonBtn");
   await page.waitForFunction(() => /Сохранено/.test(document.querySelector("#backupMsg").textContent));

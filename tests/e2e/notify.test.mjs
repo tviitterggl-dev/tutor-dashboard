@@ -182,7 +182,7 @@ test("пуш: без ключа — кнопки нет; с ключом — «�
   // без публичного ключа
   const app0 = await openFamily({ vapidKey: "" });
   const c0 = await openCabinet(app0, `#p=${PK}`);
-  await c0.click('.ctab[data-ctab="more"]');
+  await c0.click('.ctab[data-ctab="settings"]');
   assert.match(await c0.innerText("#pushBody"), /пока не включены у преподавателя/);
   assert.equal(await c0.locator("#pushOnBtn").count(), 0);
   await app0.close();
@@ -190,7 +190,7 @@ test("пуш: без ключа — кнопки нет; с ключом — «�
   const app = await openFamily({ vapidKey: "BTestPublicVapidKey_for_tests_only_0123456789", serviceWorkers: "allow", persistent: { channel: "chromium" } });
   await app.context.grantPermissions(["notifications"], { origin: app.base });
   const cab = await openCabinet(app, `#p=${PK}`);
-  await cab.click('.ctab[data-ctab="more"]');
+  await cab.click('.ctab[data-ctab="settings"]');
   // порядок: разрешение спрашиваем первым и прямо в нажатии (iPhone), до регистрации service worker
   await cab.evaluate(() => {
     window.__order = [];
@@ -215,11 +215,11 @@ test("пуш: без ключа — кнопки нет; с ключом — «�
   assert.match(items[0].token, /^fake-fcm-token-/);
   // повторное «Включить» на том же устройстве не плодит подписки
   await cab.reload(); await cab.waitForSelector("#pane-lessons .lesson");
-  await cab.click('.ctab[data-ctab="more"]');
+  await cab.click('.ctab[data-ctab="settings"]');
   assert.equal(await cab.locator("#pushOnBtn").count(), 0, "уже включено");
   // учитель видит устройство; сообщения о занятиях канал не ломают
   const { page } = app;
-  await page.click('.tab[data-tab="notify"]');
+  await page.click('.tab[data-tab="settings"]'); // статус пушей — в «Настройках»
   await page.waitForFunction(() => /Тест, 7 класс\s*1 устройство/.test(document.querySelector("#nfPushStatus").innerText));
   assert.match(await page.innerText("#nfPushStatus"), /ещё ни разу не запускалась/);
   await page.waitForTimeout(800);
@@ -239,7 +239,7 @@ test("пуш: при отзыве доступа подписка этого ч�
   for (const [hash, seedTok] of [[`#p=${PK}`, "mom"], [`#p=${PK2}`, "dad"]]) {
     const cab = await openCabinet(app, hash);
     await cab.evaluate((s) => localStorage.setItem("__fakeFcmSeed", s), seedTok);
-    await cab.click('.ctab[data-ctab="more"]');
+    await cab.click('.ctab[data-ctab="settings"]');
     await cab.click("#pushOnBtn");
     await cab.waitForFunction(() => /Уведомления будут приходить/.test(document.querySelector("#pushMsg").textContent), null, { timeout: 8000 });
     await cab.close();
@@ -261,7 +261,7 @@ test("service worker: пуш в формате FCM показывает увед
   const app = await openFamily({ vapidKey: "BTestPublicVapidKey_for_tests_only_0123456789", serviceWorkers: "allow", persistent: { channel: "chromium" } });
   await app.context.grantPermissions(["notifications"], { origin: app.base });
   const cab = await openCabinet(app, `#p=${PK}`);
-  await cab.click('.ctab[data-ctab="more"]');
+  await cab.click('.ctab[data-ctab="settings"]');
   await cab.click("#pushOnBtn");
   await cab.waitForFunction(() => /Уведомления будут приходить/.test(document.querySelector("#pushMsg").textContent), null, { timeout: 8000 });
   const cdp = await app.context.newCDPSession(cab);

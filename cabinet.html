@@ -23,6 +23,7 @@
 <link rel="stylesheet" href="design.css">
 <script src="theme.js"></script>
 <script src="notify-core.js"></script>
+<script src="tab-order.js"></script>
 <style>
   /* Токены, шрифты, анимации и переключатель темы — в design.css (общий для
      всех кабинетов). Здесь — компоненты кабинета родителя/ученика. */
@@ -184,7 +185,7 @@
     <button type="button" class="ctab" data-ctab="calendar" role="tab">Календарь</button>
     <button type="button" class="ctab" data-ctab="hw" role="tab">ДЗ</button>
     <button type="button" class="ctab" data-ctab="requests" role="tab">Заявки</button>
-    <button type="button" class="ctab" data-ctab="more" role="tab">Ещё</button>
+    <button type="button" class="ctab" data-ctab="settings" role="tab">Настройки</button>
   </nav>
   <!-- сообщения «нужна ссылка / доступ отозван / загрузка» -->
   <div id="root"></div>
@@ -202,13 +203,12 @@
 
   <section class="pane" id="pane-requests" style="display:none"></section>
 
-  <section class="pane" id="pane-more" style="display:none">
-    <div class="card">
-      <div class="card-title">Если что — пишите</div>
-      <div class="contacts">
-        <a id="tgLink" href="https://t.me/mat_repet" target="_blank" rel="noopener noreferrer">Telegram</a>
-        <a id="telemostLink" href="https://yandex.ru/chat/p/ad9c2706-f36a-940f-7a90-d15f170427e5?utm_source=invite" target="_blank" rel="noopener noreferrer">Яндекс Телемост</a>
-      </div>
+  <section class="pane" id="pane-settings" style="display:none">
+    <div class="card" id="tabOrderCard">
+      <div class="card-title">Порядок вкладок</div>
+      <div id="tabOrderEditor"></div>
+      <div class="msg" id="tabOrderMsg"></div>
+      <div class="hint">Перетащите вкладку за ⠿ или двигайте кнопками ↑ ↓. Первая вкладка открывается при входе. Порядок запоминается для этой ссылки — одинаковый на всех ваших устройствах.</div>
     </div>
     <div class="card" id="pushCard">
       <div class="card-title">Уведомления на телефон</div>
@@ -225,13 +225,20 @@
       <div class="hint">Кабинет запоминается в этом браузере. «Забыть» — если это чужой или общий телефон/компьютер; снова войти можно по ссылке от преподавателя.</div>
       <div class="hint" id="updatedAt"></div>
     </div>
+    <div class="card">
+      <div class="card-title">Если что — пишите</div>
+      <div class="contacts">
+        <a id="tgLink" href="https://t.me/mat_repet" target="_blank" rel="noopener noreferrer">Telegram</a>
+        <a id="telemostLink" href="https://yandex.ru/chat/p/ad9c2706-f36a-940f-7a90-d15f170427e5?utm_source=invite" target="_blank" rel="noopener noreferrer">Яндекс Телемост</a>
+      </div>
+    </div>
   </section>
 </div>
 <div class="modal-back" id="modalBack" style="display:none"><div class="modal" id="modal" role="dialog" aria-modal="true"></div></div>
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
-  import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, setDoc, deleteDoc, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+  import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, doc, getDoc, setDoc, deleteDoc, collection, onSnapshot } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
   // Здесь нет и не должно быть ключа учителя. Кабинет видит только:
   //  • свою витрину parentAccess/{ключ} или studentAccess/{ключ} (её пишет учитель);
@@ -334,7 +341,19 @@
   let pastLimit = 10;
   let cal = null;
   let openLessonId = null;
-  let activeTab = "lessons";      // lessons | calendar | hw | requests | more
+  let activeTab = "lessons";      // lessons | calendar | hw | requests | settings
+  // Порядок вкладок — свой у каждой ссылки: accessPrefs/{ключ}.tabOrder (как
+  // витрина, «ключ = пароль»), копия на устройстве — чтобы был сразу.
+  const CAB_TABS = ["lessons", "calendar", "hw", "requests", "settings"];
+  const TAB_ORDER_STORE = "cabinetTabOrder"; // { [ключ]: [...] }
+  const tabOrders = () => { try { return JSON.parse(localStorage.getItem(TAB_ORDER_STORE) || "{}") || {}; } catch (e) { return {}; } };
+  function tabOrderFor(key) { return TabOrder.normalize(tabOrders()[key], CAB_TABS); }
+  function rememberTabOrder(key, order) {
+    const all = tabOrders();
+    all[key] = order;
+    try { localStorage.setItem(TAB_ORDER_STORE, JSON.stringify(all)); } catch (e) { /* приватный режим */ }
+  }
+  const applyCabTabOrder = (order) => TabOrder.apply($("tabs"), "data-ctab", order);
   let lessonsFilter = "upcoming"; // upcoming | past
   let hwSelected = null;          // занятие, выбранное для загрузки во вкладке «ДЗ»
   let uploading = false;          // во время загрузки ленту ДЗ не перерисовываем
@@ -410,7 +429,10 @@
     if (location.hash !== hashOf(entry)) showInAddress(entry); // replaceState не вызывает hashchange
     view = null;
     if (cal) { cal.destroy(); cal = null; } // другой ребёнок — другой диапазон и события
-    activeTab = "lessons";
+    const order = tabOrderFor(entry.key);
+    applyCabTabOrder(order);
+    activeTab = order[0]; // первая в своём порядке
+    loadTabOrder(entry);
     lessonsFilter = "upcoming";
     hwSelected = null;
     pastLimit = 10;
@@ -732,11 +754,48 @@
     }
   }
 
+  // Порядок из базы (другое устройство могло поменять): применяем к полосе
+  // вкладок; открытую сейчас вкладку не переключаем.
+  function loadTabOrder(entry) {
+    getDoc(doc(db, "accessPrefs", entry.key)).then((snap) => {
+      if (!current || current.key !== entry.key || !snap.exists()) return;
+      const order = TabOrder.normalize(snap.data().tabOrder, CAB_TABS);
+      rememberTabOrder(entry.key, order);
+      applyCabTabOrder(order);
+      if (tabOrderEditor) tabOrderEditor.set(order);
+    }).catch(() => { /* нет сети или правила ещё не обновлены — остаётся порядок с устройства */ });
+  }
+  let tabOrderEditor = null;
+  function tabOrderMsg(t, kind) { const m = $("tabOrderMsg"); m.textContent = t || ""; m.className = "msg" + (kind ? " " + kind : ""); }
+  function renderTabOrderEditor() {
+    const labels = Object.fromEntries([...document.querySelectorAll(".ctab")].map((b) => [b.dataset.ctab, b.childNodes[0].textContent.trim()]));
+    const order = tabOrderFor(current.key);
+    if (tabOrderEditor) { tabOrderEditor.set(order); return; }
+    tabOrderEditor = TabOrder.mountEditor($("tabOrderEditor"), {
+      items: CAB_TABS.map((id) => ({ id, label: labels[id] || id })),
+      order,
+      onChange: async (next) => {
+        const key = current.key;
+        if (!navigator.onLine) { tabOrderEditor.set(tabOrderFor(key)); tabOrderMsg(OFFLINE_TEXT, "err"); return; }
+        rememberTabOrder(key, next);
+        applyCabTabOrder(next);
+        try {
+          await setDoc(doc(db, "accessPrefs", key), { tabOrder: next, updatedAt: Date.now() });
+          tabOrderMsg("Сохранено — порядок одинаковый на всех ваших устройствах.", "ok");
+        } catch (err) {
+          // правила базы ещё не обновлены — хотя бы на этом устройстве
+          tabOrderMsg("Сохранено на этом устройстве.", "ok");
+        }
+      },
+    });
+  }
+
   function showTab(tab) {
     activeTab = tab;
     document.querySelectorAll(".ctab").forEach((b) => b.classList.toggle("active", b.dataset.ctab === tab));
     document.querySelectorAll(".pane").forEach((p) => { p.style.display = p.id === "pane-" + tab ? "block" : "none"; });
     if (tab === "calendar") renderCalendar();
+    if (tab === "settings" && current) renderTabOrderEditor();
     window.scrollTo(0, 0);
   }
   document.querySelectorAll(".ctab").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.ctab)));
@@ -759,6 +818,7 @@
 
     renderNotices(now);
     renderPushCard();
+    if (activeTab === "settings" && !tabOrderEditor) renderTabOrderEditor(); // «Настройки» — первая вкладка
     renderLessonsPane(now);
     renderRequestsPane();
     renderHwPane(now);
@@ -1379,7 +1439,7 @@
     const tokens = new Set(Object.values(pushSaved()).map((p) => p && p.token).filter(Boolean));
     if (view && view.channel) shared.filter((i) => i.type === "push" && tokens.has(i.token)).forEach((i) => deleteDoc(doc(db, "channels", view.channel, "items", i.id)).catch(() => {}));
     stopWatching();
-    try { localStorage.removeItem(STORE); localStorage.removeItem(PUSH_STORE); localStorage.removeItem(SEEN); localStorage.removeItem(VIEW_CACHE); } catch (e) { /* ничего */ }
+    try { localStorage.removeItem(STORE); localStorage.removeItem(PUSH_STORE); localStorage.removeItem(SEEN); localStorage.removeItem(VIEW_CACHE); localStorage.removeItem(TAB_ORDER_STORE); } catch (e) { /* ничего */ }
     showInAddress(null);
     current = null;
     view = null;

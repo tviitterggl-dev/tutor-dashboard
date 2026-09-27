@@ -65,8 +65,8 @@ for (const scheme of ["light", "dark"]) {
   const card = page.locator('.student-card[data-student="Тест, 7 класс"]');
   await card.locator(".student-head").click();
   await shoot(page, `${scheme}-teacher-5-students`);
-  if (await page.$('.tab[data-tab="more"]')) {
-    await page.click('.tab[data-tab="more"]');
+  if (await page.$('.tab[data-tab="settings"]')) {
+    await page.click('.tab[data-tab="settings"]');
     await shoot(page, `${scheme}-teacher-6-more`);
   }
 
@@ -81,7 +81,7 @@ for (const scheme of ["light", "dark"]) {
     await shoot(cab, `${scheme}-${role}-2-calendar`);
     await cab.click('.ctab[data-ctab="hw"]');
     await shoot(cab, `${scheme}-${role}-3-hw`);
-    await cab.click('.ctab[data-ctab="more"]');
+    await cab.click('.ctab[data-ctab="settings"]');
     await shoot(cab, `${scheme}-${role}-4-more`);
     await cab.close();
   }

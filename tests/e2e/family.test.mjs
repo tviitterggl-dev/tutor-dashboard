@@ -101,7 +101,7 @@ test("«Забыть это устройство» стирает ключ; бе
   await cab.waitForSelector("#pane-lessons .lesson");
   await cab.waitForSelector("#pane-lessons .lesson"); // запомнился
   assert.equal(await cab.textContent("#title"), "Кабинет ученика");
-  await cab.click('.ctab[data-ctab="more"]');
+  await cab.click('.ctab[data-ctab="settings"]');
   await cab.click("#forgetBtn");
   await cab.waitForFunction(() => /забыт/.test(document.body.textContent));
   assert.equal(await cab.evaluate(() => localStorage.getItem("cabinetKeys")), null);
@@ -438,7 +438,7 @@ test("вкладки кабинета: Занятия по умолчанию, �
   assert.equal(app.calls.cloudinary.length, 2);
 
   // Ещё
-  await cab.click('.ctab[data-ctab="more"]');
+  await cab.click('.ctab[data-ctab="settings"]');
   assert.deepEqual(await visible(), ["pane-more"]);
   assert.equal(await cab.isVisible("#tgLink"), true);
   assert.equal(await cab.isVisible("#forgetBtn"), true);
