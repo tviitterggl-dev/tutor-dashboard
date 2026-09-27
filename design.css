@@ -60,12 +60,17 @@
   --shadow-lg: 0 24px 60px rgba(28, 29, 33, 0.18);
   --backdrop: rgba(28, 29, 33, 0.42);
   --focus: 0 0 0 3px rgba(169, 130, 47, 0.28);
+  /* графики «Аналитики»: проверены валидатором палитры (контраст, дальтонизм) */
+  --viz-1: #4A62B8;          /* «Провёл» / основная серия */
+  --viz-2: #A9822F;          /* «Оплачено» */
+  --viz-grid: #ECEAE4;
   color-scheme: light;
 }
 
 /* ---- тёмная тема: по системе (если не выбрана светлая вручную) и вручную ---- */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    --viz-1: #6A82D6; --viz-2: #B38C3A; --viz-grid: #30333C;
     --bg: #1C1D21; --card-bg: #24262C; --surface-2: #2A2C33;
     --text: #EDEEF0; --muted: #B8BCC4; --border: #343849;
     --accent: #C9A24B; --accent-hover: #D5B266; --on-accent: #1C1D21;
@@ -84,6 +89,7 @@
   }
 }
 :root[data-theme="dark"] {
+  --viz-1: #6A82D6; --viz-2: #B38C3A; --viz-grid: #30333C;
   --bg: #1C1D21; --card-bg: #24262C; --surface-2: #2A2C33;
   --text: #EDEEF0; --muted: #B8BCC4; --border: #343849;
   --accent: #C9A24B; --accent-hover: #D5B266; --on-accent: #1C1D21;
