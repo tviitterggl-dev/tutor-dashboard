@@ -158,6 +158,17 @@ test("пуши учителю: оплата/пояснение/ДЗ от род�
   assert.deepEqual(third.filter((m) => m.token.startsWith("tok-teacher")).map((m) => m.data.title), ["Оплата"]);
 });
 
+test("пуши учителю после ночной паузы рассылки: «Оплачено» в 01:00 приходит в 08:00", async () => {
+  const st = tRef.collection("state").doc("main");
+  const night = Date.parse("2026-09-27T01:00:00+03:00"), morning = Date.parse("2026-09-27T08:00:00+03:00");
+  await st.set({ teacherDevices: { dev1: { token: "tok-teacher-" + "x".repeat(30), createdAt: night - 24 * H } }, teacherPush: { paid: true, note: true, homework: true } }, { merge: true });
+  const lesson = { title: "Маша 7 класс", studentId: "Маша, 7 класс", startMs: Date.parse("2026-09-26T10:00:00+03:00"), endMs: Date.parse("2026-09-26T11:00:00+03:00"), status: "done" };
+  await tRef.collection("lessons").doc("pn").set(Object.assign({}, lesson, { paid: { value: true, by: "parent", at: night }, updatedAt: night }));
+  const sent = [];
+  await runOnce({ db, send: fakeSend(sent), now: morning, siteUrl: SITE, logger: quiet });
+  assert.deepEqual(sent.filter((m) => m.token.startsWith("tok-teacher")).map((m) => m.data.title), ["Оплата"]);
+});
+
 test("пуши учителю: нет подписанных устройств — ничего не читаем и не шлём; мёртвый токен удаляется", async () => {
   await tRef.collection("lessons").doc("p1").set({ title: "Маша 7 класс", studentId: "Маша, 7 класс", startMs: NOW, endMs: NOW + H, status: "done", paid: { value: true, by: "parent", at: NOW - M }, updatedAt: NOW - M });
   let sent = [];

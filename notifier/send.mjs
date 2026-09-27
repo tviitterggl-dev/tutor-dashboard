@@ -69,7 +69,9 @@ async function markPushed(tRef, ruleId, now) {
 // state.teacherPush { paid, note, homework }. Смотрим занятия, изменённые за
 // последние TEACHER_WINDOW, и ещё не разобранные сообщения каналов; событие
 // старше подписки устройства не шлём.
-const TEACHER_WINDOW = 6 * 3600000;
+// 9 ч — больше ночной паузы рассылки (08:00–23:59 МСК): событие ночью придёт
+// утром. Повторов нет — отправленное помечено в notifLog.
+const TEACHER_WINDOW = 9 * 3600000;
 async function teacherPushes({ db, tRef, stateRef, state, readChannel, send, now, siteUrl, logger }) {
   const res = { planned: 0, sent: 0, failed: 0, removed: 0 };
   const devices = Object.entries(state.teacherDevices || {}).filter(([, d]) => d && typeof d.token === "string" && d.token.length > 20);

@@ -67,12 +67,13 @@ test("«за 90 минут до занятия»: вовремя, своим а�
   assert.deepEqual(core.planPushes({ now: NOW, rules: [{ ...rule, push: false }], lessons, keys, devices, log: {} }), []);
 });
 
-test("«за 1 день»: опоздание больше 3 часов — не шлём; привязка к выбранным занятиям", () => {
+test("«за 1 день»: опоздание до 9 часов (ночная пауза рассылки 00–08 МСК) — шлём, больше — нет; привязка к выбранным занятиям", () => {
   const rule = { id: "r2", text: "Завтра занятие", mode: "before", offsetValue: 1, offsetUnit: "day", target: { scope: "student", role: "any", studentId: "Маша, 7 класс" }, active: true };
   const at = (now, r = rule) => core.planPushes({ now, rules: [r], lessons, keys, devices, log: {} }).map((x) => x.lessonId);
   assert.deepEqual(at(NOW + 2 * 24 * H), ["m2"]);
   assert.deepEqual(at(NOW + 2 * 24 * H + 2 * H), ["m2"], "опоздали на 2 часа — ещё шлём");
-  assert.deepEqual(at(NOW + 2 * 24 * H + 3 * H + M), [], "опоздали больше чем на 3 часа — поздно");
+  assert.deepEqual(at(NOW + 2 * 24 * H + 8 * H + 15 * M), ["m2"], "ночью рассылки нет: напоминание на 00:00 придёт в 08:15 — лучше утром, чем никогда");
+  assert.deepEqual(at(NOW + 2 * 24 * H + 9 * H + M), [], "опоздали больше чем на 9 часов — поздно");
   const only = { ...rule, lessonIds: ["m1"] };
   assert.deepEqual(at(NOW + 2 * 24 * H, only), [], "m2 не выбрано");
   assert.deepEqual(core.ruleLessons(only, lessons, keys).map((l) => l.id), ["m1"]);

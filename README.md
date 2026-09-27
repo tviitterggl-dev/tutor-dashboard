@@ -179,8 +179,10 @@ channels/{ключ}/items/{id}              homework | reschedule | cancel | pai
 
 **Частые запуски через cron-job.org.** Своё расписание GitHub у малоактивных репозиториев
 запускает редко, иногда раз в несколько часов. Поэтому основной запуск идёт снаружи: бесплатный
-cron-job.org каждые 15 минут вызывает запуск рассылки через GitHub API (`workflow_dispatch`).
-Расписание в `notify.yml` остаётся запасным. Два запуска подряд ничего не дублируют: журнал
+cron-job.org каждые 15 минут с 08:00 до 23:59 по Москве вызывает запуск рассылки через GitHub API
+(`workflow_dispatch`); ночью рассылки нет — выпавшие на ночь напоминания и пуши учителю приходят
+утром (опоздание до 9 часов допускается). Расписание в `notify.yml` — запасное, в том же окне
+(`*/15 5-20 * * *`, время в UTC). Два запуска подряд ничего не дублируют: журнал
 `notifLog` и `concurrency` это не дают.
 - Токен GitHub (fine-grained): доступ только к репозиторию `tutor-dashboard`, из прав — только
   **Actions: Read and write** (плюс обязательное Metadata: Read-only). Токен хранится только
@@ -188,7 +190,7 @@ cron-job.org каждые 15 минут вызывает запуск рассы
 - Задача cron-job.org: `POST https://api.github.com/repos/tviitterggl-dev/tutor-dashboard/actions/workflows/notify.yml/dispatches`,
   заголовки `Accept: application/vnd.github+json`, `Authorization: Bearer <токен>`,
   `X-GitHub-Api-Version: 2022-11-28`, `Content-Type: application/json`, тело `{"ref":"main"}`,
-  каждые 15 минут. Ответ **204** означает, что запуск принят.
+  каждые 15 минут с 8:00 до 23:59 (часовой пояс задачи — Europe/Moscow). Ответ **204** означает, что запуск принят.
 - Срок токена — до года. Когда он истечёт, cron-job.org начнёт получать 401: нужно выпустить новый
   токен с теми же правами и заменить его в заголовке `Authorization`.
 

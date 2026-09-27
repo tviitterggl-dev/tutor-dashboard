@@ -43,6 +43,7 @@ test("выдача ключа родителю → кабинет → отзыв
     db[p].homework = [{ url: "https://res.cloudinary.com/x/hw.pdf", name: "дз.pdf" }, { url: "javascript:alert(1)", name: "плохая" }];
     localStorage.__fakeDb = JSON.stringify(db);
   }, T);
+  await page.waitForTimeout(400); // изменение «извне» доходит до живой подписки на занятия
 
   await page.click('.tab[data-tab="students"]');
   await page.waitForSelector("#akIssue");

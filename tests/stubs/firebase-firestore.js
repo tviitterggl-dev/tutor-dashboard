@@ -8,7 +8,7 @@ const STORE_KEY = "__fakeDb";
 function load() {
   try { return JSON.parse(localStorage.getItem(STORE_KEY) || "{}"); } catch (e) { return {}; }
 }
-function save(db) { localStorage.setItem(STORE_KEY, JSON.stringify(db)); }
+function save(db) { localStorage.setItem(STORE_KEY, JSON.stringify(db)); if (typeof notifyLive === "function") queueMicrotask(notifyLive); }
 function clone(v) { return v === undefined ? undefined : JSON.parse(JSON.stringify(v)); }
 
 // Упрощённые правила: teacherSpaces/{uid}/… — только вошедшему с этим uid
@@ -96,8 +96,13 @@ function snapshotOf(path, data) {
   };
 }
 
+// Счётчик чтений — как их считает Firestore в квоте Spark: getDoc — 1,
+// getDocs — по документу в ответе (минимум 1), onSnapshot — все документы
+// при подписке, дальше только изменившиеся. window.__fakeReads.
+function countReads(n) { window.__fakeReads = (window.__fakeReads || 0) + n; }
 export async function getDoc(ref) {
   checkDeny(ref.path);
+  countReads(1);
   return snapshotOf(ref.path, noCache() ? undefined : load()[ref.path]);
 }
 
@@ -179,7 +184,7 @@ const OPS = {
   ">": (a, b) => a > b,
 };
 
-export async function getDocs(q) {
+function queryDocs(q) {
   checkDeny(q.path + "/");
   const db = load();
   const prefix = q.path + "/";
@@ -191,8 +196,13 @@ export async function getDocs(q) {
   }
   const ob = (q.constraints || []).find((c) => c.kind === "orderBy");
   if (ob) docs.sort((a, b) => (a.data()[ob.field] > b.data()[ob.field] ? 1 : -1) * (ob.dir === "desc" ? -1 : 1));
-  window.__fakeQueries = (window.__fakeQueries || 0) + 1;
   return { docs, size: docs.length, empty: !docs.length, forEach: (fn) => docs.forEach(fn), metadata: { fromCache: offlineNow() } };
+}
+export async function getDocs(q) {
+  const snap = queryDocs(q);
+  window.__fakeQueries = (window.__fakeQueries || 0) + 1;
+  countReads(Math.max(1, snap.size));
+  return snap;
 }
 
 // Живые обновления: опрашиваем «базу» и зовём callback при изменениях
@@ -202,24 +212,38 @@ export function onSnapshot(target, a, b, c) {
   const [onNext, onError] = typeof a === "function" ? [a, b] : [b, c];
   let last = null;
   let stopped = false;
-  async function tick() {
+  let seen = null; // id → JSON: для счёта чтений (платно только изменившееся)
+  function tick() {
     if (stopped) return;
     try {
-      const snap = target.type === "document" ? await getDoc(target) : await getDocs(target);
-      const sig = target.type === "document"
-        ? JSON.stringify(snap.exists() ? snap.data() : null)
-        : JSON.stringify(snap.docs.map((d) => [d.id, d.data()]));
-      const sigFull = sig + "|" + offlineNow();
+      let snap;
+      if (target.type === "document") {
+        checkDeny(target.path);
+        snap = snapshotOf(target.path, noCache() ? undefined : load()[target.path]);
+      } else snap = queryDocs(target);
+      const docs = target.type === "document" ? [[target.path, snap.exists() ? snap.data() : null]] : snap.docs.map((d) => [d.id, d.data()]);
+      const now = new Map(docs.map(([id, d]) => [id, JSON.stringify(d)]));
+      if (!seen) countReads(Math.max(1, now.size));
+      else now.forEach((v, id) => { if (seen.get(id) !== v) countReads(1); });
+      seen = now;
+      const sigFull = JSON.stringify(docs) + "|" + offlineNow();
       if (sigFull !== last) { last = sigFull; onNext(snap); }
     } catch (e) {
       stopped = true;
+      liveTicks.delete(tick);
       if (onError) onError(e);
     }
   }
-  tick();
+  // первый ответ — асинхронно (как у Firestore), свои записи — сразу (ниже)
+  Promise.resolve().then(tick);
+  liveTicks.add(tick);
   const t = setInterval(tick, 250);
-  return () => { stopped = true; clearInterval(t); };
+  return () => { stopped = true; clearInterval(t); liveTicks.delete(tick); };
 }
+// Как у настоящего Firestore: своя запись сразу видна подпискам этой вкладки
+// (раньше, чем завершится промис записи).
+const liveTicks = new Set();
+function notifyLive() { liveTicks.forEach((t) => t()); }
 
 export function writeBatch() {
   const ops = [];

@@ -169,6 +169,9 @@ test("Итоги → Оплата: кто оплатил и кто нет", asyn
     d[p].paid = { value: true, by: "parent", at: 1 };
     localStorage.__fakeDb = JSON.stringify(d);
   }, L("anna3"));
+  // изменение «с другого устройства»: занятия читаются из живой подписки —
+  // ждём, пока она его получит (в Firestore — сразу, в заглушке — опрос 250 мс)
+  await page.waitForTimeout(400);
   await page.click('.tab[data-tab="summary"]');
   await page.click('.subtab[data-summode="month"]');
   await page.waitForSelector("#payUnpaid .session-row");

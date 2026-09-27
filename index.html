@@ -92,13 +92,63 @@
 
   const chunk = (arr, n) => Array.from({ length: Math.ceil(arr.length / n) }, (_, i) => arr.slice(i * n, i * n + n));
 
+  // Живая копия запроса: одна подписка onSnapshot на сессию. Firestore берёт
+  // чтения за все документы при подписке, а дальше — только за изменившиеся.
+  // Раньше каждое «Провёл»/правка перечитывали всю историю занятий дважды
+  // (пакеты и витрины семей) — сотни чтений на нажатие; 27.09 так кончилась
+  // дневная квота (50 000) и упала фоновая рассылка. Свои записи приходят в
+  // подписку сразу (раньше, чем завершится запись), чужие устройства — тоже.
+  // Запрос за пределами окна — как раньше, напрямую.
+  const LIVE_TTL = 6 * 3600000; // окно «сейчас ± N дней» сдвигаем раз в 6 часов
+  function liveWindow(makeQuery, pastDays, futureDays, field) {
+    let st = null;
+    const start = () => {
+      if (st) st.unsub();
+      const now = Date.now();
+      const cur = { from: now - pastDays * 86400000, to: futureDays === Infinity ? Infinity : now + futureDays * 86400000, at: now, map: new Map(), ok: false };
+      cur.ready = new Promise((res) => {
+        cur.unsub = onSnapshot(makeQuery(cur.from, cur.to), (snap) => {
+          const m = new Map();
+          snap.docs.forEach((d) => m.set(d.id, Object.assign({ id: d.id }, d.data())));
+          cur.map = m;
+          cur.ok = true;
+          res(true);
+        }, (err) => {
+          console.warn("Подписка не работает — читаю напрямую", err);
+          cur.ok = false;
+          if (st === cur) st = null;
+          res(false);
+        });
+      });
+      st = cur;
+    };
+    return {
+      // список из живой копии или null (не покрывает / подписка не работает)
+      async get(fromMs, toMs) {
+        if (!st || Date.now() - st.at > LIVE_TTL) start();
+        const cur = st;
+        if (!(fromMs >= cur.from && toMs <= cur.to)) return null;
+        if (!(await cur.ready) || !cur.ok) return null;
+        return [...cur.map.values()].filter((x) => x[field] >= fromMs && x[field] < toMs)
+          .sort((a, b) => a[field] - b[field]).map((x) => structuredClone(x)); // копии: вызывающий код их меняет
+      },
+      stop() { if (st) st.unsub(); st = null; },
+    };
+  }
+
   function teacherApi(teacherId) {
     const stateRef = doc(db, "teacherSpaces", teacherId, "state", "main");
     const lessonsCol = collection(db, "teacherSpaces", teacherId, "lessons");
     const keysCol = collection(db, "teacherSpaces", teacherId, "accessKeys");
+    const requestsCol = collection(db, "teacherSpaces", teacherId, "requests");
     const viewCol = (role) => (role === "parent" ? "parentAccess" : "studentAccess");
+    // окно занятий покрывает пакеты (−180/+240 дн.), витрины (−120/+90), календарь и списки рядом с сегодня
+    const liveLessons = liveWindow((from, to) => query(lessonsCol, where("startMs", ">=", from), where("startMs", "<", to), orderBy("startMs")), 200, 250, "startMs");
+    // журнал решений по заявкам: витрины берут за год, вкладка «Заявки» — за 60 дней
+    const liveDecisions = liveWindow((from) => query(requestsCol, where("decidedAt", ">=", from), orderBy("decidedAt")), 400, Infinity, "decidedAt");
 
     return {
+      stopLive() { liveLessons.stop(); liveDecisions.stop(); },
       async loadState() {
         const snap = await getDoc(stateRef);
         return snap.exists() ? snap.data() : null;
@@ -134,6 +184,8 @@
       },
 
       async listLessons(fromMs, toMs) {
+        const cached = await liveLessons.get(fromMs, toMs);
+        if (cached) return cached;
         const q = query(lessonsCol, where("startMs", ">=", fromMs), where("startMs", "<", toMs), orderBy("startMs"));
         const snap = await getDocs(q);
         return snap.docs.map((d) => Object.assign({ id: d.id }, d.data()));
@@ -219,6 +271,8 @@
         await setDoc(doc(db, "teacherSpaces", teacherId, "requests", id), data);
       },
       async listRequestDecisions(sinceMs) {
+        const cached = await liveDecisions.get(sinceMs, Infinity);
+        if (cached) return cached;
         const snap = await getDocs(query(collection(db, "teacherSpaces", teacherId, "requests"), where("decidedAt", ">=", sinceMs), orderBy("decidedAt")));
         return snap.docs.map((d) => Object.assign({ id: d.id }, d.data()));
       },
@@ -321,6 +375,7 @@
   onAuthStateChanged(auth, (user) => {
     window.TutorAuth.user = user;
     window.TutorAuth.ready = true;
+    if (window.TutorFB && window.TutorFB.stopLive) window.TutorFB.stopLive(); // другой вход — старые подписки не нужны
     window.TutorFB = user ? guardWrites(teacherApi(user.uid)) : null;
     window.dispatchEvent(new CustomEvent("tutor-auth", { detail: { user } }));
   });
