@@ -66,7 +66,7 @@ test("витрина: прошлая неделя доступна, id заня�
   const app = await openFamily();
   const db = await app.db();
   const v = db[`parentAccess/${PK_T}`];
-  assert.equal(v.busyFrom, Date.parse("2026-09-14T00:00:00+03:00"), "с понедельника прошлой недели");
+  assert.equal(v.busyFrom, Date.parse("2026-08-24T00:00:00+03:00"), "с понедельника 4 недели назад");
   assert.ok(v.lessons.every((l) => l.id), "у каждого занятия есть id");
   assert.ok(v.channel && v.parentChannel);
   const vs = db[`studentAccess/${SK_T}`];
@@ -79,11 +79,10 @@ test("витрина: прошлая неделя доступна, id заня�
 
   const cab = await openCabinet(app, `#p=${PK_T}`);
   await toCalendar(cab);
-  // Неделя 21–27.09; назад на 14–20.09 можно, дальше — нет
+  // Неделя 21–27.09; назад на 14–20.09 можно (окно — 4 недели, подробно в calendar-window)
   await cab.click("#cal .fc-prev-button");
   await cab.waitForFunction(() => /14/.test(document.querySelector("#cal .fc-toolbar-title").textContent));
   assert.ok(await cab.$$eval("#cal .fc-event.own", (e) => e.length) >= 3, "уроки прошлой недели видны");
-  assert.equal(await cab.isDisabled("#cal .fc-prev-button"), true, "раньше прошлой недели нельзя");
   // Контакты
   assert.equal(await cab.getAttribute("#tgLink", "href"), "https://t.me/mat_repet");
   assert.equal(await cab.getAttribute("#telemostLink", "href"), "https://yandex.ru/chat/p/ad9c2706-f36a-940f-7a90-d15f170427e5?utm_source=invite");

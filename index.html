@@ -3764,7 +3764,7 @@
 
   const VIEW_PAST_DAYS = 120;
   const VIEW_FUTURE_DAYS = 90;
-  const BUSY_DAYS = 35;
+  const PARENT_WINDOW_DAYS = 28; // окно кабинета семьи: 4 недели назад и 4 вперёд
   const DAY_MS = 86400000;
   let accessKeysCache = null;
 
@@ -3784,10 +3784,11 @@
 
   async function buildViews(keys) {
     const now = Date.now();
-    // Сетка занятости: с понедельника ПРОШЛОЙ недели и на 5 недель вперёд.
-    const prevMonday = mondayOf(new Date(now - 7 * DAY_MS));
+    // Окно кабинета семьи (сетка занятости и validRange календаря): 4 недели
+    // назад и 4 вперёд от сегодня, по понедельникам — ровная сетка недель.
+    const prevMonday = mondayOf(new Date(now - PARENT_WINDOW_DAYS * DAY_MS));
     const busyFrom = prevMonday.getTime();
-    const busyTo = mondayOf(new Date()).getTime() + BUSY_DAYS * DAY_MS;
+    const busyTo = mondayOf(new Date()).getTime() + PARENT_WINDOW_DAYS * DAY_MS;
     const all = await window.TutorFB.listLessons(now - VIEW_PAST_DAYS * DAY_MS, now + VIEW_FUTURE_DAYS * DAY_MS);
     let decisions = [];
     try {
@@ -4497,7 +4498,7 @@
       footerToolbar: narrow ? { center: "title" } : false,
       buttonText: { today: "сегодня", day: "день", week: "неделя", month: "месяц", list: "список" },
       slotMinTime: "08:00:00",
-      slotMaxTime: "22:00:00",
+      slotMaxTime: "24:00:00", // до конца суток
       scrollTime: "09:00:00",
       slotDuration: "00:30:00",
       snapDuration: "00:15:00",

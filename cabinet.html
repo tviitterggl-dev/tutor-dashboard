@@ -98,6 +98,11 @@
   #cal .own.done { background: var(--done-solid); border-color: var(--done-solid); }
   #cal .own.cancelled, #cal .own.rescheduled { background: transparent; border: 1px dashed var(--muted); }
   #cal .own.cancelled .fc-event-main, #cal .own.rescheduled .fc-event-main { color: var(--muted); text-decoration: line-through; }
+  /* вид «месяц»: текст у событий не в .fc-event-main, а в времени/названии */
+  #cal .own.fc-daygrid-event .fc-event-time, #cal .own.fc-daygrid-event .fc-event-title { color: var(--on-event); }
+  #cal .own.fc-daygrid-event .fc-daygrid-event-dot { border-color: var(--on-event); }
+  #cal .own.cancelled.fc-daygrid-event .fc-event-time, #cal .own.cancelled.fc-daygrid-event .fc-event-title,
+  #cal .own.rescheduled.fc-daygrid-event .fc-event-time, #cal .own.rescheduled.fc-daygrid-event .fc-event-title { color: var(--muted); text-decoration: line-through; }
   #cal .busy { background: var(--busy); border-color: var(--busy); }
   #cal .busy .fc-event-main { color: var(--text); opacity: 0.75; }
   #cal .ghost { background: var(--pending-bg); border: 1px dashed var(--pending-text); }
@@ -872,8 +877,8 @@
   }
 
   const calRange = () => ({
-    start: new Date(view.busyFrom || mondayOf(Date.now() - 7 * 86400000).getTime()),
-    end: new Date(view.busyTo || Date.now() + 35 * 86400000),
+    start: new Date(view.busyFrom || mondayOf(Date.now() - 28 * 86400000).getTime()),
+    end: new Date(view.busyTo || mondayOf(Date.now()).getTime() + 28 * 86400000),
   });
 
   // Живые обновления не пересоздают календарь — только меняют события.
@@ -915,12 +920,12 @@
       initialDate: new Date(),
       validRange: calRange(),
       headerToolbar: narrow
-        ? { left: "prev,next today", center: "", right: "timeGridDay,timeGridWeek,listWeek" }
-        : { left: "prev,next today", center: "title", right: "timeGridDay,timeGridWeek,listWeek" },
+        ? { left: "prev,next today", center: "", right: "timeGridDay,timeGridWeek,dayGridMonth,listWeek" }
+        : { left: "prev,next today", center: "title", right: "timeGridDay,timeGridWeek,dayGridMonth,listWeek" },
       footerToolbar: narrow ? { center: "title" } : false,
-      buttonText: { today: "сегодня", day: "день", week: "неделя", list: "список" },
+      buttonText: { today: "сегодня", day: "день", week: "неделя", month: "месяц", list: "список" },
       slotMinTime: "08:00:00",
-      slotMaxTime: "22:00:00",
+      slotMaxTime: "24:00:00", // до конца суток
       scrollTime: "09:00:00",
       allDaySlot: false,
       nowIndicator: true,
