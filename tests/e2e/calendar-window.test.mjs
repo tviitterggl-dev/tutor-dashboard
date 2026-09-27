@@ -75,3 +75,42 @@ test("окно видимости семьи: ±4 недели от сегодн
   assert.equal(await cab.isDisabled("#cal .fc-prev-button"), true, "раньше чем 4 недели назад — нельзя");
   await app.close();
 });
+
+// fixedWeekCount: false — в месяце столько строк, сколько в нём недель
+// (неделя с понедельника): сентябрь и октябрь 2026 — 5, ноябрь 2026 — 6,
+// февраль 2027 — 4. Раньше всегда 6.
+const monthRows = (page, root) => page.$$eval(`${root} .fc-daygrid-body tr[role="row"], ${root} .fc-daygrid-body tbody > tr`, (r) => new Set(r).size);
+async function toMonth(page, root, title) {
+  for (let i = 0; i < 12 && !new RegExp(title, "i").test(await page.textContent(`${root} .fc-toolbar-title`)); i++) {
+    await page.click(`${root} .fc-next-button`);
+    await page.waitForTimeout(60);
+  }
+}
+test("месяц: число строк по месяцу (5 / 6 / 4), у учителя и в кабинете, телефон и компьютер", async () => {
+  for (const [vp, scheme] of [[{ width: 1280, height: 900 }, "light"], [{ width: 360, height: 780 }, "dark"]]) {
+    const app = await openWithFamily({ viewport: vp, colorScheme: scheme, isMobile: vp.width < 500, hasTouch: vp.width < 500 });
+    const { page } = app;
+    await page.click('.tab[data-tab="calendar"]');
+    await page.waitForSelector("#fcRoot .fc-view");
+    await page.click("#fcRoot .fc-dayGridMonth-button");
+    await page.waitForSelector("#fcRoot .fc-dayGridMonth-view");
+    // на телефоне заголовок месяца — внизу, но класс тот же
+    const got = {};
+    for (const [m, n] of [["сентябрь 2026", 5], ["октябрь 2026", 5], ["ноябрь 2026", 6], ["февраль 2027", 4]]) {
+      await toMonth(page, "#fcRoot", m);
+      got[m] = await monthRows(page, "#fcRoot");
+      assert.equal(got[m], n, `${m} (${vp.width}px): ${got[m]} строк`);
+    }
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1), true, "без горизонтальной прокрутки");
+    const cab = await openCab(app, vp);
+    await cab.click("#cal .fc-dayGridMonth-button");
+    await cab.waitForSelector("#cal .fc-dayGridMonth-view");
+    assert.equal(await monthRows(cab, "#cal"), 5, `кабинет, сентябрь (${vp.width}px)`);
+    await cab.click("#cal .fc-next-button");
+    await cab.waitForTimeout(100);
+    assert.match(await cab.textContent("#cal .fc-toolbar-title"), /октябрь/i);
+    assert.equal(await monthRows(cab, "#cal"), 5, `кабинет, октябрь (${vp.width}px)`);
+    assert.equal(await cab.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1), true, "кабинет без горизонтальной прокрутки");
+    await app.close();
+  }
+});

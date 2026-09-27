@@ -4559,6 +4559,7 @@
     fc = new FullCalendar.Calendar($("fcRoot"), {
       locale: "ru",
       firstDay: 1,
+      fixedWeekCount: false, // в месяце столько строк, сколько в нём недель (4–6), а не всегда 6
       initialView: narrow ? "timeGridDay" : "timeGridWeek",
       headerToolbar: narrow
         ? { left: "prev,next today", center: "", right: "timeGridDay,timeGridWeek,dayGridMonth,listWeek" }

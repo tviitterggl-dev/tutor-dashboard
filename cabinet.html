@@ -916,6 +916,7 @@
     cal = new FullCalendar.Calendar(el, {
       locale: "ru",
       firstDay: 1,
+      fixedWeekCount: false, // в месяце столько строк, сколько в нём недель (4–6), а не всегда 6
       initialView: narrow ? "timeGridDay" : "timeGridWeek",
       initialDate: new Date(),
       validRange: calRange(),
