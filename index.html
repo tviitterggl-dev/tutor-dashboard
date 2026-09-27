@@ -560,6 +560,13 @@
   .an-filter { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
   .an-seg { border: 1px solid var(--border); background: var(--card-bg); color: var(--text); border-radius: var(--r-pill); padding: 7px 14px; font: 600 13px var(--font-body); cursor: pointer; min-height: 36px; }
   .an-seg.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .an-sep { width: 8px; }
+  .an-weeks { display: none; gap: 6px; }
+  #anIncomeCard.by-week .an-weeks { display: inline-flex; }
+  .an-months-note { font-size: 12px; color: var(--muted); }
+  #anIncomeCard.by-week .an-months-note { display: none; }
+  .an-unpaid { margin: 0 0 8px; }
+  .an-legend[hidden] { display: none; }
   .an-legend { display: flex; gap: 16px; font-size: 12.5px; color: var(--muted); margin: -4px 0 6px; }
   .an-key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
   .an-chart { position: relative; width: 100%; overflow: hidden; }
@@ -1156,12 +1163,24 @@
         <div class="stat-row" id="anTiles"></div>
         <div class="hint" id="anNote">Считается по занятиям в базе. Видишь только ты — родителям и ученикам не показывается.</div>
       </div>
-      <div class="card">
-        <div class="chart-title">Доход по месяцам</div>
-        <div class="an-legend"><span><i class="an-key" style="background:var(--viz-1)"></i>Провёл</span><span><i class="an-key" style="background:var(--viz-2)"></i>Оплачено</span></div>
+      <div class="card" id="anIncomeCard">
+        <div class="chart-title">Доход</div>
+        <div class="an-filter" role="group" aria-label="Шаг графика">
+          <button type="button" class="an-seg" data-anstep="month">По месяцам</button>
+          <button type="button" class="an-seg" data-anstep="week">По неделям</button>
+          <span class="an-sep" aria-hidden="true"></span>
+          <span class="an-weeks" role="group" aria-label="Сколько недель">
+            <button type="button" class="an-seg" data-anweeks="5">5 нед</button>
+            <button type="button" class="an-seg" data-anweeks="10">10 нед</button>
+            <button type="button" class="an-seg" data-anweeks="15">15 нед</button>
+          </span>
+          <span class="an-months-note">период — как выбран вверху</span>
+        </div>
+        <label class="check an-unpaid"><input type="checkbox" id="anUnpaid"> показать неоплаченные</label>
+        <div class="an-legend" id="anIncomeLegend" hidden><span><i class="an-key" style="background:var(--viz-1)"></i>оплачено</span><span><i class="an-key" style="background:var(--viz-2)"></i>не оплачено</span></div>
         <div class="an-chart" id="anIncome"><div class="empty">Загрузка…</div></div>
         <details class="an-table"><summary>Таблицей</summary><div id="anIncomeTable"></div></details>
-        <div class="hint">«Провёл» — сумма занятий с отметкой «Провёл», «Оплачено» — занятий с отметкой «Оплачено» (твоей или родителя), по месяцу занятия.</div>
+        <div class="hint">Столбик — сумма занятий с отметкой «Провёл» (по дате занятия). С галочкой он делится на оплаченную (есть отметка «Оплачено» — твоя или родителя) и неоплаченную часть.</div>
       </div>
       <div class="card">
         <div class="chart-title">Отмены по ученикам</div>
@@ -1174,11 +1193,6 @@
         <div class="an-chart" id="anWeek"><div class="empty">Загрузка…</div></div>
         <details class="an-table"><summary>Таблицей</summary><div id="anWeekTable"></div></details>
         <div class="hint">Сколько занятий в среднем приходится на этот день недели (проведённые и запланированные, без отмен и личного времени).</div>
-      </div>
-      <div class="card">
-        <div class="chart-title">Доход по неделям</div>
-        <div class="an-chart" id="trendChart"><div class="empty">Загрузка…</div></div>
-        <div class="hint">Последние 12 недель, только отмеченные «Провёл» занятия.</div>
       </div>
     </div>
 
@@ -2258,85 +2272,15 @@
     loadSummary();
   }
 
-  // ---------- ДИНАМИКА ДОХОДА (график: недели/месяцы) ----------
-
-  let trendMode = "week"; // week | month (во «Аналитике» — по неделям; по месяцам — отдельный график)
-
-  function buildTrendBuckets() {
-    const now = new Date();
-    const p = (n) => String(n).padStart(2, "0");
-    if (trendMode === "week") {
-      const thisMonday = mondayOf(now);
-      const buckets = [];
-      for (let i = 11; i >= 0; i--) {
-        const mon = new Date(thisMonday);
-        mon.setDate(mon.getDate() - i * 7);
-        buckets.push({ key: mon.getTime(), label: `${p(mon.getDate())}.${p(mon.getMonth() + 1)}`, sum: 0 });
-      }
-      return { buckets, rangeStart: new Date(buckets[0].key) };
-    }
-    const buckets = [];
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      buckets.push({ key: d.getFullYear() + "-" + d.getMonth(), label: MONTHS_SHORT_RU[d.getMonth()], sum: 0 });
-    }
-    const first = new Date(now.getFullYear(), now.getMonth() - 5, 1);
-    return { buckets, rangeStart: first };
-  }
-
-  function bucketKeyFor(date) {
-    if (trendMode === "week") return mondayOf(date).getTime();
-    return date.getFullYear() + "-" + date.getMonth();
-  }
-
-  async function loadTrend() {
-    const el = $("trendChart");
-    el.innerHTML = '<div class="empty">Загрузка…</div>';
-
-    const { buckets, rangeStart } = buildTrendBuckets();
-    const rangeEnd = new Date();
-    rangeEnd.setDate(rangeEnd.getDate() + 1);
-
-    try {
-      const evs = await fetchLessons(rangeStart, rangeEnd);
-      loadMarksFor(evs.map(e => e.id));
-      const byKey = {};
-      buckets.forEach(b => { byKey[b.key] = b; });
-      evs.forEach(ev => {
-        const mark = marks[ev.id];
-        if (!mark || !mark.marked) return;
-        const start = new Date(ev.start.dateTime || ev.start.date);
-        const amount = effectiveAmountFor(ev, mark);
-        if (amount == null || Number.isNaN(amount)) return;
-        const bucket = byKey[bucketKeyFor(start)];
-        if (bucket) bucket.sum += amount;
-      });
-      renderTrendChart(buckets);
-    } catch (e) {
-      el.innerHTML = '<div class="empty">Не удалось загрузить</div>';
-    }
-  }
-
-  function renderTrendChart(buckets) {
-    // те же столбики, что и в остальной «Аналитике»; подпись — через одну неделю
-    const el = $("trendChart");
-    const narrow = (el.clientWidth || 320) < 520;
-    renderColumns(el, {
-      groups: buckets.map(m => ({ label: m.label, values: [m.sum], tip: `<b>неделя с ${escHtml(m.label)}</b><br>Провёл: ${rub(m.sum)}` })),
-      colors: ["var(--viz-1)"],
-      fmtTick: compactRub,
-      labelMax: true,
-      labelEvery: narrow ? 2 : 1,
-      empty: "За последние 12 недель нет занятий с отметкой «Провёл».",
-    });
-  }
-
   // ---------- АНАЛИТИКА (только учителю) ----------
   // Всё считается из того, что уже есть в базе: занятия (статус, оплата),
   // отметки «Провёл» и ставки. Одна загрузка занятий за период; повторное
   // открытие вкладки в течение 10 минут — без новых чтений из базы.
   const WEEKDAYS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
-  const anState = { months: 6, cache: {}, loading: null };
+  const anPref = (k, d) => { try { const v = localStorage.getItem("an." + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
+  const anSave = (k, v) => { try { localStorage.setItem("an." + k, JSON.stringify(v)); } catch (e) { /* приватный режим */ } };
+  // step — «Доход» по месяцам или по неделям; weeks — 5/10/15; unpaid — делить столбик на оплачено/нет
+  const anState = { months: 6, cache: {}, loading: null, step: anPref("step", "month"), weeks: anPref("weeks", 10), unpaid: anPref("unpaid", false), weekCache: {} };
   const rub = (n) => `${Math.round(n).toLocaleString("ru-RU")} ₽`;
   const compactRub = (n) => (n >= 1000 ? `${(Math.round(n / 100) / 10).toLocaleString("ru-RU")}k` : String(Math.round(n)));
 
@@ -2345,7 +2289,7 @@
     const monthsArr = [];
     for (let i = 0; i < months; i++) {
       const d = new Date(start.getFullYear(), start.getMonth() + i, 1);
-      monthsArr.push({ key: d.getFullYear() + "-" + d.getMonth(), label: MONTHS_SHORT_RU[d.getMonth()], full: d.toLocaleDateString("ru-RU", { month: "long", year: "numeric" }), earned: 0, paid: 0, n: 0 });
+      monthsArr.push({ key: d.getFullYear() + "-" + d.getMonth(), label: MONTHS_SHORT_RU[d.getMonth()], full: d.toLocaleDateString("ru-RU", { month: "long", year: "numeric" }), earned: 0, paid: 0, paidDone: 0, n: 0 });
     }
     const byMonth = Object.fromEntries(monthsArr.map(m => [m.key, m]));
     const perStudent = {};
@@ -2360,8 +2304,9 @@
       const mark = marks[ev.id];
       const amount = effectiveAmountFor(ev, mark);
       const amt = amount != null && !Number.isNaN(amount) ? amount : 0;
-      if (mark && mark.marked) { m.earned += amt; m.n++; }
-      if (l.paid && l.paid.value) m.paid += amt;
+      const isPaid = !!(l.paid && l.paid.value);
+      if (mark && mark.marked) { m.earned += amt; m.n++; if (isPaid) m.paidDone += amt; }
+      if (isPaid) m.paid += amt;
       // отмены и загрузка — по уже прошедшим занятиям периода
       if (l.startMs > now.getTime() || !l.studentId) return;
       const st = perStudent[l.studentId] = perStudent[l.studentId] || { sid: l.studentId, cancelled: 0, rescheduled: 0, total: 0 };
@@ -2380,6 +2325,45 @@
     const earned = monthsArr.reduce((t, m) => t + m.earned, 0);
     const paid = monthsArr.reduce((t, m) => t + m.paid, 0);
     return { monthsArr, cancel, wd, weeks, earned, paid, cancelledAll, scheduledAll, start };
+  }
+
+  // «Доход» по неделям: своя выборка за N недель (с понедельника), своя память.
+  function computeWeeks(evs, weeks, now) {
+    const first = mondayOf(now);
+    first.setDate(first.getDate() - 7 * (weeks - 1));
+    const p = (n) => String(n).padStart(2, "0");
+    const arr = [];
+    for (let i = 0; i < weeks; i++) {
+      const d = new Date(first); d.setDate(d.getDate() + 7 * i);
+      const end = new Date(d); end.setDate(end.getDate() + 6);
+      arr.push({ key: d.getTime(), label: `${p(d.getDate())}.${p(d.getMonth() + 1)}`, full: `${p(d.getDate())}.${p(d.getMonth() + 1)} – ${p(end.getDate())}.${p(end.getMonth() + 1)}`, earned: 0, paidDone: 0, n: 0 });
+    }
+    const byKey = Object.fromEntries(arr.map(w => [w.key, w]));
+    evs.forEach(ev => {
+      const l = ev._lesson;
+      if (!l || isPersonal(l)) return;
+      const w = byKey[mondayOf(new Date(l.startMs)).getTime()];
+      const mark = marks[ev.id];
+      if (!w || !mark || !mark.marked) return;
+      const amount = effectiveAmountFor(ev, mark);
+      const amt = amount != null && !Number.isNaN(amount) ? amount : 0;
+      w.earned += amt; w.n++;
+      if (l.paid && l.paid.value) w.paidDone += amt;
+    });
+    return arr;
+  }
+  async function loadIncomeWeeks() {
+    const weeks = anState.weeks;
+    const cached = anState.weekCache[weeks];
+    if (cached && Date.now() - cached.at < 10 * 60000) return cached.data;
+    const now = new Date();
+    const from = mondayOf(now); from.setDate(from.getDate() - 7 * (weeks - 1));
+    const to = mondayOf(now); to.setDate(to.getDate() + 7);
+    const evs = await fetchLessons(from, to, { includeInactive: true });
+    loadMarksFor(evs.map(e => e.id));
+    const data = computeWeeks(evs, weeks, now);
+    anState.weekCache[weeks] = { at: Date.now(), data };
+    return data;
   }
 
   async function loadAnalytics(force) {
@@ -2420,14 +2404,8 @@
       <div class="stat-tile"><span class="num">${rub(d.earned)}</span><span class="lbl">заработано («Провёл»)</span></div>
       <div class="stat-tile"><span class="num">${rub(d.paid)}</span><span class="lbl">оплачено</span></div>
       <div class="stat-tile"><span class="num">${pct}%</span><span class="lbl">отмен (${d.cancelledAll} из ${d.scheduledAll})</span></div>`;
-    // 1) доход по месяцам — две серии, столбики рядом
-    renderColumns($("anIncome"), {
-      groups: d.monthsArr.map(m => ({ label: m.label, values: [m.earned, m.paid], tip: `<b>${escHtml(m.full)}</b><br><i class="an-key" style="background:var(--viz-1)"></i>Провёл: ${rub(m.earned)} (${m.n} зан.)<br><i class="an-key" style="background:var(--viz-2)"></i>Оплачено: ${rub(m.paid)}` })),
-      colors: ["var(--viz-1)", "var(--viz-2)"],
-      fmtTick: compactRub,
-      empty: "За этот период нет занятий с отметками «Провёл» или «Оплачено».",
-    });
-    $("anIncomeTable").innerHTML = anTable(["Месяц", "Провёл", "Оплачено"], d.monthsArr.map(m => [m.full, rub(m.earned), rub(m.paid)]));
+    // 1) «Доход» — по месяцам (период сверху) или по неделям (5/10/15)
+    renderIncome();
     // 2) отмены по ученикам — горизонтальные полосы, только у кого были
     const withCancels = d.cancel.filter(x => x.cancelled > 0);
     renderHBars($("anCancel"), {
@@ -2449,6 +2427,46 @@
     });
     $("anWeekTable").innerHTML = anTable(["День", "В среднем за неделю", "Часов в неделю", "Всего"], d.wd.map(w => [w.label, fmtAvg(w.avg), fmtAvg(w.hours), w.count]));
   }
+  let incomeReq = 0;
+  async function renderIncome() {
+    const step = anState.step;
+    document.querySelectorAll("[data-anstep]").forEach(b => b.classList.toggle("active", b.dataset.anstep === step));
+    document.querySelectorAll("[data-anweeks]").forEach(b => b.classList.toggle("active", Number(b.dataset.anweeks) === anState.weeks));
+    $("anIncomeCard").classList.toggle("by-week", step === "week");
+    $("anUnpaid").checked = !!anState.unpaid;
+    $("anIncomeLegend").hidden = !anState.unpaid;
+    let rows;
+    if (step === "week") {
+      const my = ++incomeReq;
+      if (!anState.weekCache[anState.weeks]) $("anIncome").innerHTML = '<div class="empty">Загрузка…</div>';
+      try { rows = await loadIncomeWeeks(); } catch (e) {
+        $("anIncome").innerHTML = '<div class="empty">Не удалось загрузить (нет интернета?)</div>';
+        return;
+      }
+      if (my !== incomeReq || anState.step !== "week") return; // пока грузили, переключили
+    } else {
+      if (!anLast) return;
+      rows = anLast.monthsArr;
+    }
+    const split = !!anState.unpaid;
+    const tip = (r) => `<b>${escHtml(r.full)}</b><br>Провёл: ${rub(r.earned)} (${r.n} зан.)` + (split
+      ? `<br><i class="an-key" style="background:var(--viz-1)"></i>оплачено: ${rub(r.paidDone)}<br><i class="an-key" style="background:var(--viz-2)"></i>не оплачено: ${rub(r.earned - r.paidDone)}` : "");
+    renderColumns($("anIncome"), {
+      groups: rows.map(r => ({ label: r.label, values: split ? [r.paidDone, r.earned - r.paidDone] : [r.earned], tip: tip(r) })),
+      colors: split ? ["var(--viz-1)", "var(--viz-2)"] : ["var(--viz-1)"],
+      stacked: true,
+      fmtTick: compactRub,
+      labelMax: !split,
+      labelEvery: step === "week" && rows.length > 10 && ($("anIncome").clientWidth || 320) < 520 ? 2 : 1,
+      empty: step === "week" ? "За эти недели нет занятий с отметкой «Провёл»." : "За этот период нет занятий с отметкой «Провёл».",
+    });
+    $("anIncomeTable").innerHTML = anTable([step === "week" ? "Неделя" : "Месяц", "Провёл", "Оплачено", "Не оплачено"],
+      rows.map(r => [r.full, rub(r.earned), rub(r.paidDone), rub(r.earned - r.paidDone)]));
+  }
+  document.querySelectorAll("[data-anstep]").forEach(b => b.addEventListener("click", () => { anState.step = b.dataset.anstep; anSave("step", anState.step); renderIncome(); }));
+  document.querySelectorAll("[data-anweeks]").forEach(b => b.addEventListener("click", () => { anState.weeks = Number(b.dataset.anweeks); anSave("weeks", anState.weeks); renderIncome(); }));
+  $("anUnpaid").addEventListener("change", (e) => { anState.unpaid = e.target.checked; anSave("unpaid", anState.unpaid); renderIncome(); });
+
   function anTable(head, rows) {
     return `<table class="an-tbl"><thead><tr>${head.map(h => `<th>${escHtml(h)}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${escHtml(String(c))}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
   }
@@ -2499,7 +2517,7 @@
     el.addEventListener("pointerleave", () => { tip.hidden = true; el.querySelectorAll(".an-hit.on").forEach(h => h.classList.remove("on")); });
   }
   function renderColumns(el, cfg) {
-    const all = cfg.groups.flatMap(g => g.values);
+    const all = cfg.stacked ? cfg.groups.map(g => g.values.reduce((t, v) => t + v, 0)) : cfg.groups.flatMap(g => g.values);
     if (!all.some(v => v > 0)) { el.innerHTML = `<div class="empty">${escHtml(cfg.empty)}</div>`; return; }
     const W = Math.max(280, el.clientWidth || 320), H = 190;
     const padL = 40, padR = 6, padT = 16, padB = 24;
@@ -2507,8 +2525,8 @@
     const top = ticks[ticks.length - 1];
     const plotH = H - padT - padB, plotW = W - padL - padR;
     const band = plotW / cfg.groups.length;
-    const ns = cfg.colors.length;
-    const gap = 2; // промежуток цвета фона между соседними столбиками
+    const ns = cfg.stacked ? 1 : cfg.colors.length;
+    const gap = 2; // промежуток цвета фона между соседними столбиками / частями стопки
     const barW = Math.min(24, (band * 0.72 - gap * (ns - 1)) / ns);
     const yOf = (v) => padT + plotH - (v / top) * plotH;
     let svg = "";
@@ -2521,7 +2539,22 @@
     cfg.groups.forEach((g, i) => {
       const cx = padL + band * i + band / 2;
       const groupW = barW * ns + gap * (ns - 1);
-      g.values.forEach((v, k) => {
+      if (cfg.stacked) {
+        // стопка снизу вверх; скругление — только у верхней части, между частями 2px фона
+        const x = cx - barW / 2;
+        let base = yOf(0);
+        const parts = g.values.map((v, k) => ({ v, k })).filter(p => p.v > 0);
+        parts.forEach((p, idx) => {
+          const h = Math.max(0, yOf(0) - yOf(p.v)) - (idx > 0 ? gap : 0);
+          if (h <= 0) return;
+          const top = base - (idx > 0 ? gap : 0) - h;
+          const d = idx === parts.length - 1 ? colPath(x, top, barW, h) : `M${x},${top}H${x + barW}V${top + h}H${x}Z`;
+          svg += `<path d="${d}" fill="${cfg.colors[p.k]}"/>`;
+          base = top;
+        });
+        const tot = g.values.reduce((t, v) => t + v, 0);
+        if (cfg.labelMax && tot === maxV && tot > 0) svg += `<text class="an-val" x="${cx.toFixed(1)}" y="${(yOf(tot) - 5).toFixed(1)}" text-anchor="middle">${escHtml(cfg.fmtTick(tot))}</text>`;
+      } else g.values.forEach((v, k) => {
         const x = cx - groupW / 2 + k * (barW + gap);
         const h = Math.max(0, yOf(0) - yOf(v));
         svg += `<path d="${colPath(x.toFixed(1) * 1, yOf(v), barW, h)}" fill="${cfg.colors[k]}"/>`;
@@ -5173,7 +5206,7 @@
     else if (tab === "requests") { stopPoll(); renderRequests(); }
     else if (tab === "notify") { stopPoll(); renderNotifyTab(); }
     else if (tab === "summary") { stopPoll(); refreshSummary(); }
-    else if (tab === "analytics") { stopPoll(); loadAnalytics(); loadTrend(); }
+    else if (tab === "analytics") { stopPoll(); loadAnalytics(); }
     else if (tab === "students") { stopPoll(); renderStudentsRoster(); loadPackages(); loadAccessCard(); }
     else if (tab === "schedule") { stopPoll(); loadSchedule(); }
     else if (tab === "settings") { stopPoll(); prepareBackup(); renderSettingsTab(); }

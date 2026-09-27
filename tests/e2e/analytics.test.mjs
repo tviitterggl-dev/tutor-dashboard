@@ -28,12 +28,22 @@ test("аналитика: цифры из базы, три графика с п�
   // доход по месяцам: 6 столбцов-групп, сентябрь с суммами
   const inc = await rows(page, "anIncomeTable");
   assert.equal(inc.length, 6);
-  assert.deepEqual(inc[5].slice(1), ["5 400 ₽", "2 000 ₽"].map((x) => x.replace(" ", " ")));
+  const nb = (x) => x.replace(" ", "\u00a0");
+  // сентябрь: провёл 5400, из них оплачено 2000 (занятие 14.09), не оплачено 3400
+  assert.deepEqual(inc[5].slice(1), ["5 400 ₽", "2 000 ₽", "3 400 ₽"].map(nb));
   assert.equal(await page.locator("#anIncome .an-hit").count(), 6);
+  // по умолчанию — один столбик на месяц, без легенды; «неоплаченные» — по галочке
+  assert.equal(await page.isVisible("#anIncomeLegend"), false);
+  assert.equal(await page.locator("#anIncome path").count(), 1, "одна серия");
   // подсказка по касанию
   await page.locator("#anIncome .an-hit").last().click();
   await page.waitForSelector("#anIncome .an-tip:not([hidden])");
-  assert.match(await page.textContent("#anIncome .an-tip"), /сентябрь 2026[\s\S]*Провёл: 5\s400 ₽ \(3 зан\.\)[\s\S]*Оплачено: 2\s000 ₽/);
+  assert.match(await page.textContent("#anIncome .an-tip"), /сентябрь 2026[\s\S]*Провёл: 5\s400 ₽ \(3 зан\.\)/);
+  await page.check("#anUnpaid");
+  await page.waitForSelector("#anIncomeLegend", { state: "visible" });
+  assert.equal(await page.locator("#anIncome path").count(), 2, "столбик делится на оплачено / не оплачено");
+  await page.locator("#anIncome .an-hit").last().click();
+  assert.match(await page.textContent("#anIncome .an-tip"), /оплачено: 2\s000 ₽[\s\S]*не оплачено: 3\s400 ₽/);
   // отмены: Борис 1 из 1 (100%) выше Анны 1 из 3 (33%); у Анны — 1 перенос
   const names = await page.$$eval("#anCancel .an-name", (t) => t.map((x) => x.textContent));
   assert.deepEqual(names, ["Борис, 8 класс", "Анна, 6 класс"]);
@@ -51,9 +61,33 @@ test("аналитика: цифры из базы, три графика с п�
   await page.waitForFunction(() => document.querySelectorAll("#anIncomeTable tbody tr").length === 3);
   await page.click('[data-anmonths="12"]');
   await page.waitForFunction(() => document.querySelectorAll("#anIncomeTable tbody tr").length === 12);
-  // доход по неделям переехал сюда из «Итогов»
-  await page.waitForSelector("#trendChart svg");
-  assert.equal(await page.locator("#view-summary #trendChart").count(), 0);
+  // «По неделям» — в той же карточке, свой период 5/10/15; период сверху его не трогает
+  await page.click('[data-anstep="week"]');
+  await page.waitForFunction(() => document.querySelectorAll("#anIncomeTable tbody tr").length === 10, null, { timeout: 8000 });
+  assert.equal(await page.isVisible('[data-anweeks="5"]'), true);
+  await page.click('[data-anweeks="5"]');
+  await page.waitForFunction(() => document.querySelectorAll("#anIncomeTable tbody tr").length === 5);
+  const wk = await rows(page, "anIncomeTable");
+  assert.equal(wk[4][0], "21.09 – 27.09");
+  assert.equal(wk[3][0], "14.09 – 20.09");
+  assert.deepEqual(wk[3].slice(1), ["5 400 ₽", "2 000 ₽", "3 400 ₽"].map(nb), "неделя 14–20.09: 2000+2000+1400");
+  await page.click('[data-anmonths="3"]');
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator("#anIncomeTable tbody tr").count(), 5, "выбор месяцев сверху не меняет недели");
+  await page.click('[data-anweeks="15"]');
+  await page.waitForFunction(() => document.querySelectorAll("#anIncomeTable tbody tr").length === 15);
+  // назад к месяцам — период сверху (3 мес)
+  await page.click('[data-anstep="month"]');
+  await page.waitForFunction(() => document.querySelectorAll("#anIncomeTable tbody tr").length === 3);
+  assert.equal(await page.isVisible('[data-anweeks="5"]'), false, "кнопки недель — только в режиме недель");
+  // выбор запоминается на устройстве
+  await page.click('[data-anstep="week"]');
+  await page.reload();
+  await page.waitForSelector("#lessonsList .lesson");
+  await page.click('.tab[data-tab="analytics"]');
+  await page.waitForFunction(() => document.querySelectorAll("#anIncomeTable tbody tr").length === 15, null, { timeout: 8000 });
+  assert.equal(await page.isChecked("#anUnpaid"), true);
+  assert.equal(await page.locator("#trendChart").count(), 0, "отдельной карточки «по неделям» больше нет");
   // в витрины семей аналитика не уходит
   const db = await app.db();
   const views = Object.entries(db).filter(([p]) => p.startsWith("parentAccess/") || p.startsWith("studentAccess/"));
