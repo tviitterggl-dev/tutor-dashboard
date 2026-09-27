@@ -600,8 +600,10 @@
   }
 
   function renderRequestsPane() {
-    const pend = shared.filter((i) => i.type === "reschedule" || i.type === "cancel").sort((a, b) => b.createdAt - a.createdAt);
     const decided = (view.requests || []).slice().sort((a, b) => (b.decidedAt || 0) - (a.decidedAt || 0));
+    // решение уже пришло, а сама заявка ещё не удалена из канала — она не «ждёт ответа»
+    const decidedIds = new Set(decided.map((r) => r.id));
+    const pend = shared.filter((i) => (i.type === "reschedule" || i.type === "cancel") && !decidedIds.has(i.id)).sort((a, b) => b.createdAt - a.createdAt);
     let html = "";
     if (pend.length) html += `<div class="card"><div class="card-title">Ждут ответа</div>${pend.map((r) => requestItem(r, true)).join("")}</div>`;
     html += `<div class="card"><div class="card-title">История заявок</div>
@@ -750,7 +752,8 @@
     setPanesVisible(true);
     document.querySelectorAll(".ctab").forEach((b) => b.classList.toggle("active", b.dataset.ctab === activeTab));
     // Точка на «Заявках», пока есть заявка без ответа.
-    const hasPending = shared.some((i) => i.type === "reschedule" || i.type === "cancel");
+    const decidedIds = new Set((v.requests || []).map((r) => r.id));
+    const hasPending = shared.some((i) => (i.type === "reschedule" || i.type === "cancel") && !decidedIds.has(i.id));
     const reqTab = document.querySelector('.ctab[data-ctab="requests"]');
     reqTab.innerHTML = "Заявки" + (hasPending ? '<span class="dot" title="есть заявка без ответа"></span>' : "");
 
