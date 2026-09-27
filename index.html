@@ -3801,7 +3801,8 @@
     return keys.map(k => {
       const own = all.filter(l => l.studentId === k.studentId);
       // своё групповое занятие — не «занято» (копии других участников в то же время)
-      const ownOcc = new Set(own.map(l => l.groupOcc).filter(Boolean));
+      // (только идущие копии: «не придёт» или перенос — время группы для семьи снова занято)
+      const ownOcc = new Set(own.filter(l => isActiveStatus(l.status)).map(l => l.groupOcc).filter(Boolean));
       const seen = new Set();
       const busy = all
         .filter(l => isActiveStatus(l.status) && l.studentId !== k.studentId && l.endMs > busyFrom && l.startMs < busyTo && !(l.groupOcc && ownOcc.has(l.groupOcc)))
@@ -4686,13 +4687,16 @@
   }
   // Перенос всей группы: у каждой ещё не проведённой копии — перенос с историей.
   async function rescheduleGroup(copies, startMs, endMs) {
+    copies = copies.slice().sort((a, b) => (a.status === "planned" ? 0 : 1) - (b.status === "planned" ? 0 : 1));
     const occ = newId("go");
     const now = Date.now();
     const items = [];
-    copies.filter(c => c.status === "planned").forEach(c => {
+    // «не придёт» переезжает вместе с группой (остаётся отменённым — можно «вернуть»)
+    if (!copies.some(c => c.status === "planned")) return null;
+    copies.filter(c => c.status === "planned" || c.status === "cancelled").forEach(c => {
       const nid = newId("l");
       items.push({ id: nid, data: lessonData({
-        title: c.title, startMs, endMs, status: "planned", packageId: c.packageId, recurrenceId: c.recurrenceId, source: "app",
+        title: c.title, startMs, endMs, status: c.status, packageId: c.packageId, recurrenceId: c.recurrenceId, source: "app",
         extra: Object.assign({ rescheduledFrom: c.id, createdAt: now, report: c.report || "", homework: c.homework || [], groupId: c.groupId, groupOcc: occ }, c.callUrl ? { callUrl: c.callUrl } : {}, c.familyNote ? { familyNote: c.familyNote } : {}),
       }) });
       items.push({ id: c.id, merge: true, data: { status: "rescheduled", rescheduledTo: nid, updatedAt: now } });
@@ -4710,11 +4714,11 @@
     return series.filter(x => x.groupId === l.groupId && x.startMs >= l.startMs && ok(x));
   }
   // Правка времени/длительности группы «на месте»: названия у каждой копии свои.
-  // Отменённые копии («не придёт») двигаются вместе с группой — иначе их уже
-  // не найти в окне занятия (копии ищутся по времени) и не вернуть.
+  // Отменённые («не придёт») и уже отмеченные «Провёл» копии двигаются вместе
+  // с группой — иначе их не найти в окне занятия (копии ищутся по времени).
   async function editGroupScoped(copies, { startMs, durMin, scope }) {
     const delta = startMs - copies[0].startMs;
-    const targets = await groupScopeTargets(copies, scope, ["planned", "cancelled"]);
+    const targets = await groupScopeTargets(copies, scope, ["planned", "cancelled", "done"]);
     await window.TutorFB.saveLessons(targets.map(x => {
       const s = x.startMs + delta;
       return { id: x.id, merge: true, data: lessonData({ title: x.title, startMs: s, endMs: s + durMin * 60000, status: x.status, packageId: x.packageId, recurrenceId: x.recurrenceId, source: x.source }) };
@@ -5671,9 +5675,10 @@
       </div>
       ${groupsMap()[gid] ? '<div class="btn-row" style="margin-top:12px; justify-content:flex-end"><button class="btn danger" type="button" id="geDisband">Распустить группу…</button></div>' : ""}`);
     if (mq("#geDisband")) mq("#geDisband").addEventListener("click", async (e) => {
+      const btn = e.currentTarget; // после await у события его уже нет
       if (!confirm(`Распустить ${groupLabel(gid).toLowerCase()}? Будущие непроведённые занятия группы удалятся у всех участников. Прошедшие и проведённые останутся в истории.`)) return;
       if (!navigator.onLine) { modalMsg(OFFLINE_TEXT, "err"); return; }
-      e.currentTarget.disabled = true;
+      btn.disabled = true;
       try {
         const now = Date.now();
         const doomed = (await window.TutorFB.listGroupLessons(gid)).filter(l => l.startMs >= now && l.status !== "done").map(l => l.id);
@@ -5684,12 +5689,13 @@
         if (activeTab === "students") renderStudentsRoster();
       } catch (err) {
         console.error(err);
-        e.currentTarget.disabled = false;
+        btn.disabled = false;
         modalMsg(isOfflineError(err) ? OFFLINE_TEXT : "Не получилось (нет интернета?). Повтор безопасен.", "err");
       }
     });
     mq("#mClose").addEventListener("click", () => { if (backTo) openLessonModal(backTo.id); else closeModal(); });
     mq("#geSave").addEventListener("click", async (e) => {
+      const btn = e.currentTarget; // после await у события его уже нет
       const members = [...$("modal").querySelectorAll("[data-ge-member]")].filter(x => x.checked).map(x => x.dataset.geMember);
       const name = mq("#geName").value.trim().slice(0, 60);
       const callUrl = mq("#geCall").value.trim();
@@ -5698,7 +5704,7 @@
       if (!navigator.onLine) { modalMsg(OFFLINE_TEXT, "err"); return; }
       const removed = (g.members || []).filter(x => !members.includes(x));
       if (removed.length && !confirm(`Убрать из группы: ${removed.map(shortName).join(", ")}? Их будущие непроведённые занятия группы удалятся.`)) return;
-      e.currentTarget.disabled = true;
+      btn.disabled = true;
       try {
         const r = await applyGroupMembers(gid, members);
         await saveGroup(gid, Object.assign({}, g, { name, members, callUrl: callUrl || null, updatedAt: Date.now() }));
@@ -5707,10 +5713,10 @@
         const parts = [r.added.length ? `добавлены: ${r.added.map(shortName).join(", ")} (занятий: ${r.created})` : "", r.removed.length ? `убраны: ${r.removed.map(shortName).join(", ")} (удалено занятий: ${r.deleted})` : ""].filter(Boolean);
         if (backTo) { const fresh = await window.TutorFB.getLesson(backTo.id); if (fresh) { await openGroupModal(fresh, "Состав сохранён" + (parts.length ? ": " + parts.join("; ") : "")); return; } }
         modalMsg("Состав сохранён" + (parts.length ? ": " + parts.join("; ") : ""), "ok");
-        e.currentTarget.disabled = false;
+        btn.disabled = false;
       } catch (err) {
         console.error(err);
-        e.currentTarget.disabled = false;
+        btn.disabled = false;
         modalMsg(isOfflineError(err) ? OFFLINE_TEXT : "Не сохранилось (нет интернета?). Повтор безопасен.", "err");
       }
     });

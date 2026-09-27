@@ -365,3 +365,62 @@ test("заявка семьи на перенос группового заня�
   assert.deepEqual(app.errors, []);
   await app.close();
 });
+
+test("ревью: кнопка «Сохранить состав» снова активна; «не придёт» не освобождает время группы в кабинете; правка и перенос не бросают «Провёл» и «не придёт»", async () => {
+  const seed = groupSeed();
+  seed[L("gA2")].status = "cancelled";                 // Анна не придёт 29.09
+  seed[L("gB3")].status = "done";                      // Борис 06.10 уже отмечен «Провёл»
+  seed[statePath].marks.gB3 = { marked: true, overrideAmount: null, lockedRate: 1200, markedAt: 1, updatedAt: 1 };
+  const app = await openApp({ seed, onDialog: () => true });
+  const { page } = app;
+  // 1) кабинет Анны: 29.09 17:00 у Бориса занятие идёт — для Анны это «занято»
+  await waitFor(async () => (await app.db())[`parentAccess/${PK_A}`]?.busy, "витрина Анны");
+  const s2 = Date.parse("2026-09-29T17:00:00+03:00");
+  assert.ok((await app.db())[`parentAccess/${PK_A}`].busy.some((b) => b.s === s2), "время группы занято");
+
+  // 2) «Сохранить состав» из карточки — кнопка снова активна, ошибок нет
+  await page.waitForSelector("#lessonsList .lesson");
+  await page.click('.tab[data-tab="students"]');
+  const card = page.locator(`.student-card[data-student="${A}"]`);
+  await card.locator(".student-head").click();
+  await card.locator("[data-g-edit]").click();
+  await page.fill("#geName", "Мини-2");
+  await page.click("#geSave");
+  await page.waitForFunction(() => /Состав сохранён/.test(document.querySelector("#mMsg").textContent));
+  await page.waitForFunction(() => !document.querySelector("#geSave").disabled, null, { timeout: 3000 });
+  await page.click("#mClose");
+
+  // 3) правка времени 06.10 (одно занятие): Борис с «Провёл» — вместе со всеми
+  await page.click('.tab[data-tab="calendar"]');
+  await page.waitForSelector("#fcRoot .fc-event");
+  await page.click(".fc-next-button"); await page.waitForTimeout(150);
+  await page.click(".fc-next-button"); await page.waitForTimeout(200);
+  await page.locator("#fcRoot .fc-event", { hasText: "Группа «Мини-2»" }).first().click();
+  await page.waitForSelector("#gSave");
+  await page.fill("#mTime", "18:00");
+  await page.click("#gSave");
+  await page.waitForFunction(() => /Сохранено/.test(document.querySelector("#mMsg").textContent));
+  let db = await app.db();
+  assert.deepEqual(["gA3", "gB3"].map((id) => db[L(id)].time), ["18:00", "18:00"]);
+  assert.equal(db[L("gB3")].status, "done");
+  assert.equal(await page.locator("#gMembers .g-member").count(), 2, "в окне по-прежнему оба");
+  await page.click("#mClose");
+
+  // 4) перенос 29.09 → 30.09: Анна («не придёт») переезжает вместе с группой, отменённой
+  await page.click(".fc-prev-button"); await page.waitForTimeout(200);
+  await page.locator("#fcRoot .fc-event", { hasText: "Группа «Мини-2»" }).first().click();
+  await page.waitForSelector("#gMove");
+  await page.fill("#mDate", "2026-09-30");
+  await page.click("#gMove");
+  await page.waitForFunction(() => /Перенесено для всей группы/.test(document.querySelector("#mMsg").textContent));
+  db = await app.db();
+  assert.equal(db[L("gA2")].status, "rescheduled", "старая копия Анны — «перенос», не «отмена»");
+  const na = db[L(db[L("gA2")].rescheduledTo)], nb = db[L(db[L("gB2")].rescheduledTo)];
+  assert.deepEqual([na.date, na.status, na.groupOcc], ["2026-09-30", "cancelled", nb.groupOcc]);
+  // «вернуть в занятие» — на новое время
+  await row(page, "Анна").locator("[data-g-back]").click();
+  await page.waitForFunction(() => /Анна: снова в занятии/.test(document.querySelector("#mMsg").textContent));
+  assert.equal((await app.db())[L(na.id || db[L("gA2")].rescheduledTo)].status, "planned");
+  assert.deepEqual(app.errors, []);
+  await app.close();
+});
