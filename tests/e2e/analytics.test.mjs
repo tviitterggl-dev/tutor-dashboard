@@ -1,5 +1,5 @@
-// Вкладка «Аналитика» (только учителю): доход по месяцам («Провёл»/«Оплачено»),
-// отмены по ученикам, загрузка по дням недели, доход по неделям.
+// Вкладка «Аналитика» (только учителю): доход по месяцам/неделям («Оплачено»,
+// потенциальный), общая доля отмен, загрузка по дням недели.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { openApp, shutdown, T, defaultSeed } from "./harness.mjs";
@@ -45,11 +45,9 @@ test("аналитика: один период на всю вкладку (ме
   assert.equal(await page.locator("#anIncome path").count(), 2);
   await page.locator("#anIncome .an-hit").last().click();
   assert.match(await page.textContent("#anIncome .an-tip"), /ещё не оплачено: 20\s200 ₽[\s\S]*всего по расписанию: 22\s200 ₽/);
-  // отмены: Борис 1 из 1 (100%) выше Анны 1 из 3 (33%); у Анны — 1 перенос
-  const names = await page.$$eval("#anCancel .an-name", (t) => t.map((x) => x.textContent));
-  assert.deepEqual(names, ["Борис, 8 класс", "Анна, 6 класс"]);
-  const cancel = await rows(page, "anCancelTable");
-  assert.deepEqual(cancel.find((r) => r[0] === "Анна, 6 класс"), ["Анна, 6 класс", "1", "3", "33%", "1"]);
+  // карточки «Отмены по ученикам» больше нет — только общая доля в плитке
+  assert.equal(await page.locator("#anCancel, #anCancelTable").count(), 0);
+  assert.doesNotMatch(await page.innerText("#view-analytics"), /Отмены по ученикам/);
   // загрузка по дням: отменённые не считаются
   const week = await rows(page, "anWeekTable");
   assert.deepEqual(week.map((r) => r[0]), ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]);

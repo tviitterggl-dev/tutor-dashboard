@@ -573,7 +573,6 @@
   .an-svg { display: block; max-width: 100%; }
   .an-grid { stroke: var(--viz-grid); stroke-width: 1; shape-rendering: crispEdges; }
   .an-axis { fill: var(--muted); font: 500 11px var(--font-body); }
-  .an-name { fill: var(--text); font-size: 12px; }
   .an-val { fill: var(--text); font: 600 11.5px var(--font-body); }
   .an-hit { fill: transparent; cursor: pointer; outline: none; }
   .an-hit.on, .an-hit:focus-visible { fill: var(--text); fill-opacity: 0.05; }
@@ -1155,7 +1154,7 @@
     <div class="tabview" id="view-analytics" style="display:none">
       <div class="card" id="anIncomeCard">
         <div class="chart-title">Доход</div>
-        <!-- один выбор периода на всю вкладку: плитки, график, отмены и загрузка -->
+        <!-- один выбор периода на всю вкладку: плитки, график и загрузка -->
         <div class="an-filter" role="group" aria-label="Период">
           <button type="button" class="an-seg" data-anstep="month">По месяцам</button>
           <button type="button" class="an-seg" data-anstep="week">По неделям</button>
@@ -1177,12 +1176,6 @@
         <div class="an-chart" id="anIncome"><div class="empty">Загрузка…</div></div>
         <details class="an-table"><summary>Таблицей</summary><div id="anIncomeTable"></div></details>
         <div class="hint">Столбик — оплаченные занятия (отметка «Оплачено» — твоя или родителя), по дате занятия. С галочкой сверху добавляется всё, что стоит в расписании и ещё не оплачено: проведённые и запланированные занятия (отменённые не считаются, перенесённое — один раз, по новой дате). Видишь только ты.</div>
-      </div>
-      <div class="card">
-        <div class="chart-title">Отмены по ученикам</div>
-        <div class="an-chart" id="anCancel"><div class="empty">Загрузка…</div></div>
-        <details class="an-table"><summary>Таблицей</summary><div id="anCancelTable"></div></details>
-        <div class="hint">За период, выбранный в «Доходе». Отменённые занятия из всех, что стояли в расписании (уже прошедшие). Переносы — отдельно, в таблице.</div>
       </div>
       <div class="card">
         <div class="chart-title">Загрузка по дням недели</div>
@@ -2312,7 +2305,6 @@
   function computeAnalytics(evs, range, now) {
     range.buckets.forEach(b => Object.assign(b, { paid: 0, earned: 0, potential: 0, n: 0, np: 0 }));
     const byKey = Object.fromEntries(range.buckets.map(b => [b.key, b]));
-    const perStudent = {};
     const wd = WEEKDAYS_RU.map((label) => ({ label, count: 0, minutes: 0 }));
     let cancelledAll = 0, scheduledAll = 0;
     evs.forEach(ev => {
@@ -2330,10 +2322,9 @@
       if (active || isPaid) { bk.potential += amt; bk.np++; }
       // отмены и загрузка — по уже прошедшим занятиям периода
       if (l.startMs > now.getTime() || !l.studentId) return;
-      const st = perStudent[l.studentId] = perStudent[l.studentId] || { sid: l.studentId, cancelled: 0, rescheduled: 0, total: 0 };
-      if (l.status === "rescheduled") { st.rescheduled++; return; } // перенос: копия стоит отдельно
-      st.total++; scheduledAll++;
-      if (l.status === "cancelled") { st.cancelled++; cancelledAll++; return; }
+      if (l.status === "rescheduled") return; // перенос: копия стоит отдельно
+      scheduledAll++;
+      if (l.status === "cancelled") { cancelledAll++; return; }
       const w = (new Date(l.startMs).getDay() + 6) % 7;
       wd[w].count++;
       wd[w].minutes += Math.max(0, (l.endMs - l.startMs) / 60000);
@@ -2341,10 +2332,8 @@
     // недель в периоде (до сегодня) — делитель для «в среднем»
     const weeks = Math.max(1, Math.round((now - range.from) / (7 * DAY_MS)));
     wd.forEach(d => { d.avg = d.count / weeks; d.hours = d.minutes / 60 / weeks; });
-    const cancel = Object.values(perStudent).map(x => Object.assign(x, { label: studentLabel(x.sid), share: x.total ? x.cancelled / x.total : 0 }))
-      .sort((a, b) => b.cancelled - a.cancelled || b.share - a.share || a.label.localeCompare(b.label, "ru"));
     const sum = (k) => range.buckets.reduce((t, b) => t + b[k], 0);
-    return { buckets: range.buckets, step: range.step, cancel, wd, weeks, paid: sum("paid"), earned: sum("earned"), potential: sum("potential"), cancelledAll, scheduledAll };
+    return { buckets: range.buckets, step: range.step, wd, weeks, paid: sum("paid"), earned: sum("earned"), potential: sum("potential"), cancelledAll, scheduledAll };
   }
 
   function anSyncControls() {
@@ -2364,7 +2353,7 @@
     const cached = anState.cache[ck];
     if (!force && cached && Date.now() - cached.at < 10 * 60000) { renderAnalytics(cached.data); return; }
     const my = ++anReq;
-    ["anIncome", "anCancel", "anWeek"].forEach(id => { $(id).innerHTML = '<div class="empty">Загрузка…</div>'; });
+    ["anIncome", "anWeek"].forEach(id => { $(id).innerHTML = '<div class="empty">Загрузка…</div>'; });
     const now = new Date();
     const range = Object.assign(anBuckets(step, n, now), { step });
     try {
@@ -2375,7 +2364,7 @@
       if (my === anReq) renderAnalytics(data); // пока грузили, не переключили
     } catch (e) {
       console.error(e);
-      if (my === anReq) ["anIncome", "anCancel", "anWeek"].forEach(id => { $(id).innerHTML = '<div class="empty">Не удалось загрузить (нет интернета?)</div>'; });
+      if (my === anReq) ["anIncome", "anWeek"].forEach(id => { $(id).innerHTML = '<div class="empty">Не удалось загрузить (нет интернета?)</div>'; });
     }
   }
   document.querySelectorAll("[data-anstep]").forEach(b => b.addEventListener("click", () => { anState.step = b.dataset.anstep; anSave("step", anState.step); loadAnalytics(); }));
@@ -2398,14 +2387,6 @@
       <div class="stat-tile"><span class="num">${rub(d.potential)}</span><span class="lbl">по расписанию (потенциально)</span></div>
       <div class="stat-tile"><span class="num">${pct}%</span><span class="lbl">отмен (${d.cancelledAll} из ${d.scheduledAll})</span></div>`;
     renderIncome(d);
-    // отмены по ученикам — горизонтальные полосы, только у кого были
-    const withCancels = d.cancel.filter(x => x.cancelled > 0);
-    renderHBars($("anCancel"), {
-      rows: withCancels.map(x => ({ label: x.label, value: x.cancelled, text: `${x.cancelled} из ${x.total} · ${Math.round(x.share * 100)}%`, tip: `<b>${escHtml(x.label)}</b><br>Отменено: ${x.cancelled} из ${x.total} (${Math.round(x.share * 100)}%)<br>Переносов: ${x.rescheduled}` })),
-      color: "var(--viz-1)",
-      empty: d.cancel.length ? "За этот период отмен не было." : "За этот период прошедших занятий нет.",
-    });
-    $("anCancelTable").innerHTML = anTable(["Ученик", "Отмен", "Всего", "Доля", "Переносов"], d.cancel.map(x => [x.label, x.cancelled, x.total, `${Math.round(x.share * 100)}%`, x.rescheduled]));
     // загрузка по дням недели — одна серия
     const fmtAvg = (v) => (Math.round(v * 10) / 10).toLocaleString("ru-RU");
     // деления оси — столько знаков после запятой, сколько нужно шагу (0,05 → два)
@@ -2458,11 +2439,6 @@
     const r = Math.min(4, w / 2, h);
     if (h <= 0) return "";
     return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`;
-  }
-  function barPath(x, y, w, h) { // горизонтальная полоса, скругление справа
-    const r = Math.min(4, h / 2, w);
-    if (w <= 0) return "";
-    return `M${x},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h - r}Q${x + w},${y + h} ${x + w - r},${y + h}H${x}Z`;
   }
   function wireTips(el) {
     const tip = document.createElement("div");
@@ -2538,28 +2514,6 @@
       if ((cfg.groups.length - 1 - i) % every === 0) svg += `<text class="an-axis" x="${cx.toFixed(1)}" y="${H - 7}" text-anchor="middle">${escHtml(g.label)}</text>`;
       // зона наведения — вся полоса месяца/дня, больше самих столбиков
       svg += `<rect class="an-hit" tabindex="0" x="${(padL + band * i).toFixed(1)}" y="${padT}" width="${band.toFixed(1)}" height="${plotH}" data-tip="${escHtml(g.tip)}"/>`;
-    });
-    el.innerHTML = `<svg class="an-svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img">${svg}</svg>`;
-    wireTips(el);
-  }
-  function renderHBars(el, cfg) {
-    if (!cfg.rows.length) { el.innerHTML = `<div class="empty">${escHtml(cfg.empty)}</div>`; return; }
-    const W = Math.max(280, el.clientWidth || 320);
-    const rowH = 30, barH = 14, padT = 4;
-    const labelW = Math.min(150, Math.round(W * 0.38));
-    const textW = 96; // место под «3 из 12 · 25%» справа от полосы
-    const plotW = Math.max(40, W - labelW - textW - 8);
-    const max = Math.max(...cfg.rows.map(r => r.value));
-    const H = padT * 2 + rowH * cfg.rows.length;
-    let svg = "";
-    cfg.rows.forEach((r, i) => {
-      const y = padT + i * rowH;
-      const w = Math.max(3, (r.value / max) * plotW);
-      const name = r.label.length > 22 ? r.label.slice(0, 21) + "…" : r.label;
-      svg += `<text class="an-axis an-name" x="${labelW - 8}" y="${y + rowH / 2 + 4}" text-anchor="end">${escHtml(name)}</text>`;
-      svg += `<path d="${barPath(labelW, y + (rowH - barH) / 2, w, barH)}" fill="${cfg.color}"/>`;
-      svg += `<text class="an-val" x="${labelW + w + 6}" y="${y + rowH / 2 + 4}">${escHtml(r.text)}</text>`;
-      svg += `<rect class="an-hit" tabindex="0" x="0" y="${y}" width="${W}" height="${rowH}" data-tip="${escHtml(r.tip)}"/>`;
     });
     el.innerHTML = `<svg class="an-svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img">${svg}</svg>`;
     wireTips(el);
