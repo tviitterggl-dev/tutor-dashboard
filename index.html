@@ -3791,8 +3791,13 @@
       title.textContent = "Свободные окна: " + $("schedLabel").textContent;
       wrap.appendChild(title);
 
+      // Картинка — в тех же пропорциях, что таблица на странице: берём её
+      // фактическую ширину. (Раньше min-width стирался, и в обёртке
+      // fit-content таблица сжималась до минимума — «занято» в две строки.)
+      const liveW = Math.round($("schedTable").getBoundingClientRect().width);
       const tableClone = $("schedTable").cloneNode(true);
-      tableClone.style.minWidth = "0";
+      tableClone.style.width = liveW + "px";
+      tableClone.style.minWidth = liveW + "px";
       wrap.appendChild(tableClone);
 
       document.body.appendChild(wrap);

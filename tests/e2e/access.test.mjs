@@ -236,3 +236,35 @@ test("выданные доступы: только действующие; сс
   assert.deepEqual(app.errors, []);
   await app.close();
 });
+
+// PNG «Свободные окна» — те же пропорции, что таблица на странице. Раньше
+// клон клали в обёртку fit-content и стирали min-width: таблица сжималась до
+// минимума по тексту, «занято» переносилось на две строки.
+test("PNG расписания: таблица на картинке той же ширины, что на странице (компьютер и телефон)", async () => {
+  for (const vp of [{ width: 1100, height: 900 }, { width: 390, height: 844 }]) {
+    const app = await openApp({ viewport: vp, isMobile: vp.width < 500, hasTouch: vp.width < 500 });
+    const { page } = app;
+    await page.waitForSelector("#appRoot", { state: "visible" });
+    await page.click('.tab[data-tab="schedule"]');
+    await page.waitForSelector("#schedTable td.free");
+    // перехват html2canvas: ширина таблицы и строк в клоне в момент снимка
+    await page.evaluate(async () => {
+      const load = () => new Promise((r) => { const s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"; s.onload = r; document.head.appendChild(s); });
+      if (typeof html2canvas === "undefined") await load();
+      const orig = window.html2canvas;
+      window.html2canvas = (el, opts) => {
+        const t = el.querySelector("table");
+        const busy = t.querySelector("td.busy");
+        window.__shot = { table: t.getBoundingClientRect().width, busyH: busy ? busy.getBoundingClientRect().height : 0, freeH: t.querySelector("td.free").getBoundingClientRect().height };
+        return orig(el, opts);
+      };
+    });
+    const live = await page.$eval("#schedTable", (t) => ({ w: t.getBoundingClientRect().width, busyH: (t.querySelector("td.busy") || t.querySelector("td.free")).getBoundingClientRect().height }));
+    await page.click("#schedExportBtn");
+    await page.waitForFunction(() => window.__shot);
+    const shot = await page.evaluate(() => window.__shot);
+    assert.ok(Math.abs(shot.table - live.w) <= 1, `${vp.width}px: на картинке ${shot.table.toFixed(0)} px, на странице ${live.w.toFixed(0)} px`);
+    assert.ok(shot.busyH <= live.busyH + 1, `${vp.width}px: «занято» в одну строку, как на странице (${shot.busyH} ≤ ${live.busyH})`);
+    await app.close();
+  }
+});
