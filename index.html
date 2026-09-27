@@ -1033,8 +1033,7 @@
       <div class="tab" data-tab="calendar">Календарь</div>
       <div class="tab" data-tab="requests">Заявки<span class="count-badge" id="reqBadge" style="display:none"></span></div>
       <div class="tab" data-tab="notify">Уведомления</div>
-      <div class="tab" data-tab="summary">Итоги</div>
-      <div class="tab" data-tab="analytics">Аналитика</div>
+      <div class="tab" data-tab="stats">Статистика</div>
       <div class="tab" data-tab="students">Ученики</div>
       <div class="tab" data-tab="schedule">Расписание</div>
       <div class="tab" data-tab="settings">Настройки</div>
@@ -1155,51 +1154,96 @@
     </div>
 
     <!-- (карточка «Уведомления мне» — внутри вкладки «Уведомления», см. tpCard) -->
-    <!-- ИТОГИ -->
-    <div class="tabview" id="view-summary" style="display:none">
-      <div class="card">
-        <div class="subtabs">
-          <div class="subtab" data-summode="week">Неделя</div>
-          <div class="subtab" data-summode="month">Месяц</div>
-          <div class="subtab" data-summode="range">Период</div>
+    <!-- СТАТИСТИКА: «Итоги» и «Аналитика» — подвкладки одной вкладки -->
+    <div class="tabview" id="view-stats" style="display:none">
+      <div class="subtabs stats-subtabs" role="tablist" aria-label="Статистика">
+        <div class="subtab" data-statsmode="summary" role="tab">Итоги</div>
+        <div class="subtab" data-statsmode="analytics" role="tab">Аналитика</div>
+      </div>
+      <!-- ИТОГИ -->
+      <div class="tabview" id="view-summary" style="display:none">
+        <div class="card">
+          <div class="subtabs">
+            <div class="subtab" data-summode="week">Неделя</div>
+            <div class="subtab" data-summode="month">Месяц</div>
+            <div class="subtab" data-summode="range">Период</div>
+          </div>
+
+          <div id="summaryNav" class="week-nav">
+            <button id="summaryPrevBtn">‹</button>
+            <div class="week-label" id="summaryLabel">—</div>
+            <button id="summaryNextBtn">›</button>
+          </div>
+
+          <div id="summaryRangeNav" class="range-row" style="display:none">
+            <input type="date" id="summaryRangeStart">
+            <span class="dash">—</span>
+            <input type="date" id="summaryRangeEnd">
+            <button class="btn" id="summaryRangeGoBtn">Показать</button>
+          </div>
+
+          <div class="stat-row">
+            <div class="stat-tile"><span class="num" id="statCount">0</span><span class="lbl">занятий</span></div>
+            <div class="stat-tile"><span class="num" id="statHours">0</span><span class="lbl">часов</span></div>
+            <div class="stat-tile"><span class="num" id="statSum">0 ₽</span><span class="lbl">заработано</span></div>
+          </div>
+          <div class="totals sub">
+            <div>Прогноз на весь период (по расписанию): <b id="sumForecastCount">0</b> зан.</div>
+            <div class="mini-big" id="sumForecastSum">0 ₽</div>
+          </div>
+          <div class="compare-row" id="compareRow"></div>
+
+          <div class="btn-row">
+            <button class="btn secondary block" id="copySummaryBtn">Скопировать итоги</button>
+          </div>
+
+          <div id="studentsSummaryList"><div class="empty">Загрузка…</div></div>
+          <div class="hint">Только отмеченные «Провёл». Нажми на ученика, чтобы посмотреть занятия.</div>
         </div>
 
-        <div id="summaryNav" class="week-nav">
-          <button id="summaryPrevBtn">‹</button>
-          <div class="week-label" id="summaryLabel">—</div>
-          <button id="summaryNextBtn">›</button>
+        <div class="card" id="payCard">
+          <div class="chart-title">Оплата</div>
+          <div id="payList"><div class="empty">Загрузка…</div></div>
+          <div class="hint">За выбранный выше период. «Не оплатили» — проведённые занятия (отметка «Провёл») без отметки «Оплачено». «Оплатили» — занятия с отметкой «Оплачено» (её ставишь ты в карточке занятия или родитель в своём кабинете).</div>
         </div>
 
-        <div id="summaryRangeNav" class="range-row" style="display:none">
-          <input type="date" id="summaryRangeStart">
-          <span class="dash">—</span>
-          <input type="date" id="summaryRangeEnd">
-          <button class="btn" id="summaryRangeGoBtn">Показать</button>
-        </div>
-
-        <div class="stat-row">
-          <div class="stat-tile"><span class="num" id="statCount">0</span><span class="lbl">занятий</span></div>
-          <div class="stat-tile"><span class="num" id="statHours">0</span><span class="lbl">часов</span></div>
-          <div class="stat-tile"><span class="num" id="statSum">0 ₽</span><span class="lbl">заработано</span></div>
-        </div>
-        <div class="totals sub">
-          <div>Прогноз на весь период (по расписанию): <b id="sumForecastCount">0</b> зан.</div>
-          <div class="mini-big" id="sumForecastSum">0 ₽</div>
-        </div>
-        <div class="compare-row" id="compareRow"></div>
-
-        <div class="btn-row">
-          <button class="btn secondary block" id="copySummaryBtn">Скопировать итоги</button>
-        </div>
-
-        <div id="studentsSummaryList"><div class="empty">Загрузка…</div></div>
-        <div class="hint">Только отмеченные «Провёл». Нажми на ученика, чтобы посмотреть занятия.</div>
       </div>
 
-      <div class="card" id="payCard">
-        <div class="chart-title">Оплата</div>
-        <div id="payList"><div class="empty">Загрузка…</div></div>
-        <div class="hint">За выбранный выше период. «Не оплатили» — проведённые занятия (отметка «Провёл») без отметки «Оплачено». «Оплатили» — занятия с отметкой «Оплачено» (её ставишь ты в карточке занятия или родитель в своём кабинете).</div>
+      <!-- АНАЛИТИКА: только учителю (в витрины родителей/учеников не попадает) -->
+      <div class="tabview" id="view-analytics" style="display:none">
+        <div class="card" id="anIncomeCard">
+          <div class="chart-title">Доход</div>
+          <!-- один выбор периода на всю вкладку: плитки, график и загрузка -->
+          <div class="an-filter" role="group" aria-label="Период">
+            <button type="button" class="an-seg" data-anstep="month">По месяцам</button>
+            <button type="button" class="an-seg" data-anstep="week">По неделям</button>
+            <span class="an-sep" aria-hidden="true"></span>
+            <span class="an-range an-months" role="group" aria-label="Сколько месяцев">
+              <button type="button" class="an-seg" data-anmonths="1">1 мес</button>
+              <button type="button" class="an-seg" data-anmonths="3">3 мес</button>
+              <button type="button" class="an-seg" data-anmonths="6">6 мес</button>
+              <button type="button" class="an-seg" data-anmonths="12">12 мес</button>
+            </span>
+            <span class="an-range an-weeks" role="group" aria-label="Сколько недель">
+              <button type="button" class="an-seg" data-anweeks="1">1 нед</button>
+              <button type="button" class="an-seg" data-anweeks="5">5 нед</button>
+              <button type="button" class="an-seg" data-anweeks="10">10 нед</button>
+              <button type="button" class="an-seg" data-anweeks="15">15 нед</button>
+            </span>
+          </div>
+          <div class="stat-row" id="anTiles"></div>
+          <label class="check an-unpaid"><input type="checkbox" id="anPotential"> показать потенциальный заработок</label>
+          <div class="an-legend" id="anIncomeLegend" hidden><span><i class="an-key" style="background:var(--viz-1)"></i>оплачено</span><span><i class="an-key" style="background:var(--viz-2)"></i>ещё не оплачено (по расписанию)</span></div>
+          <div class="an-chart" id="anIncome"><div class="empty">Загрузка…</div></div>
+          <details class="an-table"><summary>Таблицей</summary><div id="anIncomeTable"></div></details>
+          <div class="hint">Столбик — оплаченные занятия (отметка «Оплачено» — твоя или родителя), по дате занятия. С галочкой сверху добавляется всё, что стоит в расписании и ещё не оплачено: проведённые и запланированные занятия (отменённые не считаются, перенесённое — один раз, по новой дате). Видишь только ты.</div>
+        </div>
+        <div class="card">
+          <div class="chart-title">Загрузка по дням недели</div>
+          <div class="an-chart" id="anWeek"><div class="empty">Загрузка…</div></div>
+          <details class="an-table"><summary>Таблицей</summary><div id="anWeekTable"></div></details>
+          <div class="hint">За период, выбранный в «Доходе». Сколько часов занятий в среднем приходится на этот день недели — по длительности каждого занятия (проведённые и запланированные, без отмен и личного времени).</div>
+        </div>
       </div>
 
     </div>
@@ -1242,43 +1286,6 @@
     </div>
 
     <!-- РАСПИСАНИЕ -->
-    <!-- АНАЛИТИКА: только учителю (в витрины родителей/учеников не попадает) -->
-    <div class="tabview" id="view-analytics" style="display:none">
-      <div class="card" id="anIncomeCard">
-        <div class="chart-title">Доход</div>
-        <!-- один выбор периода на всю вкладку: плитки, график и загрузка -->
-        <div class="an-filter" role="group" aria-label="Период">
-          <button type="button" class="an-seg" data-anstep="month">По месяцам</button>
-          <button type="button" class="an-seg" data-anstep="week">По неделям</button>
-          <span class="an-sep" aria-hidden="true"></span>
-          <span class="an-range an-months" role="group" aria-label="Сколько месяцев">
-            <button type="button" class="an-seg" data-anmonths="1">1 мес</button>
-            <button type="button" class="an-seg" data-anmonths="3">3 мес</button>
-            <button type="button" class="an-seg" data-anmonths="6">6 мес</button>
-            <button type="button" class="an-seg" data-anmonths="12">12 мес</button>
-          </span>
-          <span class="an-range an-weeks" role="group" aria-label="Сколько недель">
-            <button type="button" class="an-seg" data-anweeks="1">1 нед</button>
-            <button type="button" class="an-seg" data-anweeks="5">5 нед</button>
-            <button type="button" class="an-seg" data-anweeks="10">10 нед</button>
-            <button type="button" class="an-seg" data-anweeks="15">15 нед</button>
-          </span>
-        </div>
-        <div class="stat-row" id="anTiles"></div>
-        <label class="check an-unpaid"><input type="checkbox" id="anPotential"> показать потенциальный заработок</label>
-        <div class="an-legend" id="anIncomeLegend" hidden><span><i class="an-key" style="background:var(--viz-1)"></i>оплачено</span><span><i class="an-key" style="background:var(--viz-2)"></i>ещё не оплачено (по расписанию)</span></div>
-        <div class="an-chart" id="anIncome"><div class="empty">Загрузка…</div></div>
-        <details class="an-table"><summary>Таблицей</summary><div id="anIncomeTable"></div></details>
-        <div class="hint">Столбик — оплаченные занятия (отметка «Оплачено» — твоя или родителя), по дате занятия. С галочкой сверху добавляется всё, что стоит в расписании и ещё не оплачено: проведённые и запланированные занятия (отменённые не считаются, перенесённое — один раз, по новой дате). Видишь только ты.</div>
-      </div>
-      <div class="card">
-        <div class="chart-title">Загрузка по дням недели</div>
-        <div class="an-chart" id="anWeek"><div class="empty">Загрузка…</div></div>
-        <details class="an-table"><summary>Таблицей</summary><div id="anWeekTable"></div></details>
-        <div class="hint">За период, выбранный в «Доходе». Сколько часов занятий в среднем приходится на этот день недели — по длительности каждого занятия (проведённые и запланированные, без отмен и личного времени).</div>
-      </div>
-    </div>
-
     <div class="tabview" id="view-schedule" style="display:none">
       <div class="card">
         <div id="schedNav" class="week-nav">
@@ -1377,12 +1384,23 @@
 (function () {
   let activeTab = "lessons"; // см. TEACHER_TABS
   // Вкладки учителя — по умолчанию в этом порядке; свой порядок — state/main.tabOrder.
-  const TEACHER_TABS = ["lessons", "calendar", "requests", "notify", "summary", "analytics", "students", "schedule", "settings"];
+  const TEACHER_TABS = ["lessons", "calendar", "requests", "notify", "stats", "students", "schedule", "settings"];
   const TAB_ORDER_STORE = "teacherTabOrder"; // копия на устройстве — чтобы порядок был сразу, до загрузки базы
   function currentTabOrder() {
     let local = null;
     try { local = JSON.parse(localStorage.getItem(TAB_ORDER_STORE) || "null"); } catch (e) { /* нет */ }
-    return TabOrder.normalize((remoteStateReady && remoteState.tabOrder) || local, TEACHER_TABS);
+    return TabOrder.normalize(legacyStats((remoteStateReady && remoteState.tabOrder) || local), TEACHER_TABS);
+  }
+  // До 27.09 «Итоги» и «Аналитика» были отдельными вкладками. В сохранённом
+  // порядке «Статистика» встаёт на место первой из них, вторая убирается.
+  function legacyStats(order) {
+    if (!Array.isArray(order) || !order.some(t => t === "summary" || t === "analytics")) return order;
+    const out = [];
+    order.forEach(t => {
+      const id = t === "summary" || t === "analytics" ? "stats" : t;
+      if (!out.includes(id)) out.push(id);
+    });
+    return out;
   }
   function applyTabOrder() {
     const order = currentTabOrder();
@@ -2510,7 +2528,7 @@
   let anResizeTimer = null;
   window.addEventListener("resize", () => {
     clearTimeout(anResizeTimer);
-    anResizeTimer = setTimeout(() => { if (activeTab === "analytics" && anLast) renderAnalytics(anLast); }, 150);
+    anResizeTimer = setTimeout(() => { if (activeTab === "stats" && statsMode === "analytics" && anLast) renderAnalytics(anLast); }, 150);
   });
 
   function renderAnalytics(d) {
@@ -5969,7 +5987,20 @@
 
   // ---------- НАВИГАЦИЯ ПО ВКЛАДКАМ ----------
 
+  // «Статистика»: подвкладки «Итоги» (по умолчанию) и «Аналитика»; выбранная
+  // запоминается до перезагрузки страницы.
+  let statsMode = "summary";
+  function showStats(mode) {
+    statsMode = mode === "analytics" ? "analytics" : "summary";
+    document.querySelectorAll("#view-stats [data-statsmode]").forEach(t => t.classList.toggle("active", t.dataset.statsmode === statsMode));
+    $("view-summary").style.display = statsMode === "summary" ? "block" : "none";
+    $("view-analytics").style.display = statsMode === "analytics" ? "block" : "none";
+    if (statsMode === "summary") refreshSummary(); else loadAnalytics();
+  }
+  document.querySelectorAll("#view-stats [data-statsmode]").forEach(t => t.addEventListener("click", () => showStats(t.dataset.statsmode)));
+
   function showTab(tab) {
+    if (tab === "summary" || tab === "analytics") { statsMode = tab; tab = "stats"; } // старые названия
     activeTab = tab;
     document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === tab));
     TEACHER_TABS.forEach(t => {
@@ -5979,8 +6010,7 @@
     else if (tab === "calendar") { stopPoll(); refreshCalendar(); }
     else if (tab === "requests") { stopPoll(); renderRequests(); }
     else if (tab === "notify") { stopPoll(); renderNotifyTab(); }
-    else if (tab === "summary") { stopPoll(); refreshSummary(); }
-    else if (tab === "analytics") { stopPoll(); loadAnalytics(); }
+    else if (tab === "stats") { stopPoll(); showStats(statsMode); }
     else if (tab === "students") { stopPoll(); renderStudentsRoster(); loadPackages(); loadAccessCard(); }
     else if (tab === "schedule") { stopPoll(); loadSchedule(); }
     else if (tab === "settings") { stopPoll(); prepareBackup(); renderSettingsTab(); }

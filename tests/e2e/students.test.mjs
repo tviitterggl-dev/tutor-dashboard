@@ -172,7 +172,7 @@ test("Итоги → Оплата: кто оплатил и кто нет", asyn
   // изменение «с другого устройства»: занятия читаются из живой подписки —
   // ждём, пока она его получит (в Firestore — сразу, в заглушке — опрос 250 мс)
   await page.waitForTimeout(400);
-  await page.click('.tab[data-tab="summary"]');
+  await page.click('.tab[data-tab="stats"]'); await page.click('.subtab[data-statsmode="summary"]');
   await page.click('.subtab[data-summode="month"]');
   await page.waitForSelector("#payUnpaid .session-row");
   const unpaid = await page.textContent("#payUnpaid");
@@ -191,7 +191,7 @@ test("Итоги → Оплата: кто оплатил и кто нет", asyn
   await page.click("#mPaid");
   await page.waitForFunction(() => /Отмечено: оплачено/.test(document.querySelector("#mMsg").textContent));
   await page.click("#mClose");
-  await page.click('.tab[data-tab="summary"]');
+  await page.click('.tab[data-tab="stats"]'); await page.click('.subtab[data-statsmode="summary"]');
   await page.waitForFunction(() => /1 зан\. · 2\s000 ₽/.test(document.querySelector("#payUnpaid")?.textContent || ""));
   assert.match(await page.textContent("#payPaid"), /Тест, 7 класс/);
   assert.deepEqual(app.errors, []);

@@ -31,7 +31,7 @@ test("учитель: «Настройки» (бывшее «Ещё») — ту�
   const { page } = app;
   await page.waitForSelector("#lessonsList .lesson");
   const def = await tabs(page, ".tabs .tab", "data-tab");
-  assert.deepEqual(def, ["lessons", "calendar", "requests", "notify", "summary", "analytics", "students", "schedule", "settings"]);
+  assert.deepEqual(def, ["lessons", "calendar", "requests", "notify", "stats", "students", "schedule", "settings"]);
   assert.equal(await page.textContent('.tab[data-tab="settings"]'), "Настройки");
   await page.click('.tab[data-tab="settings"]');
   for (const id of ["#tabOrderEditor", "#accountSignOutBtn", "#tpCard", "#tplCard", "#nfPushStatus", "#backupJsonBtn", "#themeToggle"]) {
@@ -40,23 +40,23 @@ test("учитель: «Настройки» (бывшее «Ещё») — ту�
   assert.equal(await page.locator("#view-notify #tplCard, #view-notify #tpCard, #view-students #accountSignOutBtn").count(), 0, "не дублируется");
   assert.equal(await page.locator("#view-notify #nwTpl").count(), 1, "выбор шаблона — остался в форме отправки");
 
-  // кнопки: «Аналитика» ↑ ×5 → на первое место
-  for (let i = 0; i < 5; i++) await page.click('[data-to-up="analytics"]');
+  // кнопки: «Статистика» ↑ ×4 → на первое место
+  for (let i = 0; i < 4; i++) await page.click('[data-to-up="stats"]');
   await page.waitForFunction(() => /Сохранено/.test(document.querySelector("#tabOrderMsg").textContent));
-  assert.deepEqual((await tabs(page, ".tabs .tab", "data-tab")).slice(0, 2), ["analytics", "lessons"], "полоса вкладок переставилась сразу");
+  assert.deepEqual((await tabs(page, ".tabs .tab", "data-tab")).slice(0, 2), ["stats", "lessons"], "полоса вкладок переставилась сразу");
   // перетаскивание: «Настройки» на место «Календаря»
   await dragRow(page, "settings", "calendar");
   await waitFor(async () => (await app.db())[statePath].tabOrder?.indexOf("settings") === 2, "порядок в базе");
   const saved = (await app.db())[statePath].tabOrder;
-  assert.deepEqual(saved, ["analytics", "lessons", "settings", "calendar", "requests", "notify", "summary", "students", "schedule"]);
+  assert.deepEqual(saved, ["stats", "lessons", "settings", "calendar", "requests", "notify", "students", "schedule"]);
   assert.deepEqual(await tabs(page, ".tabs .tab", "data-tab"), saved);
 
   // «другое устройство»: чистое хранилище, порядок — из базы; первая вкладка открыта
   await page.evaluate(() => localStorage.removeItem("teacherTabOrder"));
   await page.reload();
-  await page.waitForSelector("#view-analytics", { state: "visible" });
+  await page.waitForSelector("#view-summary", { state: "visible" }); // «Статистика» открывается на «Итогах»
   assert.deepEqual(await tabs(page, ".tabs .tab", "data-tab"), saved);
-  assert.equal(await page.getAttribute(".tab.active", "data-tab"), "analytics", "первая вкладка — главная");
+  assert.equal(await page.getAttribute(".tab.active", "data-tab"), "stats", "первая вкладка — главная");
   // по умолчанию
   await page.click('.tab[data-tab="settings"]');
   await page.click("[data-to-reset]");
@@ -112,5 +112,39 @@ test("родитель и ученик: вкладка «Настройки» в
   await waitFor(async () => (await app.db())[`accessPrefs/${SK}`]?.tabOrder?.[0] === "requests", "порядок ученика в базе");
   assert.deepEqual(mom.errors, []);
   assert.deepEqual(kid.errors, []);
+  await app.close();
+});
+
+test("«Статистика»: одна вкладка с подвкладками «Итоги» / «Аналитика»; сохранённый старый порядок переводится", async () => {
+  const seed = defaultSeed();
+  // порядок, сохранённый до объединения: «Аналитика» вторая, «Итоги» — шестые
+  seed[statePath].tabOrder = ["notify", "analytics", "lessons", "calendar", "requests", "summary", "students", "schedule", "settings"];
+  const app = await openApp({ seed, localStorage: { teacherTabOrder: JSON.stringify(seed[statePath].tabOrder) } });
+  const { page } = app;
+  await page.waitForSelector("#view-notify", { state: "visible" });
+  assert.deepEqual(await tabs(page, ".tabs .tab", "data-tab"), ["notify", "stats", "lessons", "calendar", "requests", "students", "schedule", "settings"], "«Статистика» — на месте первой из двух прежних");
+  assert.equal(await page.textContent('.tab[data-tab="stats"]'), "Статистика");
+  assert.equal(await page.locator('.tab[data-tab="summary"], .tab[data-tab="analytics"]').count(), 0);
+  // по умолчанию — «Итоги»
+  await page.click('.tab[data-tab="stats"]');
+  await page.waitForSelector("#view-summary", { state: "visible" });
+  assert.equal(await page.isVisible("#view-analytics"), false);
+  assert.equal(await page.getAttribute('#view-stats .subtab.active', "data-statsmode"), "summary");
+  assert.deepEqual(await page.$$eval("#view-stats [data-statsmode]", (e) => e.map((x) => x.textContent)), ["Итоги", "Аналитика"]);
+  // «Аналитика»
+  await page.click('.subtab[data-statsmode="analytics"]');
+  await page.waitForFunction(() => /отмен \(/.test(document.querySelector("#anTiles").textContent)); // график оплат пуст — оплат в данных нет
+  assert.equal(await page.isVisible("#view-summary"), false);
+  // другая вкладка и обратно — «Статистика» остаётся на выбранной подвкладке
+  await page.click('.tab[data-tab="lessons"]');
+  await page.click('.tab[data-tab="stats"]');
+  await page.waitForSelector("#view-analytics", { state: "visible" });
+  // в «Настройках» — одна строка «Статистика»
+  await page.click('.tab[data-tab="settings"]');
+  assert.deepEqual(await page.$$eval("#tabOrderEditor .to-item", (e) => e.map((x) => x.dataset.to)), ["notify", "stats", "lessons", "calendar", "requests", "students", "schedule", "settings"]);
+  await page.click('[data-to-up="stats"]');
+  await waitFor(async () => (await app.db())[statePath].tabOrder?.[0] === "stats", "сохранён новый порядок");
+  assert.ok(!(await app.db())[statePath].tabOrder.some((t) => t === "summary" || t === "analytics"));
+  assert.deepEqual(app.errors, []);
   await app.close();
 });

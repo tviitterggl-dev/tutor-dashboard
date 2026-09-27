@@ -20,7 +20,7 @@ test("аналитика: один период на всю вкладку (ме
   const { page } = app;
   await page.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.startsWith("an.")) localStorage.removeItem(k); });
   await page.waitForSelector("#lessonsList .lesson");
-  await page.click('.tab[data-tab="analytics"]');
+  await page.click('.tab[data-tab="stats"]'); await page.click('.subtab[data-statsmode="analytics"]');
   await page.waitForSelector("#anIncome svg");
   const nb = (x) => x.replace(" ", "\u00a0");
   // по умолчанию: по месяцам, 3 мес; все переключатели — в карточке «Доход»
@@ -80,7 +80,7 @@ test("аналитика: один период на всю вкладку (ме
   // выбор запоминается на устройстве
   await page.reload();
   await page.waitForSelector("#lessonsList .lesson");
-  await page.click('.tab[data-tab="analytics"]');
+  await page.click('.tab[data-tab="stats"]'); await page.click('.subtab[data-statsmode="analytics"]');
   await page.waitForFunction(() => document.querySelectorAll("#anIncomeTable tbody tr").length === 15, null, { timeout: 8000 });
   assert.equal(await page.isChecked("#anPotential"), true);
   // в витрины семей аналитика не уходит
@@ -95,7 +95,7 @@ test("аналитика на телефоне: графики по ширине
   const app = await openApp({ viewport: { width: 360, height: 780 }, isMobile: true, hasTouch: true });
   const { page } = app;
   await page.waitForSelector("#lessonsList .lesson");
-  await page.click('.tab[data-tab="analytics"]');
+  await page.click('.tab[data-tab="stats"]'); await page.click('.subtab[data-statsmode="analytics"]');
   await page.waitForSelector("#anWeek svg");
   const over = await page.evaluate(() => [...document.querySelectorAll("#view-analytics .an-svg")].filter((s) => s.getBoundingClientRect().right > document.documentElement.clientWidth + 1).length);
   assert.equal(over, 0);
@@ -112,7 +112,7 @@ test("аналитика: период «1 мес» и «1 нед» — одна
     const { page } = app;
     await page.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.startsWith("an.")) localStorage.removeItem(k); });
     await page.waitForSelector("#lessonsList .lesson");
-    await page.click('.tab[data-tab="analytics"]');
+    await page.click('.tab[data-tab="stats"]'); await page.click('.subtab[data-statsmode="analytics"]');
     await page.waitForSelector("#anIncome svg");
     await page.click('[data-anmonths="1"]');
     await page.waitForFunction(() => document.querySelectorAll("#anIncomeTable tbody tr").length === 1);
@@ -144,7 +144,7 @@ test("аналитика: столбики шире при малом числе
     const { page } = app;
     await page.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.startsWith("an.")) localStorage.removeItem(k); });
     await page.waitForSelector("#lessonsList .lesson");
-    await page.click('.tab[data-tab="analytics"]');
+    await page.click('.tab[data-tab="stats"]'); await page.click('.subtab[data-statsmode="analytics"]');
     await page.waitForSelector("#anWeek svg");
     await page.check("#anPotential");
     const check = async (what) => {

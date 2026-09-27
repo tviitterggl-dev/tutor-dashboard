@@ -173,7 +173,7 @@ test("аналитика и «Итоги»: групповое занятие в
   const { page } = app;
   await page.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.startsWith("an.")) localStorage.removeItem(k); });
   await page.waitForSelector("#lessonsList .lesson");
-  await page.click('.tab[data-tab="analytics"]');
+  await page.click('.tab[data-tab="stats"]'); await page.click('.subtab[data-statsmode="analytics"]');
   await page.waitForFunction(() => /отмен \(/.test(document.querySelector("#anTiles").textContent)); // оплаченных нет — график пустой
   // прошедшие с учеником: Тест 5 + Анна 4 + Борис 1 = 10, + группа 22.09 — одно = 11
   assert.match(await page.innerText("#anTiles"), /отмен \(0 из 11\)/);
@@ -183,7 +183,7 @@ test("аналитика и «Итоги»: групповое занятие в
   const inc = await page.$$eval("#anIncomeTable tbody tr", (trs) => trs.map((tr) => [...tr.children].map((td) => td.textContent)));
   assert.equal(inc[2][2], "7 600 ₽");
   // «Итоги» за сентябрь: отмечены Тест 14 и 16, Анна 15, группа 22.09 (двое)
-  await page.click('.tab[data-tab="summary"]');
+  await page.click('.tab[data-tab="stats"]'); await page.click('.subtab[data-statsmode="summary"]');
   await page.waitForSelector("#statHours");
   await page.click('.subtab[data-summode="month"]');
   await page.waitForFunction(() => /7\s600/.test(document.querySelector("#view-summary").textContent), null, { timeout: 8000 });
