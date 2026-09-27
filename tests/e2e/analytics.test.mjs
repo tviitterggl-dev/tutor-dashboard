@@ -14,6 +14,8 @@ test("аналитика: один период на всю вкладку (ме
   seed[L("boris1")].status = "cancelled";         // 17.09 Борис — отмена
   seed[L("anna4")].status = "rescheduled";        // 22.09 Анна — перенос
   seed[L("serA_20260914T070000Z")].paid = { value: true, by: "parent", at: 1 };
+  // 01.09 Анна — 90 минут: загрузка считается по длительности, а не штуками
+  Object.assign(seed[L("anna1")], { endMs: seed[L("anna1")].startMs + 90 * 60000, durationMin: 90 });
   const app = await openApp({ seed });
   const { page } = app;
   await page.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.startsWith("an.")) localStorage.removeItem(k); });
@@ -51,8 +53,14 @@ test("аналитика: один период на всю вкладку (ме
   // загрузка по дням: отменённые не считаются
   const week = await rows(page, "anWeekTable");
   assert.deepEqual(week.map((r) => r[0]), ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]);
+  assert.deepEqual(await page.$$eval("#anWeekTable thead th", (t) => t.map((x) => x.textContent)), ["День", "Часов в неделю", "Занятий в неделю", "Всего занятий", "Всего часов"]);
   assert.equal(week[3][3], "0", "четверг — только отменённое");
   assert.equal(week[1][3], "2", "вторники: Анна 01 и 15");
+  assert.equal(week[1][4], "2,5", "вторники: 1,5 ч (01.09, 90 мин) + 1 ч (15.09)");
+  assert.equal(week[0][4], "2", "понедельники: Тест 14.09 и 21.09 по часу");
+  // столбик — часы (длительность из карточки занятия)
+  await page.locator("#anWeek .an-hit").nth(1).click();
+  assert.match(await page.textContent("#anWeek .an-tip"), /Вт[\s\S]*ч в неделю[\s\S]*всего за период: 2 зан\., 2,5 ч/);
   // 6 и 12 месяцев
   await page.click('[data-anmonths="12"]');
   await page.waitForFunction(() => document.querySelectorAll("#anIncomeTable tbody tr").length === 12);

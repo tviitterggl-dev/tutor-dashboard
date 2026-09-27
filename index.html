@@ -1181,7 +1181,7 @@
         <div class="chart-title">Загрузка по дням недели</div>
         <div class="an-chart" id="anWeek"><div class="empty">Загрузка…</div></div>
         <details class="an-table"><summary>Таблицей</summary><div id="anWeekTable"></div></details>
-        <div class="hint">За период, выбранный в «Доходе». Сколько занятий в среднем приходится на этот день недели (проведённые и запланированные, без отмен и личного времени).</div>
+        <div class="hint">За период, выбранный в «Доходе». Сколько часов занятий в среднем приходится на этот день недели — по длительности каждого занятия (проведённые и запланированные, без отмен и личного времени).</div>
       </div>
     </div>
 
@@ -2391,14 +2391,15 @@
     const fmtAvg = (v) => (Math.round(v * 10) / 10).toLocaleString("ru-RU");
     // деления оси — столько знаков после запятой, сколько нужно шагу (0,05 → два)
     const fmtStep = (v, step) => { const dec = step ? Math.max(0, Math.min(2, -Math.floor(Math.log10(step) + 1e-9))) : 1; return v.toLocaleString("ru-RU", { minimumFractionDigits: 0, maximumFractionDigits: dec }); };
+    // столбик — часы в неделю: длительность из карточки занятия (90 мин весят больше 45)
     renderColumns($("anWeek"), {
-      groups: d.wd.map(w => ({ label: w.label, values: [w.avg], tip: `<b>${w.label}</b><br>в среднем ${fmtAvg(w.avg)} зан. в неделю (${fmtAvg(w.hours)} ч)<br>всего за период: ${w.count}` })),
+      groups: d.wd.map(w => ({ label: w.label, values: [w.hours], tip: `<b>${w.label}</b><br>в среднем ${fmtAvg(w.hours)} ч в неделю (${fmtAvg(w.avg)} зан.)<br>всего за период: ${w.count} зан., ${fmtAvg(w.minutes / 60)} ч` })),
       colors: ["var(--viz-1)"],
       fmtTick: (v, step) => (step ? fmtStep(v, step) : fmtAvg(v)),
       labelMax: true,
       empty: "За этот период прошедших занятий нет.",
     });
-    $("anWeekTable").innerHTML = anTable(["День", "В среднем за неделю", "Часов в неделю", "Всего"], d.wd.map(w => [w.label, fmtAvg(w.avg), fmtAvg(w.hours), w.count]));
+    $("anWeekTable").innerHTML = anTable(["День", "Часов в неделю", "Занятий в неделю", "Всего занятий", "Всего часов"], d.wd.map(w => [w.label, fmtAvg(w.hours), fmtAvg(w.avg), w.count, fmtAvg(w.minutes / 60)]));
   }
   // «Доход»: по умолчанию — оплаченное; с галочкой сверху — остальное по расписанию
   function renderIncome(d) {
