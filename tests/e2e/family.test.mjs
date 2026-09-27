@@ -550,3 +550,34 @@ test("«На экран «Домой»»: адрес всегда с ключо�
   assert.deepEqual(cab.errors, []);
   await app.close();
 });
+
+test("крестик на карточке занятия: быстрая заявка на отмену (родитель и ученик), только где отмена возможна", async () => {
+  const app = await openFamily();
+  for (const [hash, by] of [[`#p=${PK_T}`, "parent"], [`#s=${SK_T}`, "student"]]) {
+    const cab = await openCabinet(app, hash);
+    await cab.waitForSelector("#pane-lessons .lesson");
+    // будущее запланированное — с ×, у прошедших (история) — нет
+    const card = cab.locator(".lesson", { hasText: by === "parent" ? "7/8" : "8/8" }).first();
+    assert.equal(await card.locator("[data-quick-cancel]").count(), 1);
+    assert.equal(await card.locator("[data-quick-cancel]").getAttribute("aria-label"), "Отменить занятие…");
+    await card.locator("[data-quick-cancel]").click();
+    await cab.waitForSelector("#reqForm", { state: "visible" });
+    assert.equal(await cab.textContent("#mSend"), "Отправить заявку на отмену");
+    assert.equal(await cab.isVisible("#moveFields"), false, "без полей переноса");
+    await cab.fill("#mComment", "Заболели");
+    await cab.click("#mSend");
+    await cab.waitForFunction(() => /Заявка отправлена/.test(document.querySelector("#mMsg").textContent));
+    await cab.click("#mClose");
+    // заявка ждёт ответа — крестика у этого занятия больше нет
+    await cab.waitForFunction((t) => { const c = [...document.querySelectorAll("#pane-lessons .lesson")].find((x) => x.textContent.includes(t)); return c && !c.querySelector("[data-quick-cancel]"); }, by === "parent" ? "7/8" : "8/8");
+    await cab.click('[data-filter="past"]');
+    await cab.waitForSelector("#pane-lessons .lesson");
+    assert.equal(await cab.locator("#pane-lessons [data-quick-cancel]").count(), 0, "у прошедших — нет");
+    assert.deepEqual(cab.errors, []);
+    await cab.close();
+  }
+  const db = await app.db();
+  const cancels = Object.entries(db).filter(([p, d]) => p.startsWith("channels/") && d.type === "cancel").map(([, d]) => [d.by, d.comment]);
+  assert.deepEqual(cancels.sort(), [["parent", "Заболели"], ["student", "Заболели"]]);
+  await app.close();
+});
