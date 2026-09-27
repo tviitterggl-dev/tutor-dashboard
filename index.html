@@ -738,6 +738,14 @@
   table.sched.compact thead th { padding: 6px 2px; }
 
   .tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  /* верхние вкладки — «облачко», как у семьи (.ctabs в cabinet.html): прилипают
+     сверху, фон карточки, тень. Плашки (синхронизация, офлайн, заявки, пакеты)
+     стоят выше в обычном потоке и уезжают при прокрутке — не наезжают. */
+  .tabs {
+    position: sticky; top: 8px; z-index: 20;
+    background: var(--card-bg);
+    box-shadow: var(--shadow);
+  }
   .tabs::-webkit-scrollbar { display: none; }
   /* Вкладка никогда не уже своей подписи (иначе «Уведомления» вылезали за
      пилюлю на соседнюю): если места мало — полоса вкладок прокручивается вбок. */
@@ -833,6 +841,11 @@
   #fcRoot .st-group { box-shadow: inset 4px 0 0 var(--viz-2); }
   #fcRoot .st-cancelled, #fcRoot .st-rescheduled { background: transparent; border: 1px dashed var(--muted); opacity: 0.75; }
   #fcRoot .st-cancelled .fc-event-main, #fcRoot .st-rescheduled .fc-event-main { color: var(--muted); text-decoration: line-through; }
+  /* вид «месяц»: текст события не в .fc-event-main, а во времени/названии */
+  #fcRoot .fc-daygrid-event:is(.st-planned, .st-done) :is(.fc-event-time, .fc-event-title) { color: var(--on-event); }
+  #fcRoot .fc-daygrid-event:is(.st-planned, .st-done) .fc-daygrid-event-dot { border-color: var(--on-event); }
+  #fcRoot .fc-daygrid-event:is(.st-cancelled, .st-rescheduled) :is(.fc-event-time, .fc-event-title) { color: var(--muted); text-decoration: line-through; }
+  #fcRoot .fc-daygrid-event.st-personal :is(.fc-event-time, .fc-event-title) { color: var(--text); }
   #fcRoot .fc-list-event.st-cancelled td, #fcRoot .fc-list-event.st-rescheduled td { text-decoration: line-through; color: var(--muted); }
 
   table.keys { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 12px; }
@@ -4493,7 +4506,7 @@
       firstDay: 1,
       initialView: narrow ? "timeGridDay" : "timeGridWeek",
       headerToolbar: narrow
-        ? { left: "prev,next today", center: "", right: "timeGridDay,timeGridWeek,listWeek" }
+        ? { left: "prev,next today", center: "", right: "timeGridDay,timeGridWeek,dayGridMonth,listWeek" }
         : { left: "prev,next today", center: "title", right: "timeGridDay,timeGridWeek,dayGridMonth,listWeek" },
       footerToolbar: narrow ? { center: "title" } : false,
       buttonText: { today: "сегодня", day: "день", week: "неделя", month: "месяц", list: "список" },
