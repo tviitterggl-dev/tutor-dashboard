@@ -561,10 +561,10 @@
   .an-seg { border: 1px solid var(--border); background: var(--card-bg); color: var(--text); border-radius: var(--r-pill); padding: 7px 14px; font: 600 13px var(--font-body); cursor: pointer; min-height: 36px; }
   .an-seg.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
   .an-sep { width: 8px; }
-  .an-weeks { display: none; gap: 6px; }
+  .an-range { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+  .an-weeks { display: none; }
   #anIncomeCard.by-week .an-weeks { display: inline-flex; }
-  .an-months-note { font-size: 12px; color: var(--muted); }
-  #anIncomeCard.by-week .an-months-note { display: none; }
+  #anIncomeCard.by-week .an-months { display: none; }
   .an-unpaid { margin: 0 0 8px; }
   .an-legend[hidden] { display: none; }
   .an-legend { display: flex; gap: 16px; font-size: 12.5px; color: var(--muted); margin: -4px 0 6px; }
@@ -1153,46 +1153,42 @@
     <!-- РАСПИСАНИЕ -->
     <!-- АНАЛИТИКА: только учителю (в витрины родителей/учеников не попадает) -->
     <div class="tabview" id="view-analytics" style="display:none">
-      <div class="card">
-        <div class="an-filter" role="group" aria-label="Период">
-          <span>Период:</span>
-          <button type="button" class="an-seg" data-anmonths="3">3 мес</button>
-          <button type="button" class="an-seg" data-anmonths="6">6 мес</button>
-          <button type="button" class="an-seg" data-anmonths="12">12 мес</button>
-        </div>
-        <div class="stat-row" id="anTiles"></div>
-        <div class="hint" id="anNote">Считается по занятиям в базе. Видишь только ты — родителям и ученикам не показывается.</div>
-      </div>
       <div class="card" id="anIncomeCard">
         <div class="chart-title">Доход</div>
-        <div class="an-filter" role="group" aria-label="Шаг графика">
+        <!-- один выбор периода на всю вкладку: плитки, график, отмены и загрузка -->
+        <div class="an-filter" role="group" aria-label="Период">
           <button type="button" class="an-seg" data-anstep="month">По месяцам</button>
           <button type="button" class="an-seg" data-anstep="week">По неделям</button>
           <span class="an-sep" aria-hidden="true"></span>
-          <span class="an-weeks" role="group" aria-label="Сколько недель">
+          <span class="an-range an-months" role="group" aria-label="Сколько месяцев">
+            <button type="button" class="an-seg" data-anmonths="3">3 мес</button>
+            <button type="button" class="an-seg" data-anmonths="6">6 мес</button>
+            <button type="button" class="an-seg" data-anmonths="12">12 мес</button>
+          </span>
+          <span class="an-range an-weeks" role="group" aria-label="Сколько недель">
             <button type="button" class="an-seg" data-anweeks="5">5 нед</button>
             <button type="button" class="an-seg" data-anweeks="10">10 нед</button>
             <button type="button" class="an-seg" data-anweeks="15">15 нед</button>
           </span>
-          <span class="an-months-note">период — как выбран вверху</span>
         </div>
-        <label class="check an-unpaid"><input type="checkbox" id="anUnpaid"> показать неоплаченные</label>
-        <div class="an-legend" id="anIncomeLegend" hidden><span><i class="an-key" style="background:var(--viz-1)"></i>оплачено</span><span><i class="an-key" style="background:var(--viz-2)"></i>не оплачено</span></div>
+        <div class="stat-row" id="anTiles"></div>
+        <label class="check an-unpaid"><input type="checkbox" id="anPotential"> показать потенциальный заработок</label>
+        <div class="an-legend" id="anIncomeLegend" hidden><span><i class="an-key" style="background:var(--viz-1)"></i>оплачено</span><span><i class="an-key" style="background:var(--viz-2)"></i>ещё не оплачено (по расписанию)</span></div>
         <div class="an-chart" id="anIncome"><div class="empty">Загрузка…</div></div>
         <details class="an-table"><summary>Таблицей</summary><div id="anIncomeTable"></div></details>
-        <div class="hint">Столбик — сумма занятий с отметкой «Провёл» (по дате занятия). С галочкой он делится на оплаченную (есть отметка «Оплачено» — твоя или родителя) и неоплаченную часть.</div>
+        <div class="hint">Столбик — оплаченные занятия (отметка «Оплачено» — твоя или родителя), по дате занятия. С галочкой сверху добавляется всё, что стоит в расписании и ещё не оплачено: проведённые и запланированные занятия (отменённые не считаются, перенесённое — один раз, по новой дате). Видишь только ты.</div>
       </div>
       <div class="card">
         <div class="chart-title">Отмены по ученикам</div>
         <div class="an-chart" id="anCancel"><div class="empty">Загрузка…</div></div>
         <details class="an-table"><summary>Таблицей</summary><div id="anCancelTable"></div></details>
-        <div class="hint">Отменённые занятия из всех, что стояли в расписании за период (уже прошедшие). Переносы — отдельно, в таблице.</div>
+        <div class="hint">За период, выбранный в «Доходе». Отменённые занятия из всех, что стояли в расписании (уже прошедшие). Переносы — отдельно, в таблице.</div>
       </div>
       <div class="card">
         <div class="chart-title">Загрузка по дням недели</div>
         <div class="an-chart" id="anWeek"><div class="empty">Загрузка…</div></div>
         <details class="an-table"><summary>Таблицей</summary><div id="anWeekTable"></div></details>
-        <div class="hint">Сколько занятий в среднем приходится на этот день недели (проведённые и запланированные, без отмен и личного времени).</div>
+        <div class="hint">За период, выбранный в «Доходе». Сколько занятий в среднем приходится на этот день недели (проведённые и запланированные, без отмен и личного времени).</div>
       </div>
     </div>
 
@@ -2274,122 +2270,118 @@
 
   // ---------- АНАЛИТИКА (только учителю) ----------
   // Всё считается из того, что уже есть в базе: занятия (статус, оплата),
-  // отметки «Провёл» и ставки. Одна загрузка занятий за период; повторное
-  // открытие вкладки в течение 10 минут — без новых чтений из базы.
+  // отметки «Провёл» и ставки. Период один на всю вкладку — выбирается в
+  // карточке «Доход»: по месяцам (3/6/12) или по неделям (5/10/15). Одна
+  // выборка занятий за период; повторно в течение 10 минут — из памяти.
   const WEEKDAYS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
   const anPref = (k, d) => { try { const v = localStorage.getItem("an." + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } };
   const anSave = (k, v) => { try { localStorage.setItem("an." + k, JSON.stringify(v)); } catch (e) { /* приватный режим */ } };
-  // step — «Доход» по месяцам или по неделям; weeks — 5/10/15; unpaid — делить столбик на оплачено/нет
-  const anState = { months: 6, cache: {}, loading: null, step: anPref("step", "month"), weeks: anPref("weeks", 10), unpaid: anPref("unpaid", false), weekCache: {} };
+  const anState = {
+    step: anPref("step", "month"), months: anPref("months", 3), weeks: anPref("weeks", 10),
+    potential: anPref("potential", false), cache: {},
+  };
   const rub = (n) => `${Math.round(n).toLocaleString("ru-RU")} ₽`;
   const compactRub = (n) => (n >= 1000 ? `${(Math.round(n / 100) / 10).toLocaleString("ru-RU")}k` : String(Math.round(n)));
+  const p2 = (n) => String(n).padStart(2, "0");
 
-  function computeAnalytics(evs, months, now) {
-    const start = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
-    const monthsArr = [];
-    for (let i = 0; i < months; i++) {
-      const d = new Date(start.getFullYear(), start.getMonth() + i, 1);
-      monthsArr.push({ key: d.getFullYear() + "-" + d.getMonth(), label: MONTHS_SHORT_RU[d.getMonth()], full: d.toLocaleDateString("ru-RU", { month: "long", year: "numeric" }), earned: 0, paid: 0, paidDone: 0, n: 0 });
+  // Корзины периода: месяцы (с 1-го числа) или недели (с понедельника).
+  function anBuckets(step, n, now) {
+    const out = [];
+    if (step === "week") {
+      const first = mondayOf(now);
+      first.setDate(first.getDate() - 7 * (n - 1));
+      for (let i = 0; i < n; i++) {
+        const d = new Date(first); d.setDate(d.getDate() + 7 * i);
+        const end = new Date(d); end.setDate(end.getDate() + 6);
+        out.push({ key: d.getTime(), label: `${p2(d.getDate())}.${p2(d.getMonth() + 1)}`, full: `${p2(d.getDate())}.${p2(d.getMonth() + 1)} – ${p2(end.getDate())}.${p2(end.getMonth() + 1)}` });
+      }
+      const to = new Date(first); to.setDate(to.getDate() + 7 * n);
+      return { buckets: out, from: first, to, keyOf: (t) => mondayOf(new Date(t)).getTime() };
     }
-    const byMonth = Object.fromEntries(monthsArr.map(m => [m.key, m]));
+    const first = new Date(now.getFullYear(), now.getMonth() - (n - 1), 1);
+    for (let i = 0; i < n; i++) {
+      const d = new Date(first.getFullYear(), first.getMonth() + i, 1);
+      out.push({ key: d.getFullYear() + "-" + d.getMonth(), label: MONTHS_SHORT_RU[d.getMonth()], full: d.toLocaleDateString("ru-RU", { month: "long", year: "numeric" }) });
+    }
+    return { buckets: out, from: first, to: new Date(now.getFullYear(), now.getMonth() + 1, 1), keyOf: (t) => { const d = new Date(t); return d.getFullYear() + "-" + d.getMonth(); } };
+  }
+
+  // paid — оплаченные; earned — с отметкой «Провёл»; potential — всё по
+  // расписанию: проведённые и запланированные (и оплаченные), без отмен;
+  // у переноса считается только новая дата (старая — status "rescheduled").
+  function computeAnalytics(evs, range, now) {
+    range.buckets.forEach(b => Object.assign(b, { paid: 0, earned: 0, potential: 0, n: 0, np: 0 }));
+    const byKey = Object.fromEntries(range.buckets.map(b => [b.key, b]));
     const perStudent = {};
     const wd = WEEKDAYS_RU.map((label) => ({ label, count: 0, minutes: 0 }));
     let cancelledAll = 0, scheduledAll = 0;
     evs.forEach(ev => {
       const l = ev._lesson;
       if (!l || isPersonal(l)) return;
-      const startD = new Date(l.startMs);
-      const m = byMonth[startD.getFullYear() + "-" + startD.getMonth()];
-      if (!m) return;
+      const bk = byKey[range.keyOf(l.startMs)];
+      if (!bk) return;
       const mark = marks[ev.id];
       const amount = effectiveAmountFor(ev, mark);
       const amt = amount != null && !Number.isNaN(amount) ? amount : 0;
       const isPaid = !!(l.paid && l.paid.value);
-      if (mark && mark.marked) { m.earned += amt; m.n++; if (isPaid) m.paidDone += amt; }
-      if (isPaid) m.paid += amt;
+      const active = l.status === "planned" || l.status === "done";
+      if (isPaid) bk.paid += amt;
+      if (mark && mark.marked) { bk.earned += amt; bk.n++; }
+      if (active || isPaid) { bk.potential += amt; bk.np++; }
       // отмены и загрузка — по уже прошедшим занятиям периода
       if (l.startMs > now.getTime() || !l.studentId) return;
       const st = perStudent[l.studentId] = perStudent[l.studentId] || { sid: l.studentId, cancelled: 0, rescheduled: 0, total: 0 };
       if (l.status === "rescheduled") { st.rescheduled++; return; } // перенос: копия стоит отдельно
       st.total++; scheduledAll++;
       if (l.status === "cancelled") { st.cancelled++; cancelledAll++; return; }
-      const w = (startD.getDay() + 6) % 7;
+      const w = (new Date(l.startMs).getDay() + 6) % 7;
       wd[w].count++;
       wd[w].minutes += Math.max(0, (l.endMs - l.startMs) / 60000);
     });
     // недель в периоде (до сегодня) — делитель для «в среднем»
-    const weeks = Math.max(1, Math.round((now - start) / (7 * DAY_MS)));
+    const weeks = Math.max(1, Math.round((now - range.from) / (7 * DAY_MS)));
     wd.forEach(d => { d.avg = d.count / weeks; d.hours = d.minutes / 60 / weeks; });
     const cancel = Object.values(perStudent).map(x => Object.assign(x, { label: studentLabel(x.sid), share: x.total ? x.cancelled / x.total : 0 }))
       .sort((a, b) => b.cancelled - a.cancelled || b.share - a.share || a.label.localeCompare(b.label, "ru"));
-    const earned = monthsArr.reduce((t, m) => t + m.earned, 0);
-    const paid = monthsArr.reduce((t, m) => t + m.paid, 0);
-    return { monthsArr, cancel, wd, weeks, earned, paid, cancelledAll, scheduledAll, start };
+    const sum = (k) => range.buckets.reduce((t, b) => t + b[k], 0);
+    return { buckets: range.buckets, step: range.step, cancel, wd, weeks, paid: sum("paid"), earned: sum("earned"), potential: sum("potential"), cancelledAll, scheduledAll };
   }
 
-  // «Доход» по неделям: своя выборка за N недель (с понедельника), своя память.
-  function computeWeeks(evs, weeks, now) {
-    const first = mondayOf(now);
-    first.setDate(first.getDate() - 7 * (weeks - 1));
-    const p = (n) => String(n).padStart(2, "0");
-    const arr = [];
-    for (let i = 0; i < weeks; i++) {
-      const d = new Date(first); d.setDate(d.getDate() + 7 * i);
-      const end = new Date(d); end.setDate(end.getDate() + 6);
-      arr.push({ key: d.getTime(), label: `${p(d.getDate())}.${p(d.getMonth() + 1)}`, full: `${p(d.getDate())}.${p(d.getMonth() + 1)} – ${p(end.getDate())}.${p(end.getMonth() + 1)}`, earned: 0, paidDone: 0, n: 0 });
-    }
-    const byKey = Object.fromEntries(arr.map(w => [w.key, w]));
-    evs.forEach(ev => {
-      const l = ev._lesson;
-      if (!l || isPersonal(l)) return;
-      const w = byKey[mondayOf(new Date(l.startMs)).getTime()];
-      const mark = marks[ev.id];
-      if (!w || !mark || !mark.marked) return;
-      const amount = effectiveAmountFor(ev, mark);
-      const amt = amount != null && !Number.isNaN(amount) ? amount : 0;
-      w.earned += amt; w.n++;
-      if (l.paid && l.paid.value) w.paidDone += amt;
-    });
-    return arr;
+  function anSyncControls() {
+    const step = anState.step;
+    document.querySelectorAll("[data-anstep]").forEach(b => b.classList.toggle("active", b.dataset.anstep === step));
+    document.querySelectorAll("[data-anmonths]").forEach(b => b.classList.toggle("active", Number(b.dataset.anmonths) === anState.months));
+    document.querySelectorAll("[data-anweeks]").forEach(b => b.classList.toggle("active", Number(b.dataset.anweeks) === anState.weeks));
+    $("anIncomeCard").classList.toggle("by-week", step === "week");
+    $("anPotential").checked = !!anState.potential;
+    $("anIncomeLegend").hidden = !anState.potential;
   }
-  async function loadIncomeWeeks() {
-    const weeks = anState.weeks;
-    const cached = anState.weekCache[weeks];
-    if (cached && Date.now() - cached.at < 10 * 60000) return cached.data;
-    const now = new Date();
-    const from = mondayOf(now); from.setDate(from.getDate() - 7 * (weeks - 1));
-    const to = mondayOf(now); to.setDate(to.getDate() + 7);
-    const evs = await fetchLessons(from, to, { includeInactive: true });
-    loadMarksFor(evs.map(e => e.id));
-    const data = computeWeeks(evs, weeks, now);
-    anState.weekCache[weeks] = { at: Date.now(), data };
-    return data;
-  }
-
+  let anReq = 0;
   async function loadAnalytics(force) {
-    const months = anState.months;
-    document.querySelectorAll("[data-anmonths]").forEach(b => b.classList.toggle("active", Number(b.dataset.anmonths) === months));
-    const cached = anState.cache[months];
+    anSyncControls();
+    const step = anState.step, n = step === "week" ? anState.weeks : anState.months;
+    const ck = step + n;
+    const cached = anState.cache[ck];
     if (!force && cached && Date.now() - cached.at < 10 * 60000) { renderAnalytics(cached.data); return; }
+    const my = ++anReq;
     ["anIncome", "anCancel", "anWeek"].forEach(id => { $(id).innerHTML = '<div class="empty">Загрузка…</div>'; });
     const now = new Date();
-    const from = new Date(now.getFullYear(), now.getMonth() - (months - 1), 1);
-    const to = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const range = Object.assign(anBuckets(step, n, now), { step });
     try {
-      const evs = await fetchLessons(from, to, { includeInactive: true });
+      const evs = await fetchLessons(range.from, range.to, { includeInactive: true });
       loadMarksFor(evs.map(e => e.id));
-      const data = computeAnalytics(evs, months, now);
-      anState.cache[months] = { at: Date.now(), data };
-      if (anState.months === months) renderAnalytics(data);
+      const data = computeAnalytics(evs, range, now);
+      anState.cache[ck] = { at: Date.now(), data };
+      if (my === anReq) renderAnalytics(data); // пока грузили, не переключили
     } catch (e) {
       console.error(e);
-      ["anIncome", "anCancel", "anWeek"].forEach(id => { $(id).innerHTML = '<div class="empty">Не удалось загрузить (нет интернета?)</div>'; });
+      if (my === anReq) ["anIncome", "anCancel", "anWeek"].forEach(id => { $(id).innerHTML = '<div class="empty">Не удалось загрузить (нет интернета?)</div>'; });
     }
   }
-  document.querySelectorAll("[data-anmonths]").forEach(b => b.addEventListener("click", () => {
-    anState.months = Number(b.dataset.anmonths);
-    loadAnalytics();
-  }));
+  document.querySelectorAll("[data-anstep]").forEach(b => b.addEventListener("click", () => { anState.step = b.dataset.anstep; anSave("step", anState.step); loadAnalytics(); }));
+  document.querySelectorAll("[data-anmonths]").forEach(b => b.addEventListener("click", () => { anState.months = Number(b.dataset.anmonths); anSave("months", anState.months); loadAnalytics(); }));
+  document.querySelectorAll("[data-anweeks]").forEach(b => b.addEventListener("click", () => { anState.weeks = Number(b.dataset.anweeks); anSave("weeks", anState.weeks); loadAnalytics(); }));
+  $("anPotential").addEventListener("change", (e) => { anState.potential = e.target.checked; anSave("potential", anState.potential); anSyncControls(); if (anLast) renderIncome(anLast); });
   let anLast = null;
   let anResizeTimer = null;
   window.addEventListener("resize", () => {
@@ -2399,14 +2391,14 @@
 
   function renderAnalytics(d) {
     anLast = d;
+    anSyncControls();
     const pct = d.scheduledAll ? Math.round((d.cancelledAll / d.scheduledAll) * 100) : 0;
     $("anTiles").innerHTML = `
-      <div class="stat-tile"><span class="num">${rub(d.earned)}</span><span class="lbl">заработано («Провёл»)</span></div>
       <div class="stat-tile"><span class="num">${rub(d.paid)}</span><span class="lbl">оплачено</span></div>
+      <div class="stat-tile"><span class="num">${rub(d.potential)}</span><span class="lbl">по расписанию (потенциально)</span></div>
       <div class="stat-tile"><span class="num">${pct}%</span><span class="lbl">отмен (${d.cancelledAll} из ${d.scheduledAll})</span></div>`;
-    // 1) «Доход» — по месяцам (период сверху) или по неделям (5/10/15)
-    renderIncome();
-    // 2) отмены по ученикам — горизонтальные полосы, только у кого были
+    renderIncome(d);
+    // отмены по ученикам — горизонтальные полосы, только у кого были
     const withCancels = d.cancel.filter(x => x.cancelled > 0);
     renderHBars($("anCancel"), {
       rows: withCancels.map(x => ({ label: x.label, value: x.cancelled, text: `${x.cancelled} из ${x.total} · ${Math.round(x.share * 100)}%`, tip: `<b>${escHtml(x.label)}</b><br>Отменено: ${x.cancelled} из ${x.total} (${Math.round(x.share * 100)}%)<br>Переносов: ${x.rescheduled}` })),
@@ -2414,7 +2406,7 @@
       empty: d.cancel.length ? "За этот период отмен не было." : "За этот период прошедших занятий нет.",
     });
     $("anCancelTable").innerHTML = anTable(["Ученик", "Отмен", "Всего", "Доля", "Переносов"], d.cancel.map(x => [x.label, x.cancelled, x.total, `${Math.round(x.share * 100)}%`, x.rescheduled]));
-    // 3) загрузка по дням недели — одна серия
+    // загрузка по дням недели — одна серия
     const fmtAvg = (v) => (Math.round(v * 10) / 10).toLocaleString("ru-RU");
     // деления оси — столько знаков после запятой, сколько нужно шагу (0,05 → два)
     const fmtStep = (v, step) => { const dec = step ? Math.max(0, Math.min(2, -Math.floor(Math.log10(step) + 1e-9))) : 1; return v.toLocaleString("ru-RU", { minimumFractionDigits: 0, maximumFractionDigits: dec }); };
@@ -2427,45 +2419,25 @@
     });
     $("anWeekTable").innerHTML = anTable(["День", "В среднем за неделю", "Часов в неделю", "Всего"], d.wd.map(w => [w.label, fmtAvg(w.avg), fmtAvg(w.hours), w.count]));
   }
-  let incomeReq = 0;
-  async function renderIncome() {
-    const step = anState.step;
-    document.querySelectorAll("[data-anstep]").forEach(b => b.classList.toggle("active", b.dataset.anstep === step));
-    document.querySelectorAll("[data-anweeks]").forEach(b => b.classList.toggle("active", Number(b.dataset.anweeks) === anState.weeks));
-    $("anIncomeCard").classList.toggle("by-week", step === "week");
-    $("anUnpaid").checked = !!anState.unpaid;
-    $("anIncomeLegend").hidden = !anState.unpaid;
-    let rows;
-    if (step === "week") {
-      const my = ++incomeReq;
-      if (!anState.weekCache[anState.weeks]) $("anIncome").innerHTML = '<div class="empty">Загрузка…</div>';
-      try { rows = await loadIncomeWeeks(); } catch (e) {
-        $("anIncome").innerHTML = '<div class="empty">Не удалось загрузить (нет интернета?)</div>';
-        return;
-      }
-      if (my !== incomeReq || anState.step !== "week") return; // пока грузили, переключили
-    } else {
-      if (!anLast) return;
-      rows = anLast.monthsArr;
-    }
-    const split = !!anState.unpaid;
-    const tip = (r) => `<b>${escHtml(r.full)}</b><br>Провёл: ${rub(r.earned)} (${r.n} зан.)` + (split
-      ? `<br><i class="an-key" style="background:var(--viz-1)"></i>оплачено: ${rub(r.paidDone)}<br><i class="an-key" style="background:var(--viz-2)"></i>не оплачено: ${rub(r.earned - r.paidDone)}` : "");
+  // «Доход»: по умолчанию — оплаченное; с галочкой сверху — остальное по расписанию
+  function renderIncome(d) {
+    const pot = !!anState.potential;
+    const rest = (r) => Math.max(0, r.potential - r.paid);
+    const tip = (r) => `<b>${escHtml(r.full)}</b><br><i class="an-key" style="background:var(--viz-1)"></i>оплачено: ${rub(r.paid)}` + (pot
+      ? `<br><i class="an-key" style="background:var(--viz-2)"></i>ещё не оплачено: ${rub(rest(r))}<br>всего по расписанию: ${rub(r.potential)} (${r.np} зан.)` : "")
+      + `<br>проведено («Провёл»): ${rub(r.earned)} (${r.n} зан.)`;
+    const week = d.step === "week";
     renderColumns($("anIncome"), {
-      groups: rows.map(r => ({ label: r.label, values: split ? [r.paidDone, r.earned - r.paidDone] : [r.earned], tip: tip(r) })),
-      colors: split ? ["var(--viz-1)", "var(--viz-2)"] : ["var(--viz-1)"],
+      groups: d.buckets.map(r => ({ label: r.label, values: pot ? [r.paid, rest(r)] : [r.paid], tip: tip(r) })),
+      colors: pot ? ["var(--viz-1)", "var(--viz-2)"] : ["var(--viz-1)"],
       stacked: true,
       fmtTick: compactRub,
-      labelMax: !split,
-      labelEvery: step === "week" && rows.length > 10 && ($("anIncome").clientWidth || 320) < 520 ? 2 : 1,
-      empty: step === "week" ? "За эти недели нет занятий с отметкой «Провёл»." : "За этот период нет занятий с отметкой «Провёл».",
+      labelMax: true,
+      empty: pot ? "За этот период занятий в расписании нет." : "За этот период нет оплаченных занятий. Включи «показать потенциальный заработок», чтобы увидеть всё по расписанию.",
     });
-    $("anIncomeTable").innerHTML = anTable([step === "week" ? "Неделя" : "Месяц", "Провёл", "Оплачено", "Не оплачено"],
-      rows.map(r => [r.full, rub(r.earned), rub(r.paidDone), rub(r.earned - r.paidDone)]));
+    $("anIncomeTable").innerHTML = anTable([week ? "Неделя" : "Месяц", "Оплачено", "Провёл", "По расписанию", "Ещё не оплачено"],
+      d.buckets.map(r => [r.full, rub(r.paid), rub(r.earned), rub(r.potential), rub(rest(r))]));
   }
-  document.querySelectorAll("[data-anstep]").forEach(b => b.addEventListener("click", () => { anState.step = b.dataset.anstep; anSave("step", anState.step); renderIncome(); }));
-  document.querySelectorAll("[data-anweeks]").forEach(b => b.addEventListener("click", () => { anState.weeks = Number(b.dataset.anweeks); anSave("weeks", anState.weeks); renderIncome(); }));
-  $("anUnpaid").addEventListener("change", (e) => { anState.unpaid = e.target.checked; anSave("unpaid", anState.unpaid); renderIncome(); });
 
   function anTable(head, rows) {
     return `<table class="an-tbl"><thead><tr>${head.map(h => `<th>${escHtml(h)}</th>`).join("")}</tr></thead><tbody>${rows.map(r => `<tr>${r.map(c => `<td>${escHtml(String(c))}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
@@ -2536,6 +2508,9 @@
       svg += `<text class="an-axis" x="${padL - 6}" y="${(+y + 3.5).toFixed(1)}" text-anchor="end">${escHtml(cfg.fmtTick(t, ticks[1] - ticks[0]))}</text>`;
     });
     const maxV = Math.max(...all);
+    // подписи снизу не наезжают друг на друга: если не помещаются — через одну (две…)
+    const labW = Math.max(...cfg.groups.map(g => String(g.label).length)) * 6.6 + 8;
+    const every = cfg.labelEvery || Math.max(1, Math.ceil(labW / band));
     cfg.groups.forEach((g, i) => {
       const cx = padL + band * i + band / 2;
       const groupW = barW * ns + gap * (ns - 1);
@@ -2560,7 +2535,7 @@
         svg += `<path d="${colPath(x.toFixed(1) * 1, yOf(v), barW, h)}" fill="${cfg.colors[k]}"/>`;
         if (cfg.labelMax && v === maxV && v > 0) svg += `<text class="an-val" x="${cx.toFixed(1)}" y="${(yOf(v) - 5).toFixed(1)}" text-anchor="middle">${escHtml(cfg.fmtTick(v))}</text>`;
       });
-      if (i % (cfg.labelEvery || 1) === 0) svg += `<text class="an-axis" x="${cx.toFixed(1)}" y="${H - 7}" text-anchor="middle">${escHtml(g.label)}</text>`;
+      if ((cfg.groups.length - 1 - i) % every === 0) svg += `<text class="an-axis" x="${cx.toFixed(1)}" y="${H - 7}" text-anchor="middle">${escHtml(g.label)}</text>`;
       // зона наведения — вся полоса месяца/дня, больше самих столбиков
       svg += `<rect class="an-hit" tabindex="0" x="${(padL + band * i).toFixed(1)}" y="${padT}" width="${band.toFixed(1)}" height="${plotH}" data-tip="${escHtml(g.tip)}"/>`;
     });
