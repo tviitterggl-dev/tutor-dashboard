@@ -240,7 +240,8 @@ test("веб-приложение: manifest и значки (iPhone и Android)"
   const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
   for (const tag of [
     '<link rel="manifest" href="manifest.json">',
-    '<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">',
+    '<link rel="apple-touch-icon" sizes="180x180" href="icons/apple-touch-icon.png?v=2">',
+    '<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png?v=2">',
     '<meta name="apple-mobile-web-app-capable" content="yes">',
     '<meta name="theme-color"',
     'viewport-fit=cover',
@@ -254,13 +255,31 @@ test("веб-приложение: manifest и значки (iPhone и Android)"
   const pngSize = (f) => { const b = fs.readFileSync(path.join(ROOT, f)); return [b.readUInt32BE(16), b.readUInt32BE(20)]; };
   for (const icon of m.icons) {
     const [w, h] = icon.sizes.split("x").map(Number);
-    assert.deepEqual(pngSize(icon.src), [w, h], icon.src);
+    assert.deepEqual(pngSize(icon.src.split("?")[0]), [w, h], icon.src);
   }
   // Android требует 192×192 и 512×512; маскируемый — для круглых/каплевидных значков
   assert.ok(m.icons.some((i) => i.sizes === "192x192"));
   assert.ok(m.icons.some((i) => i.sizes === "512x512" && i.purpose === "any"));
   assert.ok(m.icons.some((i) => i.sizes === "512x512" && i.purpose === "maskable"));
   assert.deepEqual(pngSize("icons/apple-touch-icon.png"), [180, 180]);
+  // кабинет семьи (без manifest) тоже объявляет крупный значок — иначе Android растягивает 32×32
+  const cab = fs.readFileSync(path.join(ROOT, "cabinet.html"), "utf8");
+  assert.ok(cab.includes('sizes="192x192" href="icons/icon-192.png?v=2"') && cab.includes('sizes="180x180" href="icons/apple-touch-icon.png?v=2"'));
+  // фон значка — фирменный синий, не чёрный: угловой пиксель каждого PNG
+  const { chromium } = await import("playwright");
+  const browser = await chromium.launch();
+  const page = await browser.newPage();
+  for (const f of ["apple-touch-icon.png", "icon-192.png", "icon-512.png", "favicon-32.png"]) {
+    const b64 = fs.readFileSync(path.join(ROOT, "icons", f)).toString("base64");
+    const px = await page.evaluate(async (src) => {
+      const img = new Image(); img.src = src; await img.decode();
+      const c = document.createElement("canvas"); c.width = img.width; c.height = img.height;
+      const x = c.getContext("2d"); x.drawImage(img, 0, 0);
+      return [...x.getImageData(1, 1, 1, 1).data.slice(0, 3)];
+    }, "data:image/png;base64," + b64);
+    assert.deepEqual(px, [0x4a, 0x62, 0xb8], f + " — фон #4A62B8");
+  }
+  await browser.close();
 });
 
 test("Android (эмуляция Pixel 7): Chrome считает приложение устанавливаемым, есть кнопка «Установить», работает без сети", async () => {
