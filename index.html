@@ -682,6 +682,9 @@
   .pkg-money .left { color: var(--muted); }
   .pkg-lbl { flex: 1; display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); min-width: 0; }
   .pkg-since { font-size: 11.5px; color: var(--muted); margin-top: 8px; }
+  .pkg-price { display: flex; gap: 6px; margin-bottom: 4px; }
+  .pkg-price-hint:empty { display: none; }
+  .pkg-price-line { font-size: 12.5px; color: var(--text); margin-top: 6px; }
   .pkg-input {
     flex: 1;
     min-width: 0;
@@ -1138,12 +1141,13 @@
             <input type="number" class="pkg-input" id="pkgAddTotal" placeholder="Всего занятий" value="8">
             <input type="number" class="pkg-input" id="pkgAddDone" placeholder="Уже проведено" value="0">
           </div>
+          <div id="pkgAddPrice"></div>
           <div class="btn-row">
             <button class="btn block" id="pkgAddSaveBtn" type="button">Добавить</button>
             <button class="btn secondary block" id="pkgAddCancelBtn" type="button">Отмена</button>
           </div>
         </div>
-        <div class="hint">Пакет — это счётчик «проведено X из N». Каждое занятие ученика, отмеченное «Провёл», прибавляет 1 — неважно, что переносили или отменяли, номера в названиях не нужны. «Исправить» — поставить своё число (дальше «Провёл» прибавляются к нему). «Новый пакет» — ученик оплатил следующий: счётчик с нуля.</div>
+        <div class="hint">Пакет — это счётчик «проведено X из N». Каждое занятие ученика, отмеченное «Провёл», прибавляет 1 — неважно, что переносили или отменяли, номера в названиях не нужны. «Исправить» — поставить своё число (дальше «Провёл» прибавляются к нему). «Новый пакет» — ученик оплатил следующий: счётчик с нуля. «Предоплата пакета» — скидка в % от ставки или цена за весь пакет: занятия пакета считаются по этой цене (фиксируется при «Провёл»), после конца пакета — снова обычная ставка. Цену видишь только ты.</div>
       </div>
       <div class="card" id="accessCard">
         <div class="chart-title">Доступы для родителей и учеников</div>
@@ -1675,8 +1679,35 @@
     const m = mark || {};
     if (m.overrideAmount != null) return m.overrideAmount;
     if (m.marked && m.lockedRate != null) return m.lockedRate;
+    return rateFor(ev);
+  }
+  // Ставка занятия: цена предоплаченного пакета (пока он идёт), иначе — из
+  // профиля. Как и счётчик пакета, цена привязана к отметке «Провёл», а не к
+  // дате: любое ещё не отмеченное занятие, отмеченное сейчас, войдёт в пакет.
+  function rateFor(ev) {
     const parsed = parseLesson(ev.summary || "");
+    const sid = (ev._lesson && ev._lesson.studentId) || (parsed ? makeStudentId(parsed.name, parsed.cls, parsed.surname) : null);
+    const pkg = sid ? pkgRateFor(sid) : null;
+    if (pkg != null) return pkg;
     return parsed ? findRate(parsed.name, parsed.cls, parsed.surname) : null;
+  }
+  // Скидка за предоплату пакета: ov.price = { mode: "pct", value: 10 } (−10% от
+  // ставки) или { mode: "total", value: 14000 } (за весь пакет, делится на
+  // число занятий). Только у учителя — в витрины семей не попадает.
+  function pkgPriceOf(ov, rate) {
+    const pr = ov && ov.price;
+    if (!pr || !(pr.value > 0)) return null;
+    if (pr.mode === "total") return Math.round(pr.value / (ov.totalOverride > 0 ? ov.totalOverride : 8));
+    if (pr.mode === "pct" && pr.value < 100 && rate != null) return Math.round(rate * (1 - pr.value / 100));
+    return null;
+  }
+  function pkgRateFor(sid) {
+    const ov = packageOverrides[sid];
+    if (!ov || !ov.manual || ov.hidden || !ov.price) return null;
+    const p = lastPackagesByKey[sid];
+    if (p && p.remaining <= 0) return null; // пакет закончился — дальше обычная ставка
+    const sp = splitStudentId(sid);
+    return pkgPriceOf(ov, sp ? findRate(sp.name, sp.cls, sp.surname) : null);
   }
 
   function setBadge(el, text, cls) {
@@ -1882,10 +1913,7 @@
     let lockedRate = currentMark ? currentMark.lockedRate : null;
 
     if (!wasMarked) {
-      if (overrideAmount == null) {
-        const parsed = parseLesson(ev.summary || "");
-        lockedRate = parsed ? findRate(parsed.name, parsed.cls, parsed.surname) : null;
-      }
+      if (overrideAmount == null) lockedRate = rateFor(ev);
     }
 
     // markedAt — когда нажали «Провёл»: по нему пакет считает проведённые
@@ -1960,8 +1988,8 @@
       const start = new Date(ev.start.dateTime || ev.start.date);
       const end = ev.end ? new Date(ev.end.dateTime || ev.end.date) : null;
       const parsed = parseLesson(ev.summary || "");
-      const baseRate = parsed ? findRate(parsed.name, parsed.cls, parsed.surname) : null;
       const mark = marks[ev.id] || { marked: false, overrideAmount: null, lockedRate: null };
+      const baseRate = mark.marked && mark.lockedRate != null ? mark.lockedRate : rateFor(ev);
       const effectiveAmount = effectiveAmountFor(ev, mark);
       const canMark = effectiveAmount != null && !Number.isNaN(effectiveAmount);
       const isPastUnmarked = !mark.marked && start < now;
@@ -2676,9 +2704,11 @@
       const doneCount = Math.max(0, (ov.doneBase != null ? ov.doneBase : (ov.doneOverride || 0)) + manualDone(key, ov.countFrom, evs));
       const remaining = Math.max(0, total - doneCount);
       const sp = splitStudentId(key);
-      const rate = sp ? findRate(sp.name, sp.cls, sp.surname) : null;
+      const baseRate = sp ? findRate(sp.name, sp.cls, sp.surname) : null;
+      const pkgRate = pkgPriceOf(ov, baseRate);
+      const rate = pkgRate != null ? pkgRate : baseRate; // цена занятия в этом пакете
       result.push({
-        key, total, doneCount, remaining, rate, since: ov.countFrom || null,
+        key, total, doneCount, remaining, rate, baseRate, price: pkgRate != null ? ov.price : null, since: ov.countFrom || null,
         doneSum: rate != null ? doneCount * rate : 0,
         unearned: rate != null ? remaining * rate : null,
       });
@@ -2823,6 +2853,46 @@
   }
   $("pkgAlert").addEventListener("click", () => showTab("students"));
 
+  // Поля «Предоплата пакета» (добавить / исправить / новый пакет)
+  function priceFieldsHtml(price) {
+    const m = (price && price.mode) || "";
+    const opt = (v, t) => `<option value="${v}"${m === v ? " selected" : ""}>${t}</option>`;
+    return `<div class="pkg-price">
+        <label class="pkg-lbl">Предоплата пакета<select class="pkg-input pkg-price-mode">${opt("", "без скидки")}${opt("pct", "скидка %")}${opt("total", "цена пакета")}</select></label>
+        <label class="pkg-lbl pkg-price-val-wrap" style="display:${m ? "flex" : "none"}"><span class="pkg-price-unit">${m === "pct" ? "скидка, %" : "₽ за весь пакет"}</span><input type="number" class="pkg-input pkg-price-val" min="0" inputmode="decimal" value="${price && price.value != null ? escAttr(price.value) : ""}"></label>
+      </div><div class="hint pkg-price-hint" style="margin-top:0"></div>`;
+  }
+  function readPrice(box) {
+    const mode = box.querySelector(".pkg-price-mode").value;
+    if (!mode) return { ok: true, price: null };
+    const value = parseFloat(box.querySelector(".pkg-price-val").value);
+    if (!(value > 0) || (mode === "pct" && value >= 100)) return { ok: false };
+    return { ok: true, price: { mode, value } };
+  }
+  const fmtPct = (x) => `${(Math.round(x * 10) / 10).toLocaleString("ru-RU")}%`;
+  // «1 350 ₽ за занятие вместо 1 500 ₽ · 5 400 ₽ за 4»
+  function priceSummary(price, total, rate) {
+    const per = pkgPriceOf({ price, totalOverride: total }, rate);
+    if (per == null) return price && price.mode === "pct" && rate == null ? "Ставка ученика не найдена — укажи цену за весь пакет." : "";
+    const sum = price.mode === "total" ? price.value : per * total;
+    const disc = rate ? (price.mode === "pct" ? price.value : (1 - sum / (rate * total)) * 100) : null;
+    return { per, sum, disc, rate };
+  }
+  function updatePriceHint(box, total, rate) {
+    if (!box || !box.querySelector(".pkg-price-mode")) return;
+    const mode = box.querySelector(".pkg-price-mode").value;
+    box.querySelector(".pkg-price-val-wrap").style.display = mode ? "flex" : "none";
+    box.querySelector(".pkg-price-unit").textContent = mode === "pct" ? "скидка, %" : "₽ за весь пакет";
+    const r = readPrice(box);
+    const hint = box.querySelector(".pkg-price-hint");
+    if (!mode) { hint.textContent = ""; return; }
+    if (!r.ok) { hint.textContent = mode === "pct" ? "Скидка — от 0 до 100%." : "Впиши цену за весь пакет."; return; }
+    const x = priceSummary(r.price, total > 0 ? total : 8, rate);
+    hint.textContent = typeof x === "string" ? x
+      : `= ${rub(x.per)} за занятие${x.rate != null ? ` вместо ${rub(x.rate)}` : ""} · ${rub(x.sum)} за ${total > 0 ? total : 8}`;
+  }
+  function rateOfKey(key) { const sp = splitStudentId(key); return sp ? findRate(sp.name, sp.cls, sp.surname) : null; }
+
   function renderPackages(packages) {
     lastPackagesByKey = Object.fromEntries(packages.map(p => [p.key, p]));
     renderPkgAlert(packages);
@@ -2844,6 +2914,7 @@
           ${ending ? `<div class="pkg-ending">${escHtml(ending.text)}</div>` : ""}
           <div class="pkg-bar"><div class="pkg-bar-fill" style="width:${pct}%"></div></div>
           ${moneyLine}
+          ${p.price ? (() => { const x = priceSummary(p.price, p.total, p.baseRate); return typeof x === "string" ? "" : `<div class="pkg-price-line">Предоплата: ${rub(x.sum)} за ${p.total} · ${rub(x.per)} за занятие${x.disc != null && x.disc > 0 ? ` (скидка ${fmtPct(x.disc)})` : ""}</div>`; })() : ""}
           <div class="btn-row" style="margin-top:8px; margin-bottom:0;">
             <button class="btn secondary pkg-edit-btn" type="button">Исправить</button>
             <button class="btn secondary pkg-new-btn" type="button">Новый пакет</button>
@@ -2854,9 +2925,21 @@
               <label class="pkg-lbl">Проведено<input type="number" class="pkg-input pkg-edit-done" min="0" inputmode="numeric" value="${p.doneCount}"></label>
               <label class="pkg-lbl">из (всего в пакете)<input type="number" class="pkg-input pkg-edit-total" min="1" inputmode="numeric" value="${p.total}"></label>
             </div>
+            ${priceFieldsHtml(p.price)}
             <div class="btn-row">
               <button class="btn pkg-save-btn" type="button">Сохранить</button>
               <button class="btn secondary pkg-hide-btn" type="button">Убрать из списка</button>
+            </div>
+          </div>
+          <div class="pkg-new-panel" style="display:none; margin-top:8px;">
+            <div class="hint" style="margin-top:0">Новый пакет: счётчик начнётся с 0, дальше считаются отметки «Провёл».</div>
+            <div style="display:flex; gap:6px; margin-bottom:6px;">
+              <label class="pkg-lbl">Занятий в новом пакете<input type="number" class="pkg-input pkg-new-total" min="1" max="200" inputmode="numeric" value="${p.total}"></label>
+            </div>
+            ${priceFieldsHtml(p.price)}
+            <div class="btn-row">
+              <button class="btn pkg-new-save" type="button">Начать новый пакет</button>
+              <button class="btn secondary pkg-new-cancel" type="button">Отмена</button>
             </div>
           </div>
         </div>
@@ -2913,27 +2996,36 @@
     if (e.target.closest(".pkg-edit-btn")) {
       const panel = card.querySelector(".pkg-edit-panel");
       panel.style.display = panel.style.display === "none" ? "block" : "none";
+      if (panel.style.display === "block") updatePriceHint(panel, parseInt(panel.querySelector(".pkg-edit-total").value, 10), rateOfKey(key));
       return;
     }
     if (e.target.closest(".pkg-save-btn")) {
       const total = parseInt(card.querySelector(".pkg-edit-total").value, 10);
       const done = parseInt(card.querySelector(".pkg-edit-done").value, 10);
       if (!(total >= 1) || !(done >= 0)) { alert("Проведено — число от 0, всего — от 1"); return; }
+      const pr = readPrice(card.querySelector(".pkg-edit-panel"));
+      if (!pr.ok) { alert("Проверь предоплату: скидка — от 0 до 100%, цена за пакет — больше 0."); return; }
       const ov = getPackageOverride(key);
       // с этого момента новые «Провёл» прибавляются к введённому числу
-      Object.assign(ov, { manual: true, totalOverride: total, doneBase: done, countFrom: Date.now(), doneOverride: null, doneAdjust: null, baseIds: null });
+      Object.assign(ov, { manual: true, totalOverride: total, doneBase: done, countFrom: Date.now(), doneOverride: null, doneAdjust: null, baseIds: null, price: pr.price });
       packageOverrides[key] = ov;
       savePackageOverride(key);
       rerenderPackages();
       return;
     }
-    if (e.target.closest(".pkg-new-btn")) {
-      const pk = lastPackagesByKey[key];
-      const ans = prompt(`Новый пакет для ${studentLabel(key)}: счётчик начнётся с 0, дальше считаются отметки «Провёл».\n\nСколько занятий в новом пакете?`, String((pk && pk.total) || 8));
-      if (ans === null) return;
-      const total = parseInt(ans, 10);
+    if (e.target.closest(".pkg-new-btn") || e.target.closest(".pkg-new-cancel")) {
+      const panel = card.querySelector(".pkg-new-panel");
+      panel.style.display = panel.style.display === "none" && e.target.closest(".pkg-new-btn") ? "block" : "none";
+      if (panel.style.display === "block") updatePriceHint(panel, parseInt(panel.querySelector(".pkg-new-total").value, 10), rateOfKey(key));
+      return;
+    }
+    if (e.target.closest(".pkg-new-save")) {
+      const panel = card.querySelector(".pkg-new-panel");
+      const total = parseInt(panel.querySelector(".pkg-new-total").value, 10);
       if (!(total >= 1 && total <= 200)) { alert("Число занятий — от 1 до 200"); return; }
-      packageOverrides[key] = { manual: true, totalOverride: total, doneBase: 0, countFrom: Date.now(), hidden: false, baseIds: [] };
+      const pr = readPrice(panel);
+      if (!pr.ok) { alert("Проверь предоплату: скидка — от 0 до 100%, цена за пакет — больше 0."); return; }
+      packageOverrides[key] = { manual: true, totalOverride: total, doneBase: 0, countFrom: Date.now(), hidden: false, baseIds: [], price: pr.price };
       savePackageOverride(key);
       rerenderPackages();
       return;
@@ -2948,9 +3040,26 @@
     }
   });
 
+  const onPkgPriceInput = (e) => {
+    const box = e.target.closest(".pkg-edit-panel, .pkg-new-panel");
+    if (!box) return;
+    const key = box.closest(".pkg-card").dataset.key;
+    updatePriceHint(box, parseInt(box.querySelector(".pkg-edit-total, .pkg-new-total").value, 10), rateOfKey(key));
+  };
+  $("packagesList").addEventListener("input", onPkgPriceInput);
+  $("packagesList").addEventListener("change", onPkgPriceInput);
+  const pkgAddRate = () => {
+    const name = $("pkgAddName").value.trim(), cls = parseInt($("pkgAddCls").value, 10);
+    const sur = $("pkgAddSurname").value.trim();
+    return name && !Number.isNaN(cls) ? findRate(name, cls, sur ? fixSurname(sur) : "") : null;
+  };
+  const onPkgAddInput = () => updatePriceHint($("pkgAddForm"), parseInt($("pkgAddTotal").value, 10), pkgAddRate());
+  $("pkgAddForm").addEventListener("input", onPkgAddInput);
+  $("pkgAddForm").addEventListener("change", onPkgAddInput);
   $("pkgAddBtn").addEventListener("click", () => {
     const form = $("pkgAddForm");
     form.style.display = form.style.display === "none" ? "block" : "none";
+    if (!$("pkgAddPrice").firstChild) $("pkgAddPrice").innerHTML = priceFieldsHtml(null);
   });
   $("pkgAddCancelBtn").addEventListener("click", () => { $("pkgAddForm").style.display = "none"; });
   $("pkgAddSaveBtn").addEventListener("click", () => {
@@ -2965,9 +3074,12 @@
     // С фамилией — отдельный пакет («Маша Иванова, 7 класс»), без — как раньше.
     const key = makeStudentId(name, cls, fixSurname(surnameRaw));
     if (packageOverrides[key] && packageOverrides[key].manual && !packageOverrides[key].hidden) { alert("Такой пакет уже есть. Если это другой ученик с тем же именем — укажи фамилию."); return; }
-    packageOverrides[key] = { manual: true, totalOverride: total, doneBase: done, countFrom: Date.now(), hidden: false };
+    const pr = readPrice($("pkgAddForm"));
+    if (!pr.ok) { alert("Проверь предоплату: скидка — от 0 до 100%, цена за пакет — больше 0."); return; }
+    packageOverrides[key] = { manual: true, totalOverride: total, doneBase: done, countFrom: Date.now(), hidden: false, price: pr.price };
     savePackageOverride(key);
     $("pkgAddName").value = ""; $("pkgAddSurname").value = ""; $("pkgAddCls").value = ""; $("pkgAddTotal").value = "8"; $("pkgAddDone").value = "0";
+    $("pkgAddPrice").innerHTML = priceFieldsHtml(null);
     $("pkgAddForm").style.display = "none";
     rerenderPackages();
   });
@@ -4780,8 +4892,7 @@
     const mark = marks[l.id] || { marked: false, overrideAmount: null, lockedRate: null };
     const ev = lessonToEv(l);
     const amount = effectiveAmountFor(ev, mark);
-    const parsed = parseLesson(l.title);
-    const baseRate = parsed ? findRate(parsed.name, parsed.cls, parsed.surname) : null;
+    const baseRate = mark.marked && mark.lockedRate != null ? mark.lockedRate : rateFor(ev);
     const canMark = amount != null && !Number.isNaN(amount);
     const isPlanned = l.status === "planned";
     const scopeHtml = inSeries ? `

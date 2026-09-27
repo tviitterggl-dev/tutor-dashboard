@@ -107,8 +107,9 @@ test("пакет = счётчик «Провёл»: отметка +1, снят�
   // «Новый пакет» на 10: 0 из 10, старые отметки не считаются
   await later(page, 4);
   await card(page, "Тест, 7 класс").locator(".pkg-new-btn").click();
+  await card(page, "Тест, 7 класс").locator(".pkg-new-total").fill("10");
+  await card(page, "Тест, 7 класс").locator(".pkg-new-save").click();
   await waitCard(page, "Тест, 7 класс", /0 из 10, осталось 10/);
-  assert.ok(dialogs.some((m) => /Новый пакет для Тест, 7 класс/.test(m)), JSON.stringify(dialogs));
   // снятие «Провёл» со старого занятия нового пакета не трогает; новая отметка — +1
   await later(page, 5);
   await page.click('.tab[data-tab="lessons"]');
