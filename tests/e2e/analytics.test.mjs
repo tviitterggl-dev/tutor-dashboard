@@ -134,3 +134,42 @@ test("аналитика: период «1 мес» и «1 нед» — одна
     await app.close();
   }
 });
+
+// Ширина столбика: потолок 34 px (был 24 — при 5–7 группах много пустоты),
+// при многих группах ограничивает ширина полосы — столбики не касаются.
+const barBoxes = (page, sel) => page.$$eval(`${sel} svg path`, (ps) => ps.map((p) => { const b = p.getBBox(); return { x: b.x, w: b.width }; }).filter((b) => b.w > 0));
+test("аналитика: столбики шире при малом числе групп и не касаются при большом", async () => {
+  for (const vp of [{ width: 1100, height: 900 }, { width: 360, height: 780 }]) {
+    const app = await openApp({ viewport: vp, isMobile: vp.width < 500, hasTouch: vp.width < 500 });
+    const { page } = app;
+    await page.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.startsWith("an.")) localStorage.removeItem(k); });
+    await page.waitForSelector("#lessonsList .lesson");
+    await page.click('.tab[data-tab="analytics"]');
+    await page.waitForSelector("#anWeek svg");
+    await page.check("#anPotential");
+    const check = async (what) => {
+      for (const sel of ["#anIncome", "#anWeek"]) {
+        const bs = (await barBoxes(page, sel)).sort((a, b) => a.x - b.x);
+        for (let i = 1; i < bs.length; i++) if (Math.abs(bs[i].x - bs[i - 1].x) > 0.5) assert.ok(bs[i].x - (bs[i - 1].x + bs[i - 1].w) >= 2, `${what} ${sel} ${vp.width}px: столбики не касаются`);
+      }
+    };
+    await page.click('[data-anstep="week"]');
+    await page.click('[data-anweeks="5"]');
+    await page.waitForFunction(() => document.querySelectorAll("#anIncomeTable tbody tr").length === 5);
+    if (vp.width > 500) {
+      const w = Math.max(...(await barBoxes(page, "#anWeek")).map((b) => b.w));
+      assert.ok(w >= 30, `дни недели на компьютере: столбик ${w.toFixed(1)} px`);
+      const wi = Math.max(...(await barBoxes(page, "#anIncome")).map((b) => b.w));
+      assert.ok(wi >= 30, `5 недель на компьютере: столбик ${wi.toFixed(1)} px`);
+    }
+    await check("5 нед");
+    await page.click('[data-anweeks="15"]');
+    await page.waitForFunction(() => document.querySelectorAll("#anIncomeTable tbody tr").length === 15);
+    await check("15 нед");
+    await page.click('[data-anstep="month"]');
+    await page.click('[data-anmonths="12"]');
+    await page.waitForFunction(() => document.querySelectorAll("#anIncomeTable tbody tr").length === 12);
+    await check("12 мес");
+    await app.close();
+  }
+});

@@ -2611,7 +2611,8 @@
     const band = plotW / cfg.groups.length;
     const ns = cfg.stacked ? 1 : cfg.colors.length;
     const gap = 2; // промежуток цвета фона между соседними столбиками / частями стопки
-    const barW = Math.min(24, (band * 0.72 - gap * (ns - 1)) / ns);
+    // потолок 34 px: при 5–7 группах столбик не тонет в пустоте; при многих группах держит 0,72 полосы
+    const barW = Math.min(34, (band * 0.72 - gap * (ns - 1)) / ns);
     const yOf = (v) => padT + plotH - (v / top) * plotH;
     let svg = "";
     ticks.forEach(t => {
