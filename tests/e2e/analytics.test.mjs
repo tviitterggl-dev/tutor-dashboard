@@ -26,7 +26,7 @@ test("аналитика: один период на всю вкладку (ме
   // по умолчанию: по месяцам, 3 мес; все переключатели — в карточке «Доход»
   assert.equal(await page.getAttribute("#anIncomeCard [data-anstep].active", "data-anstep"), "month");
   assert.equal(await page.getAttribute("#anIncomeCard [data-anmonths].active", "data-anmonths"), "3");
-  assert.equal(await page.locator("#view-analytics [data-anmonths]").count(), 3, "кнопки месяцев только одни — в «Доходе»");
+  assert.equal(await page.locator("#view-analytics [data-anmonths]").count(), 4, "кнопки месяцев (1/3/6/12) только одни — в «Доходе»");
   // плитки: оплачено 2000 (14.09); по расписанию сентября: Тест 8×2000 + Анна 1500+1400+1500 + Борис 1800 (24.09) = 22200
   const tiles = await page.innerText("#anTiles");
   assert.match(tiles, /2\s000 ₽[\s\S]*оплачено/);
@@ -101,4 +101,36 @@ test("аналитика на телефоне: графики по ширине
   assert.equal(over, 0);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1), true, "нет горизонтальной прокрутки страницы");
   await app.close();
+});
+
+test("аналитика: период «1 мес» и «1 нед» — одна группа, подписи и подсказка на месте", async () => {
+  const seed = defaultSeed();
+  seed[L("serA_20260914T070000Z")].paid = { value: true, by: "parent", at: 1 };
+  seed[L("serA_20260921T070000Z")].paid = { value: true, by: "parent", at: 1 };
+  for (const vp of [{ width: 1100, height: 900 }, { width: 360, height: 780 }]) {
+    const app = await openApp({ seed: JSON.parse(JSON.stringify(seed)), viewport: vp, isMobile: vp.width < 500, hasTouch: vp.width < 500 });
+    const { page } = app;
+    await page.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.startsWith("an.")) localStorage.removeItem(k); });
+    await page.waitForSelector("#lessonsList .lesson");
+    await page.click('.tab[data-tab="analytics"]');
+    await page.waitForSelector("#anIncome svg");
+    await page.click('[data-anmonths="1"]');
+    await page.waitForFunction(() => document.querySelectorAll("#anIncomeTable tbody tr").length === 1);
+    assert.equal(await page.textContent('[data-anmonths="1"]'), "1 мес");
+    assert.equal(await page.locator("#anIncome .an-hit").count(), 1);
+    assert.match(await page.textContent("#anIncome svg"), /сен/, "подпись месяца под столбиком");
+    await page.locator("#anIncome .an-hit").click();
+    const box = await page.evaluate(() => { const t = document.querySelector("#anIncome .an-tip").getBoundingClientRect(), c = document.querySelector("#anIncomeCard").getBoundingClientRect(); return { in: t.left >= c.left - 1 && t.right <= c.right + 1, vis: t.width > 0 }; });
+    assert.deepEqual(box, { in: true, vis: true }, `подсказка внутри карточки (${vp.width}px)`);
+    await page.click('[data-anstep="week"]');
+    await page.click('[data-anweeks="1"]');
+    await page.waitForFunction(() => document.querySelectorAll("#anIncomeTable tbody tr").length === 1);
+    assert.equal(await page.textContent('[data-anweeks="1"]'), "1 нед");
+    assert.equal((await page.$$eval("#anIncomeTable tbody tr td", (t) => t.map((x) => x.textContent)))[0], "21.09 – 27.09");
+    assert.match(await page.innerText("#anTiles"), /2\s000 ₽[\s\S]*оплачено/, "за неделю — оплата 21.09");
+    const over = await page.evaluate(() => [...document.querySelectorAll("#view-analytics .an-svg")].some((s) => s.getBoundingClientRect().right > document.documentElement.clientWidth + 1));
+    assert.equal(over, false, "графики в ширину экрана");
+    assert.deepEqual(app.errors, []);
+    await app.close();
+  }
 });
