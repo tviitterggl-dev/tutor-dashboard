@@ -252,3 +252,34 @@ test("учитель: lessonId заявки — только метка: под�
   assert.equal(await page.textContent("#reqBadge"), "0");
   await app.close();
 });
+
+test("учитель: подтверждение повторяемо — сбой после создания занятия, повтор и второе устройство не создают копий и не блокируют «Подтвердить»", async () => {
+  const dialogs = [];
+  const app = await openFamily({ onDialog: (d) => { dialogs.push(d.message()); return true; } });
+  const { page } = app;
+  const ch = (await app.db())[`parentAccess/${PK}`].channel;
+  await putBook(app, ch, "bk6", { newStartMs: at("2026-10-01T16:00:00"), newEndMs: at("2026-10-01T17:00:00") });
+  await toRequests(page);
+  // связь оборвалась после создания занятия: запись решения падает один раз
+  await page.evaluate(() => {
+    const fb = window.TutorFB, orig = fb.saveRequestDecision;
+    let failed = false;
+    fb.saveRequestDecision = (...a) => { if (!failed) { failed = true; return Promise.reject(new Error("сеть пропала")); } return orig.apply(fb, a); };
+  });
+  await page.click('#requestsList [data-req="approve"]');
+  const created = async () => Object.entries(await app.db()).filter(([p, d]) => p.includes("/lessons/") && d.startMs === at("2026-10-01T16:00:00"));
+  await waitFor(async () => (await created()).length === 1, "занятие создано");
+  await page.waitForTimeout(700); // список перерисован
+  assert.ok((await app.db())[`channels/${ch}/items/bk6`], "заявка ещё ждёт решения");
+  // своё же занятие по этой заявке — не «занято»: подтвердить можно ещё раз
+  assert.doesNotMatch(await page.textContent("#requestsList .req"), /уже занято/);
+  assert.equal(await page.isDisabled('#requestsList [data-req="approve"]'), false);
+  await page.click('#requestsList [data-req="approve"]');
+  await page.waitForFunction(() => /Новых заявок нет/.test(document.querySelector("#requestsList").textContent));
+  const all = await created();
+  assert.equal(all.length, 1, "одно занятие, без копии");
+  const dec = (await app.db())[`teacherSpaces/${T}/requests/bk6`];
+  assert.deepEqual([dec.status, dec.newLessonId], ["approved", all[0][0].split("/").pop()]);
+  assert.ok(!dialogs.some((m) => /уже занято/.test(m)), "своё занятие не считалось помехой");
+  await app.close();
+});

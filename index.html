@@ -4439,9 +4439,12 @@
   async function bookProblem(item) {
     if (!(item.newStartMs > Date.now())) return "Это время уже прошло — подтвердить нельзя.";
     const probe = [{ data: { startMs: item.newStartMs, endMs: item.newEndMs } }];
-    const conflicts = await findConflicts(probe);
+    // своё уже созданное по этой заявке занятие (сбой после создания, второе устройство) — не помеха
+    const conflicts = await findConflicts(probe, [bookLessonId(item)]);
     return conflicts.length ? `Это время уже занято: ${conflicts.map(x => isPersonal(x) ? "личное время" : displayTitle(x.title)).join(", ")}.` : "";
   }
+  // id занятия выводится из id заявки: повторное подтверждение пишет тот же документ, копий не бывает
+  function bookLessonId(item) { return "bk_" + item.id; }
   function bookRequestHtml(ck, item, meta, warn) {
     const min = Math.round((item.newEndMs - item.newStartMs) / 60000);
     return `<div class="req" data-ck="${escHtml(ck)}" data-id="${escHtml(item.id)}">
@@ -4463,11 +4466,16 @@
       if (problem) { alert(problem + "\nЗаявку можно отклонить — семья увидит причину."); return; }
       const durMin = Math.round((item.newEndMs - item.newStartMs) / 60000);
       if (!confirm(`Добавить занятие: ${studentLabel(meta.studentId)}, ${fmtWhen(item.newStartMs, item.newEndMs)}?`)) return;
-      // то же, что «+ Занятие»: название и studentId ученика этого канала, свой id
-      const [it] = buildSeries({ base: titleOfStudent(meta.studentId), startMs: item.newStartMs, durMin, count: 1 });
-      it.data.requestId = item.id;
-      await window.TutorFB.saveLessons([it]);
-      newLessonId = it.id;
+      newLessonId = bookLessonId(item);
+      const prev = await window.TutorFB.getLesson(newLessonId);
+      if (prev && (prev.requestId !== item.id || prev.studentId !== meta.studentId)) { alert("Не удалось создать занятие по заявке — попробуйте ещё раз или отклоните заявку."); return; }
+      if (!prev) {
+        // то же, что «+ Занятие»: название и studentId ученика этого канала; id — из id заявки
+        const [it] = buildSeries({ base: titleOfStudent(meta.studentId), startMs: item.newStartMs, durMin, count: 1 });
+        it.id = newLessonId;
+        it.data.requestId = item.id;
+        await window.TutorFB.saveLessons([it]);
+      }
     } else {
       const r = prompt("Причина отказа (увидит родитель/ученик, можно оставить пустым):", "");
       if (r === null) return;
