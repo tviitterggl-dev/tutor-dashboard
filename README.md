@@ -215,7 +215,7 @@ Actions → «Уведомления» → Enable workflow. Расписание
 cd tests
 npm install                 # Playwright, FullCalendar, html2canvas (браузер Chromium — один раз: npx playwright install chromium)
 npm run test:e2e            # e2e: оба кабинета в Chromium, Firebase/Cloudinary/CDN подменены (tests/stubs)
-npm run test:rules          # firestore.rules в локальном эмуляторе
+npm run test:rules          # firestore.rules в локальном эмуляторе + паритет с копией правил в тестовой базе (tests/stubs/rules-check.js)
 npm run test:notifier       # логика уведомлений + фоновая рассылка против эмулятора (нужен cd ../notifier && npm install)
 node check-syntax.mjs ../index.html ../cabinet.html   # синтаксис встроенных и подключённых скриптов
 node screens.mjs <папка> [папка со шрифтами]           # скриншоты экранов на «iPhone» (до/после правок дизайна)
