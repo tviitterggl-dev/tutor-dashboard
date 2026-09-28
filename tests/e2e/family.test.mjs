@@ -551,16 +551,21 @@ test("«На экран «Домой»»: адрес всегда с ключо�
   await app.close();
 });
 
-test("крестик на карточке занятия: быстрая заявка на отмену (родитель и ученик), только где отмена возможна", async () => {
+test("на карточке занятия в списке нет крестика-отмены; отмена — из окна занятия (родитель и ученик)", async () => {
+  // Крестик «быстрая отмена» (bf76f94) убран: одним лишним нажатием нельзя
+  // было случайно начать отмену. Отмена — как раньше: окно → «Отменить…».
   const app = await openFamily();
   for (const [hash, by] of [[`#p=${PK_T}`, "parent"], [`#s=${SK_T}`, "student"]]) {
     const cab = await openCabinet(app, hash);
     await cab.waitForSelector("#pane-lessons .lesson");
-    // будущее запланированное — с ×, у прошедших (история) — нет
+    assert.equal(await cab.locator(".quick-cancel, [data-quick-cancel], .lesson.can-cancel").count(), 0);
+    const btns = await cab.locator("#pane-lessons .lesson button").evaluateAll((bs) => bs.map((b) => b.textContent.trim() + "|" + (b.getAttribute("aria-label") || "")));
+    assert.ok(btns.every((t) => !/×|Отмен/.test(t)), "в карточках списка нет кнопки отмены: " + btns.join(", "));
     const card = cab.locator(".lesson", { hasText: by === "parent" ? "7/8" : "8/8" }).first();
-    assert.equal(await card.locator("[data-quick-cancel]").count(), 1);
-    assert.equal(await card.locator("[data-quick-cancel]").getAttribute("aria-label"), "Отменить занятие…");
-    await card.locator("[data-quick-cancel]").click();
+    await card.click();
+    await cab.waitForSelector("#modalBack", { state: "visible" });
+    assert.equal(await cab.isVisible("#reqForm"), false, "окно открывается без формы отмены");
+    await cab.click("#mCancel");
     await cab.waitForSelector("#reqForm", { state: "visible" });
     assert.equal(await cab.textContent("#mSend"), "Отправить заявку на отмену");
     assert.equal(await cab.isVisible("#moveFields"), false, "без полей переноса");
@@ -568,11 +573,7 @@ test("крестик на карточке занятия: быстрая зая
     await cab.click("#mSend");
     await cab.waitForFunction(() => /Заявка отправлена/.test(document.querySelector("#mMsg").textContent));
     await cab.click("#mClose");
-    // заявка ждёт ответа — крестика у этого занятия больше нет
-    await cab.waitForFunction((t) => { const c = [...document.querySelectorAll("#pane-lessons .lesson")].find((x) => x.textContent.includes(t)); return c && !c.querySelector("[data-quick-cancel]"); }, by === "parent" ? "7/8" : "8/8");
-    await cab.click('[data-filter="past"]');
-    await cab.waitForSelector("#pane-lessons .lesson");
-    assert.equal(await cab.locator("#pane-lessons [data-quick-cancel]").count(), 0, "у прошедших — нет");
+    await cab.waitForSelector("#modalBack", { state: "hidden" });
     assert.deepEqual(cab.errors, []);
     await cab.close();
   }
