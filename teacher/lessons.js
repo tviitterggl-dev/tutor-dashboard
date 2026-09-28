@@ -126,3 +126,22 @@ async function loadLessonEvents() {
   await doFetch();
   pollTimer = setInterval(doFetch, 5 * 60 * 1000);
 }
+
+document.querySelectorAll('.subtab[data-lessonmode]').forEach(tab => {
+  tab.addEventListener("click", () => {
+    lessonMode = tab.dataset.lessonmode;
+    document.querySelectorAll('.subtab[data-lessonmode]').forEach(t => t.classList.toggle("active", t === tab));
+    loadLessonEvents();
+  });
+});
+document.querySelector('.subtab[data-lessonmode="day"]').classList.add("active");
+
+$("prevBtn").addEventListener("click", () => {
+  if (lessonMode === "day") dayOffset--; else weekOffset--;
+  loadLessonEvents();
+});
+$("nextBtn").addEventListener("click", () => {
+  if (lessonMode === "day") dayOffset++; else weekOffset++;
+  loadLessonEvents();
+});
+$("markPastBtn").addEventListener("click", markAllPast);

@@ -186,3 +186,7 @@ async function exportScheduleImage() {
     btn.textContent = orig;
   }
 }
+
+$("schedPrevBtn").addEventListener("click", () => { schedWeekOffset--; loadSchedule(); });
+$("schedNextBtn").addEventListener("click", () => { schedWeekOffset++; loadSchedule(); });
+$("schedExportBtn").addEventListener("click", exportScheduleImage);

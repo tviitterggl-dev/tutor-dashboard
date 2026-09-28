@@ -208,3 +208,30 @@ function refreshSummary() {
   $("summaryNav").style.display = summaryMode === "range" ? "none" : "flex";
   loadSummary();
 }
+
+document.querySelectorAll('.subtab[data-summode]').forEach(tab => {
+  tab.addEventListener("click", () => {
+    summaryMode = tab.dataset.summode;
+    document.querySelectorAll('.subtab[data-summode]').forEach(t => t.classList.toggle("active", t === tab));
+    refreshSummary();
+  });
+});
+document.querySelector('.subtab[data-summode="week"]').classList.add("active");
+
+$("summaryPrevBtn").addEventListener("click", () => {
+  if (summaryMode === "month") summaryMonthOffset--; else summaryWeekOffset--;
+  refreshSummary();
+});
+$("summaryNextBtn").addEventListener("click", () => {
+  if (summaryMode === "month") summaryMonthOffset++; else summaryWeekOffset++;
+  refreshSummary();
+});
+$("summaryRangeGoBtn").addEventListener("click", refreshSummary);
+$("copySummaryBtn").addEventListener("click", copySummary);
+
+(function initRangeInputs() {
+  const today = new Date();
+  const weekAgo = new Date(); weekAgo.setDate(today.getDate() - 7);
+  $("summaryRangeStart").value = toDateInputValue(weekAgo);
+  $("summaryRangeEnd").value = toDateInputValue(today);
+})();

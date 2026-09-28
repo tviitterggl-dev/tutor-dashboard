@@ -1,7 +1,8 @@
-// Кабинет учителя (index.html): запуск — вход, первая загрузка, обработчики
-// кнопок. Код кабинета разложен по файлам в папке teacher/; они подключаются
-// обычными <script src> по порядку (без сборки) и делят одно общее
-// пространство имён — см. REVIEW.md, «Как устроен код кабинета учителя».
+// Кабинет учителя (index.html): запуск — вход, первая загрузка, переключение
+// вкладок. Подключается последним: остальной код кабинета — в файлах
+// teacher/*.js перед ним (обычные <script src> по порядку, без сборки,
+// одно общее пространство имён — см. REVIEW.md, «Как устроен код кабинета
+// учителя»).
 
 let appStarted = false;
 let appStarting = false;
@@ -80,56 +81,6 @@ document.querySelectorAll(".tab").forEach(tab => {
   tab.addEventListener("click", () => showTab(tab.dataset.tab));
 });
 if (window.appTheme) window.appTheme.mount($("themeToggle"));
-
-document.querySelectorAll('.subtab[data-lessonmode]').forEach(tab => {
-  tab.addEventListener("click", () => {
-    lessonMode = tab.dataset.lessonmode;
-    document.querySelectorAll('.subtab[data-lessonmode]').forEach(t => t.classList.toggle("active", t === tab));
-    loadLessonEvents();
-  });
-});
-document.querySelector('.subtab[data-lessonmode="day"]').classList.add("active");
-
-document.querySelectorAll('.subtab[data-summode]').forEach(tab => {
-  tab.addEventListener("click", () => {
-    summaryMode = tab.dataset.summode;
-    document.querySelectorAll('.subtab[data-summode]').forEach(t => t.classList.toggle("active", t === tab));
-    refreshSummary();
-  });
-});
-document.querySelector('.subtab[data-summode="week"]').classList.add("active");
-
-$("prevBtn").addEventListener("click", () => {
-  if (lessonMode === "day") dayOffset--; else weekOffset--;
-  loadLessonEvents();
-});
-$("nextBtn").addEventListener("click", () => {
-  if (lessonMode === "day") dayOffset++; else weekOffset++;
-  loadLessonEvents();
-});
-$("markPastBtn").addEventListener("click", markAllPast);
-
-$("summaryPrevBtn").addEventListener("click", () => {
-  if (summaryMode === "month") summaryMonthOffset--; else summaryWeekOffset--;
-  refreshSummary();
-});
-$("summaryNextBtn").addEventListener("click", () => {
-  if (summaryMode === "month") summaryMonthOffset++; else summaryWeekOffset++;
-  refreshSummary();
-});
-$("summaryRangeGoBtn").addEventListener("click", refreshSummary);
-$("copySummaryBtn").addEventListener("click", copySummary);
-
-$("schedPrevBtn").addEventListener("click", () => { schedWeekOffset--; loadSchedule(); });
-$("schedNextBtn").addEventListener("click", () => { schedWeekOffset++; loadSchedule(); });
-$("schedExportBtn").addEventListener("click", exportScheduleImage);
-
-(function initRangeInputs() {
-  const today = new Date();
-  const weekAgo = new Date(); weekAgo.setDate(today.getDate() - 7);
-  $("summaryRangeStart").value = toDateInputValue(weekAgo);
-  $("summaryRangeEnd").value = toDateInputValue(today);
-})();
 
 // Модуль Firebase (type="module") выполняется после этого скрипта —
 // ждём первого сигнала о входе; дальнейшие входы/выходы тоже слушаем.
