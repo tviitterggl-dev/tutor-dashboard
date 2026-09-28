@@ -38,9 +38,6 @@ let events = [];
 let marks = {};
 let pollTimer = null;
 
-// Расписание
-let schedWeekOffset = 0;
-
 const $ = (id) => document.getElementById(id);
 
 // ---------- МОДАЛЬНОЕ ОКНО ----------
