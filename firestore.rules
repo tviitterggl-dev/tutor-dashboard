@@ -29,7 +29,9 @@ service cloud.firestore {
     }
 
     // Сообщение в канале ученика. Каналы — единственное место, куда пишут
-    // родитель и ученик: загруженное ДЗ, заявки на перенос/отмену, отметка
+    // родитель и ученик: загруженное ДЗ, заявки на перенос/отмену и на
+    // дополнительное занятие (book: занятия ещё нет — lessonId новый, время как
+    // у переноса, подаёт только семья; ученика учитель знает по каналу), отметка
     // «оплачено», «пояснение» к занятию (note: текст до 1000 символов,
     // пустой — «убрать пояснение»), подписка устройства на пуш-уведомления
     // (push: токен Firebase Cloud Messaging + ключ доступа этого кабинета —
@@ -37,7 +39,7 @@ service cloud.firestore {
     // полей и размеры ограничены; ссылки на файлы — только Cloudinary.
     function validItem(d) {
       return d.keys().hasOnly(["type", "lessonId", "by", "createdAt", "file", "newStartMs", "newEndMs", "comment", "paid", "token", "key"])
-        && d.type in ["homework", "reschedule", "cancel", "paid", "note", "push"]
+        && d.type in ["homework", "reschedule", "cancel", "paid", "note", "push", "book"]
         && d.lessonId is string && d.lessonId.size() > 0 && d.lessonId.size() <= 128
         && d.by in ["parent", "student", "teacher"]
         && d.createdAt is int
@@ -51,6 +53,9 @@ service cloud.firestore {
               && d.file.url.matches("^https://res[.]cloudinary[.]com/.*")
               && d.file.name is string && d.file.name.size() <= 200))
         && (d.type != "reschedule" || (d.newStartMs is int && d.newEndMs is int && d.newEndMs > d.newStartMs))
+        && (d.type != "book" || (d.newStartMs is int && d.newEndMs is int && d.newEndMs > d.newStartMs
+              && d.newEndMs - d.newStartMs <= 8 * 3600000
+              && d.by in ["parent", "student"]))
         && (d.type != "paid" || d.paid is bool)
         && (d.type != "push" || (
               d.token is string && d.token.size() >= 20 && d.token.size() <= 4096

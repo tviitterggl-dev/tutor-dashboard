@@ -139,6 +139,29 @@ test("канал: валидация сообщений", async () => {
   assert.equal(await put(`channels/${CK}/items/n5`, { type: "cancel", lessonId: "l1", by: "parent", createdAt: 1, comment: "x".repeat(501) }), 403, "у заявок по-прежнему 500");
 });
 
+// Заявка семьи на ДОПОЛНИТЕЛЬНОЕ занятие: занятия ещё нет, lessonId — новый
+// id, придуманный кабинетом; время — как у переноса; подаёт только семья.
+test("канал: заявка на новое занятие (book)", async () => {
+  const book = { type: "book", lessonId: "l_new_0123456789ab", by: "parent", createdAt: 1790000000000, newStartMs: 1790200000000, newEndMs: 1790203600000, comment: "Можно ещё одно на этой неделе?" };
+  assert.equal(await put(`channels/${CK}/items/b1`, book), 200);
+  const { comment, ...noComment } = book;
+  assert.equal(await put(`channels/${CK}/items/b2`, { ...noComment, by: "student" }), 200, "без комментария, от ученика");
+  const { newStartMs, ...noStart } = book;
+  assert.equal(await put(`channels/${CK}/items/b3`, noStart), 403, "без newStartMs");
+  const { newEndMs, ...noEnd } = book;
+  assert.equal(await put(`channels/${CK}/items/b4`, noEnd), 403, "без newEndMs");
+  assert.equal(await put(`channels/${CK}/items/b5`, { ...book, newEndMs: book.newStartMs }), 403, "конец не позже начала");
+  assert.equal(await put(`channels/${CK}/items/b6`, { ...book, newEndMs: book.newStartMs - 60000 }), 403);
+  assert.equal(await put(`channels/${CK}/items/b7`, { ...book, newStartMs: "завтра" }), 403, "время — число");
+  assert.equal(await put(`channels/${CK}/items/b13`, { ...book, newEndMs: book.newStartMs + 8 * 3600000 }), 200, "8 часов — можно");
+  assert.equal(await put(`channels/${CK}/items/b14`, { ...book, newEndMs: book.newStartMs + 8 * 3600000 + 60000 }), 403, "дольше 8 часов — нет");
+  assert.equal(await put(`channels/${CK}/items/b8`, { ...book, studentId: "Маша, 7 класс" }), 403, "лишнее поле (ученика по ключу знает учитель)");
+  assert.equal(await put(`channels/${CK}/items/b9`, { ...book, by: "teacher" }), 403, "подаёт только семья");
+  assert.equal(await put(`channels/${CK}/items/b10`, { ...book, comment: "x".repeat(501) }), 403, "комментарий до 500");
+  assert.equal(await put(`channels/${CK}/items/b11`, { ...book, lessonId: "" }), 403);
+  assert.equal(await put(`channels/${CK}/items/b12`, { ...book, token: "t".repeat(30) }), 403, "поля подписки — только у push");
+});
+
 test("журнал решений по заявкам — только учителю", async () => {
   await as(T, async () => {
     assert.equal(await put(`teacherSpaces/${T}/requests/r1`, { status: "approved" }), 200);

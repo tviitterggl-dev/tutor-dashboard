@@ -75,7 +75,7 @@ teacherSpaces/{uid}/notifications/{id}  уведомления: text, mode (now|
                                         target {scope all|student|key, role, studentId, key}, lessonIds, push, active
 teacherSpaces/{uid}/notifLog/{id}       что уже ушло пушем (пишет только фоновая рассылка)
 parentAccess/{ключ}, studentAccess/{ключ}   витрины (перезаписываются кабинетом учителя)
-channels/{ключ}/items/{id}              homework | reschedule | cancel | paid | note | push (только создание;
+channels/{ключ}/items/{id}              homework | reschedule | cancel | book (новое занятие) | paid | note | push (только создание;
                                         push — подписка устройства: FCM-токен + ОТПЕЧАТОК ключа доступа, SHA-256; сам ключ в общий канал не пишется)
 ```
 

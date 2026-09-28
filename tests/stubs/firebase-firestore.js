@@ -140,7 +140,7 @@ function checkItem(path, d) {
   const bad = (why) => { const e = new Error("Missing or insufficient permissions. (" + why + ")"); e.code = "permission-denied"; throw e; };
   const allowed = ["type", "lessonId", "by", "createdAt", "file", "newStartMs", "newEndMs", "comment", "paid", "token", "key"];
   Object.keys(d).forEach((k) => { if (!allowed.includes(k)) bad("лишнее поле " + k); });
-  if (!["homework", "reschedule", "cancel", "paid", "note", "push"].includes(d.type)) bad("type");
+  if (!["homework", "reschedule", "cancel", "paid", "note", "push", "book"].includes(d.type)) bad("type");
   if (typeof d.lessonId !== "string" || !d.lessonId || d.lessonId.length > 128) bad("lessonId");
   if (!["parent", "student", "teacher"].includes(d.by)) bad("by");
   if (!Number.isInteger(d.createdAt)) bad("createdAt");
@@ -148,6 +148,8 @@ function checkItem(path, d) {
   if (d.type === "note" && typeof d.comment !== "string") bad("note без comment");
   if (d.type === "homework" && !(d.file && /^https:\/\/res[.]cloudinary[.]com\//.test(d.file.url))) bad("file");
   if (d.type === "paid" && typeof d.paid !== "boolean") bad("paid");
+  if ((d.type === "reschedule" || d.type === "book") && !(Number.isInteger(d.newStartMs) && Number.isInteger(d.newEndMs) && d.newEndMs > d.newStartMs)) bad("время");
+  if (d.type === "book" && (!["parent", "student"].includes(d.by) || d.newEndMs - d.newStartMs > 8 * 3600000)) bad("book");
   if (d.type === "push" && !(typeof d.token === "string" && d.token.length >= 20 && typeof d.key === "string" && d.key.length >= 24 && d.key.length <= 64)) bad("push");
   if (d.type !== "push" && ("token" in d || "key" in d)) bad("token вне push");
 }
