@@ -135,7 +135,14 @@ async function processChannel(ck) {
         continue;
       }
       const patch = {};
-      const hws = its.filter(i => i.type === "homework");
+      // by в сообщении пишет сам отправитель, а правила не отличают учителя от
+      // семьи (входа у семьи нет) — «от учителя» может подставить кто угодно
+      // с ключом канала. ДЗ и пояснения из каналов принимаем только от
+      // родителя/ученика; «оплачено» — только от родителя (свои отметки
+      // учитель ставит в занятие сам, в канал пишет лишь их копию для семьи).
+      const fromFamily = (i) => i.by === "parent" || i.by === "student";
+      toDelete.push(...its.filter(i => (i.type === "homework" || i.type === "note") && !fromFamily(i)).map(i => i.id));
+      const hws = its.filter(i => i.type === "homework" && fromFamily(i));
       if (hws.length) {
         const hw = Array.isArray(l.homework) ? l.homework.slice() : [];
         hws.forEach(i => {
@@ -146,7 +153,7 @@ async function processChannel(ck) {
       }
       // «Пояснение» от родителя/ученика: последнее → в занятие (familyNote);
       // последнее сообщение остаётся в канале, старые удаляются.
-      const notes = its.filter(i => i.type === "note").sort((a, b) => a.createdAt - b.createdAt);
+      const notes = its.filter(i => i.type === "note" && fromFamily(i)).sort((a, b) => a.createdAt - b.createdAt);
       if (notes.length) {
         if (meta.kind !== "shared") {
           toDelete.push(...notes.map(i => i.id));
@@ -164,8 +171,9 @@ async function processChannel(ck) {
         if (meta.kind !== "parent") {
           toDelete.push(...paids.map(i => i.id)); // «оплачено» ставит только родитель
         } else {
-          const latest = paids[paids.length - 1];
-          if (!l.paid || (l.paid.at || 0) < latest.createdAt) patch.paid = { value: latest.paid, by: latest.by, at: latest.createdAt };
+          const fromParent = paids.filter(i => i.by === "parent");
+          const latest = fromParent[fromParent.length - 1];
+          if (latest && (!l.paid || (l.paid.at || 0) < latest.createdAt)) patch.paid = { value: latest.paid, by: "parent", at: latest.createdAt };
           toDelete.push(...paids.slice(0, -1).map(i => i.id)); // последняя остаётся — её видит родитель
         }
       }
@@ -210,7 +218,6 @@ function decisionData(item, meta, lesson, status, reason, newLessonId) {
   };
 }
 
-const ROLE_RU = { parent: "родитель", student: "ученик", teacher: "учитель" };
 const lessonCache = {};
 
 async function renderRequests() {

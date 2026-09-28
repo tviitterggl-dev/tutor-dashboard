@@ -351,6 +351,37 @@ test("приватность: чужое занятие в заявке/опла
   await app.close();
 });
 
+test("подделка «от учителя»: ДЗ, пояснение и «оплачено» с by: teacher из каналов семьи не применяются", async () => {
+  // Правила не могут отличить учителя от семьи в канале (входа у семьи нет),
+  // поэтому by: "teacher" в сообщении может подставить кто угодно с ключом
+  // канала. Раньше учитель копировал by как есть: файл ребёнка выглядел как
+  // ДЗ от учителя (и в групповом занятии уходил новым участникам — другой
+  // семье), «оплачено» — как отметка самого учителя (без пуша ему).
+  const app = await openFamily();
+  const vT = (await app.db())[`parentAccess/${PK_T}`];
+  const lesson = "serA_20260925T070000Z";
+  const before = (await app.db())[L(lesson)];
+  await app.page.evaluate(async ({ ch, pch, lesson }) => {
+    const db = JSON.parse(localStorage.__fakeDb);
+    const t = Date.now() + 1000;
+    db[`channels/${ch}/items/fake1`] = { type: "homework", lessonId: lesson, by: "teacher", createdAt: t, file: { url: "https://res.cloudinary.com/x/fake.pdf", name: "fake.pdf" } };
+    db[`channels/${ch}/items/fake2`] = { type: "note", lessonId: lesson, by: "teacher", createdAt: t, comment: "подделка" };
+    db[`channels/${pch}/items/fake3`] = { type: "paid", lessonId: lesson, by: "teacher", createdAt: t, paid: true };
+    // и настоящее — от родителя: применяется как раньше
+    db[`channels/${ch}/items/real1`] = { type: "homework", lessonId: lesson, by: "parent", createdAt: t, file: { url: "https://res.cloudinary.com/x/real.pdf", name: "real.pdf" } };
+    localStorage.__fakeDb = JSON.stringify(db);
+  }, { ch: vT.channel, pch: vT.parentChannel, lesson });
+  await waitFor(async () => ((await app.db())[L(lesson)].homework || []).some((h) => h.name === "real.pdf"), "настоящее ДЗ применено");
+  await waitFor(async () => !Object.keys(await app.db()).some((p) => /\/items\/fake[12]$/.test(p)), "подделки ДЗ/пояснения выброшены");
+  const l = (await app.db())[L(lesson)];
+  assert.equal((l.homework || []).some((h) => h.name === "fake.pdf"), false, "файл «от учителя» не прикреплён");
+  assert.equal((l.homework || []).find((h) => h.name === "real.pdf").by, "parent");
+  assert.deepEqual(l.familyNote, before.familyNote, "пояснение «от учителя» не применено");
+  assert.deepEqual(l.paid, before.paid, "«оплачено от учителя» из канала родителя не применено");
+  assert.deepEqual(app.errors, []);
+  await app.close();
+});
+
 test("отзыв доступа меняет каналы: отозванный больше не видит заявки и ДЗ", async () => {
   const app = await openFamily();
   const { page } = app;
@@ -382,6 +413,7 @@ test("отзыв доступа меняет каналы: отозванный 
 
 test("пока правила не обновлены: в кабинете понятное сообщение, а не «проверьте интернет»", async () => {
   const app = await openFamily();
+  app.expectErrors = /insufficient permissions/; // тест нарочно ломает это — ошибка в консоли ожидаема
   const cab = await openCabinet(app, `#p=${PK_T}`);
   await cab.waitForSelector("#pane-lessons .lesson");
   await cab.evaluate(() => { window.__FAKE_DENY = ["channels/"]; });
