@@ -11,7 +11,6 @@
 const VIEW_PAST_DAYS = 120;
 const VIEW_FUTURE_DAYS = 90;
 const PARENT_WINDOW_DAYS = 28; // окно кабинета семьи: 4 недели назад и 4 вперёд
-const DAY_MS = 86400000;
 let accessKeysCache = null;
 
 function newAccessKey() {

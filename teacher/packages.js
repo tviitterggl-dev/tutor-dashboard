@@ -252,9 +252,6 @@ function migratePackageOverrides(evs) {
   });
 }
 
-function escAttr(s) {
-  return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
-}
 
 // «Пакет заканчивается»: осталось 1–2 занятия — пора предложить продление;
 // 0 — пакет закончился.
@@ -324,7 +321,6 @@ function readPrice(box) {
   if (!(value > 0) || (mode === "pct" && value >= 100)) return { ok: false };
   return { ok: true, price: { mode, value } };
 }
-const fmtPct = (x) => `${(Math.round(x * 10) / 10).toLocaleString("ru-RU")}%`;
 // «1 350 ₽ за занятие вместо 1 500 ₽ · 5 400 ₽ за 4»
 function priceSummary(price, total, rate) {
   const per = pkgPriceOf({ price, totalOverride: total }, rate);

@@ -32,7 +32,6 @@ function filesFromClipboard(e) {
     return f;
   }).filter(Boolean);
 }
-var pasteTarget = null; // (var — без «мёртвой зоны»: нужна в openModal/closeModal) куда вставлять файлы из буфера, пока открыто окно занятия
 document.addEventListener("paste", (e) => {
   if (!pasteTarget || $("modalBack").style.display === "none") return;
   const files = filesFromClipboard(e);
@@ -60,7 +59,6 @@ async function nextLessonOf(l) {
   return own.filter(x => x.id !== l.id && x.status === "planned" && !isPersonal(x) && x.startMs > l.startMs)
     .sort((a, b) => a.startMs - b.startMs)[0] || null;
 }
-var modalLessonId = null; // (var — см. pasteTarget) какое занятие сейчас открыто в окне
 async function renderNextHw(l, busy) {
   const box = mq("#mNextHw");
   let next = null;

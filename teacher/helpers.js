@@ -300,3 +300,27 @@ function newId(prefix) {
 function escHtml(s) {
   return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
+
+// ---------- общие мелочи для нескольких вкладок ----------
+// (до 29.09 лежали в calendar.js, access.js, analytics.js, packages.js,
+// requests.js — там, где понадобились впервые)
+const DAY_MS = 86400000;
+const STATUS_RU = { planned: "запланировано", done: "проведено", cancelled: "отменено", rescheduled: "перенесено" };
+const pad2 = (n) => String(n).padStart(2, "0");
+const hhmm = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+function fmtWhen(ms, endMs) {
+  const d = new Date(ms);
+  return `${fmtDayLabel(d)}.${d.getFullYear()}, ${hhmm(d)}` + (endMs ? `–${hhmm(new Date(endMs))}` : "");
+}
+const PKG_SUFFIX_RE = /\s*(\d{1,2})\s*\/\s*(\d{1,2})\s*$/;
+function baseTitle(title) { return (title || "").replace(PKG_SUFFIX_RE, "").trim(); }
+function pkgSuffix(title) {
+  const m = (title || "").match(PKG_SUFFIX_RE);
+  return m ? ` ${m[1]}/${m[2]}` : "";
+}
+const ROLE_RU = { parent: "родитель", student: "ученик", teacher: "учитель" };
+const rub = (n) => `${Math.round(n).toLocaleString("ru-RU")} ₽`;
+const fmtPct = (x) => `${(Math.round(x * 10) / 10).toLocaleString("ru-RU")}%`;
+function escAttr(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+}

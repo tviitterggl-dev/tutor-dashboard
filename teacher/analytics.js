@@ -14,7 +14,6 @@ const anState = {
   step: anPref("step", "month"), months: anPref("months", 3), weeks: anPref("weeks", 10),
   potential: anPref("potential", false), cache: {},
 };
-const rub = (n) => `${Math.round(n).toLocaleString("ru-RU")} ₽`;
 const compactRub = (n) => (n >= 1000 ? `${(Math.round(n / 100) / 10).toLocaleString("ru-RU")}k` : String(Math.round(n)));
 const p2 = (n) => String(n).padStart(2, "0");
 

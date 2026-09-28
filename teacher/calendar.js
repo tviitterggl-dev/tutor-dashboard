@@ -6,21 +6,8 @@
 
 const FC_JS = "https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js";
 const FC_RU = "https://cdn.jsdelivr.net/npm/@fullcalendar/core@6.1.19/locales/ru.global.min.js";
-const STATUS_RU = { planned: "запланировано", done: "проведено", cancelled: "отменено", rescheduled: "перенесено" };
 let fc = null;
 
-const pad2 = (n) => String(n).padStart(2, "0");
-const hhmm = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-function fmtWhen(ms, endMs) {
-  const d = new Date(ms);
-  return `${fmtDayLabel(d)}.${d.getFullYear()}, ${hhmm(d)}` + (endMs ? `–${hhmm(new Date(endMs))}` : "");
-}
-const PKG_SUFFIX_RE = /\s*(\d{1,2})\s*\/\s*(\d{1,2})\s*$/;
-function baseTitle(title) { return (title || "").replace(PKG_SUFFIX_RE, "").trim(); }
-function pkgSuffix(title) {
-  const m = (title || "").match(PKG_SUFFIX_RE);
-  return m ? ` ${m[1]}/${m[2]}` : "";
-}
 
 function lessonToFc(l) {
   if (isPersonal(l)) {

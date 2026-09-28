@@ -42,6 +42,11 @@ const $ = (id) => document.getElementById(id);
 
 // ---------- МОДАЛЬНОЕ ОКНО ----------
 
+// Состояние открытого окна: какое занятие в нём (modalLessonId) и куда
+// вставлять файлы из буфера (pasteTarget; ставят окна занятия, сбрасывают
+// openModal/closeModal).
+let modalLessonId = null;
+let pasteTarget = null;
 const MODAL_X = '<button type="button" class="modal-x" data-modal-x aria-label="Закрыть" title="Закрыть">×</button>';
 function openModal(html) {
   pasteTarget = null; // новое окно — вставка из буфера только туда, где есть зона для файлов
