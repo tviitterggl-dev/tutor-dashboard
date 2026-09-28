@@ -44,6 +44,7 @@ async function afterAuth() {
   await startChannelWatch();
   publishViewsSoon(); // раз в заход освежаем «занято» в кабинетах родителей
   refreshPackageAlertsSoon();
+  lessonLinkReady(); // занятие из пуш-уведомления (?lesson=) — теперь можно открыть
 }
 
 // ---------- НАВИГАЦИЯ ПО ВКЛАДКАМ ----------

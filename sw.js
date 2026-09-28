@@ -12,7 +12,7 @@
 // версии, не меняются: «сначала кэш». Данные (Firestore) SW не трогает —
 // их кэширует сам Firestore (IndexedDB), а кабинет родителя ещё и хранит
 // последнюю витрину в localStorage.
-const CACHE = "tutor-shell-v14";
+const CACHE = "tutor-shell-v15";
 const SHELL = ["./", "./index.html", "./cabinet.html", "./design.css", "./theme.js", "./notify-core.js", "./tab-order.js", "./manifest.json",
   // кабинет учителя: файлы teacher/*.js — в том же порядке, что и в index.html
   "./teacher/core.js", "./teacher/auth.js", "./teacher/helpers.js", "./teacher/data.js", "./teacher/lessons.js", "./teacher/summary.js", "./teacher/analytics.js", "./teacher/packages.js", "./teacher/students.js", "./teacher/schedule.js", "./teacher/access.js", "./teacher/requests.js", "./teacher/calendar.js", "./teacher/lesson-ops.js", "./teacher/groups.js", "./teacher/lesson-modal.js", "./teacher/files.js", "./teacher/notify.js", "./teacher/settings.js", "./teacher/backup.js", "./teacher/main.js",
@@ -89,16 +89,30 @@ self.addEventListener("push", (e) => {
 });
 
 // Нажатие на уведомление — открыть (или показать уже открытый) кабинет.
+// Ссылка с привязкой к занятию: index.html?lesson=<id> (учитель) или
+// cabinet.html?lesson=<id>#p=<ключ> (семья). Уже открытую вкладку ищем по
+// адресу без ?lesson=…: у кабинета семьи — вместе с фрагментом (#p=/#s= —
+// ключ: на одном устройстве могут быть открыты кабинеты и родителя, и
+// ученика — открываем именно свой, чужой не трогаем), у учителя — без него.
+// Нашли — показываем её и сообщаем, какое занятие открыть (postMessage:
+// страница откроет карточку без перезагрузки); нет — новое окно по ссылке.
+function tabKey(href) {
+  const u = new URL(href);
+  u.search = "";
+  if (u.pathname.endsWith("/")) u.pathname += "index.html";
+  if (!/cabinet\.html$/.test(u.pathname)) u.hash = "";
+  return u.href;
+}
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
   const url = new URL((e.notification.data && e.notification.data.url) || "./cabinet.html", self.registration.scope).href;
+  const lessonId = new URL(url).searchParams.get("lesson");
   e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
-    // Ключ кабинета — во фрагменте (#p=… / #s=…), поэтому сравниваем адрес
-    // целиком: на одном устройстве могут быть открыты кабинеты и родителя, и
-    // ученика — уведомление должно открыть именно свой. Нет такого окна —
-    // открываем новое (чужой открытый кабинет не трогаем).
-    const same = list.find((c) => c.url === url);
-    if (same && "focus" in same) return same.focus();
+    const same = list.find((c) => tabKey(c.url) === tabKey(url));
+    if (same && "focus" in same) {
+      if (lessonId && "postMessage" in same) same.postMessage({ type: "open-lesson", lessonId });
+      return same.focus();
+    }
     return self.clients.openWindow(url);
   }));
 });

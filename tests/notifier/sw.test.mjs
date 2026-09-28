@@ -9,7 +9,7 @@ const SCOPE = "https://example.org/tutor/";
 function loadSw(windows) {
   const listeners = {};
   const calls = [];
-  const clients = windows.map((url) => ({ url, focus: async () => { calls.push(["focus", url]); } }));
+  const clients = windows.map((url) => ({ url, focus: async () => { calls.push(["focus", url]); }, postMessage: (m) => { calls.push(["post", url, JSON.parse(JSON.stringify(m))]); } }));
   const self = {
     addEventListener: (t, fn) => { listeners[t] = fn; },
     registration: { scope: SCOPE, showNotification: async () => {} },
@@ -59,4 +59,34 @@ test("свои страницы и стили — свежие с сайта (ca
   await run(`${SCOPE}index.html`, "navigate");
   await run(`${SCOPE}design.css`);
   assert.deepEqual(fetched.map((f) => f.cache), ["no-cache", "no-cache"]);
+});
+
+// Пуш с привязкой к занятию: ?lesson=<id>. Уже открытую вкладку ищем по
+// адресу без ?lesson= (у учителя — и без #…), ей — сообщение «открой занятие».
+const T0 = `${SCOPE}index.html`;
+test("учитель: кабинет открыт (в т. ч. по адресу без index.html) — фокус и сообщение, без новой вкладки", async () => {
+  for (const open of [T0, SCOPE, `${T0}#t=legacy_key_0000000000000000000000`]) {
+    const sw = loadSw([P, open]);
+    await sw.click(`${T0}?lesson=l_abc`);
+    assert.deepEqual(sw.calls, [["post", open, { type: "open-lesson", lessonId: "l_abc" }], ["focus", open]], open);
+  }
+});
+test("учитель: кабинет не открыт — новое окно по ссылке с занятием", async () => {
+  const sw = loadSw([P]);
+  await sw.click(`${T0}?lesson=l_abc`);
+  assert.deepEqual(sw.calls, [["open", `${T0}?lesson=l_abc`]]);
+});
+test("семья: свой кабинет открыт — фокус и сообщение; открыт только чужой — новое окно", async () => {
+  const url = `${SCOPE}cabinet.html?lesson=l_abc#p=parent_key_000000000000000000001`;
+  let sw = loadSw([S, P]);
+  await sw.click(url);
+  assert.deepEqual(sw.calls, [["post", P, { type: "open-lesson", lessonId: "l_abc" }], ["focus", P]]);
+  sw = loadSw([S]);
+  await sw.click(url);
+  assert.deepEqual(sw.calls, [["open", url]]);
+});
+test("уведомление без занятия («разово»/«сейчас») — только фокус, без сообщения", async () => {
+  const sw = loadSw([P]);
+  await sw.click(P);
+  assert.deepEqual(sw.calls, [["focus", P]]);
 });

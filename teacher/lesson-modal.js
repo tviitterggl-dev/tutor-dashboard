@@ -261,9 +261,68 @@ async function openLessonModal(id) {
     return;
   }
   if (!l) { alert("Занятие не найдено — возможно, его удалили на другом устройстве."); afterLessonsChanged(); return; }
+  showLessonModal(l);
+}
+function showLessonModal(l) {
   if (isPersonal(l)) { openPersonalModal(null, null, l); return; }
   if (isGroupCopy(l)) { openGroupModal(l); return; }
   renderLessonModal(l);
+}
+
+// ---- занятие из пуш-уведомления ----
+// Пуш учителю (оплата, пояснение, ДЗ) ведёт на index.html?lesson=<id>.
+// Кабинет закрыт — открывается по этой ссылке; уже открыт — sw.js не
+// открывает новую вкладку, а шлёт ей { type: "open-lesson", lessonId }.
+// Окно показываем, только когда кабинет загружен (lessonLinkReady из
+// afterAuth). Занятия нет (удалено) — просто кабинет, без сообщений;
+// перенесено — открываем новое время.
+let linkLessonReady = false;
+let linkLessonPending = (() => {
+  const u = new URL(location.href);
+  const id = u.searchParams.get("lesson");
+  if (!id) return null;
+  u.searchParams.delete("lesson"); // обновление страницы не должно открывать окно снова
+  try { history.replaceState(null, "", u.pathname + u.search + u.hash); } catch (e) { /* не страшно */ }
+  return id;
+})();
+function lessonLinkReady() {
+  linkLessonReady = true;
+  const id = linkLessonPending;
+  linkLessonPending = null;
+  if (id) openLessonFromLink(id);
+}
+// в открытом окне что-то набрано и не сохранено?
+function modalDirty() {
+  if (!modalOpen()) return false;
+  return [...$("modal").querySelectorAll("input, textarea, select")].some(el =>
+    el.type === "checkbox" || el.type === "radio" ? el.checked !== el.defaultChecked
+      : el.tagName === "SELECT" ? [...el.options].some(o => o.selected !== o.defaultSelected)
+        : el.type !== "file" && el.value !== el.defaultValue);
+}
+async function openLessonFromLink(id) {
+  if (typeof id !== "string" || !id || id.length > 200) return;
+  if (!linkLessonReady) { linkLessonPending = id; return; }
+  let l = null;
+  try {
+    l = await window.TutorFB.getLesson(id);
+    // перенесённое — к новому времени (цепочка переносов короткая)
+    for (let i = 0; i < 5 && l && l.status === "rescheduled" && l.rescheduledTo; i++) {
+      const next = await window.TutorFB.getLesson(l.rescheduledTo);
+      if (!next) break;
+      l = next;
+    }
+  } catch (e) {
+    return; // нет сети — остаётся открытый кабинет
+  }
+  if (!l) return;
+  if (modalDirty() && !confirm("Открыть занятие из уведомления? Несохранённое в открытом окне пропадёт.")) return;
+  showLessonModal(l);
+}
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.addEventListener("message", (e) => {
+    if (e.data && e.data.type === "open-lesson") openLessonFromLink(e.data.lessonId);
+  });
+  try { navigator.serviceWorker.startMessages(); } catch (e) { /* старый браузер — сообщения и так идут */ }
 }
 
 function renderLessonModal(l, note) {

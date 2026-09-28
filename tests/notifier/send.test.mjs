@@ -66,9 +66,13 @@ test("рассылка: напоминание за 90 минут и «сейч�
   assert.equal(rem[0].data.title, "Напоминание о занятии");
   assert.equal(rem[0].data.body, "В 11:30 занятие (Маша Иванова, 7 класс)");
   const momMsg = rem.find((m) => m.token.startsWith("tok-mom"));
-  assert.equal(momMsg.data.url, `${SITE}cabinet.html#p=parent_key_masha_0000000000000001`);
-  // «сейчас» — только родителям
+  // привязка к занятию — ?lesson=: по нажатию кабинет сразу открывает его карточку
+  assert.equal(momMsg.data.url, `${SITE}cabinet.html?lesson=m1#p=parent_key_masha_0000000000000001`);
+  const kidMsg = rem.find((m) => m.token.startsWith("tok-kid"));
+  assert.equal(kidMsg.data.url, `${SITE}cabinet.html?lesson=m1#s=student_key_masha_000000000000002`);
+  // «сейчас» — только родителям; занятия нет — ссылка просто в кабинет
   assert.deepEqual(byTag("now1__once").map((m) => m.token.slice(0, 7)), ["tok-mom"]);
+  assert.equal(byTag("now1__once")[0].data.url, `${SITE}cabinet.html#p=parent_key_masha_0000000000000001`);
   assert.equal(byTag("off__once").length, 0);
   assert.equal(byTag("r90__m2").length, 0, "до второго занятия ещё 5 дней");
   assert.equal(sent.length, 3);
@@ -144,7 +148,12 @@ test("пуши учителю: оплата/пояснение/ДЗ от род�
     "Оплата | Маша Иванова, 7 класс: родитель отметил «Оплачено» за занятие 26 сентября",
     "Пояснение к занятию | Маша Иванова, 7 класс: ученик написал пояснение к занятию 25 сентября",
   ]);
-  assert.ok(mine.every((m) => m.data.url === `${SITE}index.html`));
+  // каждая — на карточку своего занятия (?lesson=<id>)
+  const urlOf = (body) => mine.find((m) => m.data.body.includes(body)).data.url;
+  assert.equal(urlOf("пояснение"), `${SITE}index.html?lesson=n1`);
+  assert.equal(urlOf("файла ДЗ"), `${SITE}index.html?lesson=h1`);
+  assert.equal(urlOf("26 сентября"), `${SITE}index.html?lesson=m1`);
+  assert.equal(urlOf("«Оплачено» за занятие 25 сентября"), `${SITE}index.html?lesson=p1`);
   // второй запуск — ничего нового
   const again = [];
   await runOnce({ db, send: fakeSend(again), now: NOW + 15 * M, siteUrl: SITE, logger: quiet });

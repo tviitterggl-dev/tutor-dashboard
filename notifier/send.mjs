@@ -37,7 +37,12 @@ function studentLabelFn(profiles) {
     return `${m[1]}${surname}, ${m[2]} класс`;
   };
 }
-const cabinetUrl = (siteUrl, key) => `${siteUrl.replace(/\/?$/, "/")}cabinet.html#${key.role === "parent" ? "p" : "s"}=${key.id}`;
+// Ссылки пушей. С привязкой к занятию — ?lesson=<id>: по нажатию страница
+// сразу открывает карточку этого занятия (ключ кабинета — во фрагменте, как
+// раньше). Как sw.js находит уже открытую вкладку — см. notificationclick.
+const lessonQuery = (lessonId) => (lessonId ? `?lesson=${encodeURIComponent(lessonId)}` : "");
+const cabinetUrl = (siteUrl, key, lessonId) => `${siteUrl.replace(/\/?$/, "/")}cabinet.html${lessonQuery(lessonId)}#${key.role === "parent" ? "p" : "s"}=${key.id}`;
+const teacherUrl = (siteUrl, lessonId) => `${siteUrl.replace(/\/?$/, "/")}index.html${lessonQuery(lessonId)}`;
 
 // Живые уведомления без чтения всей истории: «разово»/«перед занятием» и
 // «сейчас»/отчёты за последние NOW_TTL (старше — уже не показываются и не шлются).
@@ -113,7 +118,7 @@ async function teacherPushes({ db, tRef, stateRef, state, readChannel, send, now
     for (const id of p.logIds.slice(1)) await tRef.collection("notifLog").doc(id).set({ ruleId: "teacher:" + p.kind, lessonId: p.lessonId, sentAt: now, status: "done", groupedWith: p.logIds[0] });
     const messages = devices.map(([, d]) => ({
       token: d.token,
-      data: { title: p.title, body: p.body, url: `${siteUrl.replace(/\/?$/, "/")}index.html`, tag: p.tag },
+      data: { title: p.title, body: p.body, url: teacherUrl(siteUrl, p.lessonId), tag: p.tag },
       webpush: { headers: { Urgency: "normal", TTL: String(DAY / 1000) } },
     }));
     let results;
@@ -197,7 +202,7 @@ export async function runOnce({ db, send, now = Date.now(), siteUrl, logger = co
         const byToken = new Map(keys.map((k) => [k.id, k]));
         const messages = p.to.map((t) => ({
           token: t.token,
-          data: { title: p.title, body: p.body, url: cabinetUrl(siteUrl, byToken.get(t.key)), tag: p.logId },
+          data: { title: p.title, body: p.body, url: cabinetUrl(siteUrl, byToken.get(t.key), p.lessonId), tag: p.logId },
           webpush: { headers: { Urgency: "high", TTL: String(p.lessonId ? 6 * 3600 : 3 * DAY / 1000) } },
         }));
         let results = [];
