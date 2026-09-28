@@ -1090,7 +1090,7 @@
       <div class="card">
         <div class="chart-title">Новые заявки</div>
         <div id="requestsList"><div class="empty">Загрузка…</div></div>
-        <div class="hint">Родители и ученики не меняют расписание сами — они присылают заявку. «Подтвердить» переносит или отменяет занятие, «Отклонить» оставляет как было; решение сразу видно в их кабинете.</div>
+        <div class="hint">Родители и ученики не меняют расписание сами — они присылают заявку. «Подтвердить» переносит или отменяет занятие, а для заявки на новое занятие — добавляет его в расписание (цена — по ставке или пакету ученика); занятое тем временем время подтвердить нельзя. «Отклонить» оставляет как было; решение сразу видно в их кабинете.</div>
       </div>
       <div class="card">
         <div class="chart-title">Решённые за 60 дней</div>
@@ -4158,7 +4158,10 @@
   const channelItems = {};   // ключ канала → сообщения
   const channelWatchers = {}; // ключ канала → функция отписки
   const channelBusy = {};
-  const REQUEST_TYPES = ["reschedule", "cancel"];
+  // book — семья просит ДОПОЛНИТЕЛЬНОЕ занятие: занятия ещё нет, lessonId в
+  // заявке — только метка кабинета (как id документа НЕ используется: иначе
+  // подменой id можно было бы задеть чужое занятие).
+  const REQUEST_TYPES = ["reschedule", "cancel", "book"];
 
   const activeKeysOf = (studentId) => (accessKeysCache || []).filter(k => k.active && k.studentId === studentId);
 
@@ -4253,7 +4256,10 @@
       const meta = channelMeta[ck];
       // подписки на пуш (type push) не относятся к занятиям — их читает фоновая рассылка
       if (meta) await fixLegacyPushItems(ck, meta, channelItems[ck] || []);
-      const items = (channelItems[ck] || []).filter(i => i.type !== "push");
+      // заявки на новое занятие ждут решения; принимаем только из общего канала
+      const books = (channelItems[ck] || []).filter(i => i.type === "book");
+      if (meta && meta.kind !== "shared" && books.length) await window.TutorFB.deleteChannelItems(ck, books.map(i => i.id));
+      const items = (channelItems[ck] || []).filter(i => i.type !== "push" && i.type !== "book");
       if (!meta || !items.length) return;
       const byLesson = {};
       items.forEach(i => { (byLesson[i.lessonId] = byLesson[i.lessonId] || []).push(i); });
@@ -4327,8 +4333,9 @@
     }
   }
 
-  function decisionData(item, meta, lesson, status, reason) {
+  function decisionData(item, meta, lesson, status, reason, newLessonId) {
     return {
+      newLessonId: newLessonId || null,
       type: item.type,
       lessonId: item.lessonId,
       studentId: meta.studentId,
@@ -4351,13 +4358,16 @@
   async function renderRequests() {
     const list = $("requestsList");
     const pend = pendingRequests();
+    const bookWarn = {};
     for (const p of pend) {
+      if (p.item.type === "book") { bookWarn[p.item.id] = await bookProblem(p.item); continue; }
       if (!(p.item.lessonId in lessonCache)) {
         try { lessonCache[p.item.lessonId] = await window.TutorFB.getLesson(p.item.lessonId); } catch (e) { lessonCache[p.item.lessonId] = null; }
       }
     }
     const current = pendingRequests(); // могли измениться, пока грузили
     list.innerHTML = current.length ? current.map(({ ck, item, meta }) => {
+      if (item.type === "book") return bookRequestHtml(ck, item, meta, bookWarn[item.id]);
       const l = lessonCache[item.lessonId];
       const valid = l && meta && l.studentId === meta.studentId;
       const warn = !valid ? "Занятие не найдено — будет отклонено автоматически."
@@ -4382,7 +4392,7 @@
       const hist = (await window.TutorFB.listRequestDecisions(Date.now() - 60 * DAY_MS)).reverse();
       $("requestsHistory").innerHTML = hist.length ? hist.map(d => `
         <div class="session-row">
-          <span class="when">${escHtml(studentLabel(d.studentId))} · ${d.type === "reschedule" ? "перенос" : "отмена"}${d.oldStartMs ? " " + escHtml(fmtWhen(d.oldStartMs)) : ""}${d.type === "reschedule" && d.newStartMs ? " → " + escHtml(fmtWhen(d.newStartMs)) : ""}${d.reason ? ` <span class="cls">(${escHtml(d.reason)})</span>` : ""}</span>
+          <span class="when">${escHtml(studentLabel(d.studentId))} · ${d.type === "reschedule" ? "перенос" : d.type === "book" ? "новое занятие" : "отмена"}${d.oldStartMs ? " " + escHtml(fmtWhen(d.oldStartMs)) : ""}${(d.type === "reschedule" || d.type === "book") && d.newStartMs ? " → " + escHtml(fmtWhen(d.newStartMs)) : ""}${d.reason ? ` <span class="cls">(${escHtml(d.reason)})</span>` : ""}</span>
           <span class="amt">${d.status === "approved" ? "подтверждено" : "отклонено"}</span>
         </div>`).join("") : '<div class="empty">Пока пусто</div>';
     } catch (e) {
@@ -4394,6 +4404,7 @@
     const meta = channelMeta[ck];
     const item = (channelItems[ck] || []).find(i => i.id === itemId);
     if (!meta || !item) return;
+    if (item.type === "book") { await decideBook(ck, item, meta, approve); return; }
     const l = await window.TutorFB.getLesson(item.lessonId);
     const valid = l && l.studentId === meta.studentId;
     let reason = "";
@@ -4420,6 +4431,51 @@
     await publishViews(activeKeysOf(meta.studentId));
     await window.TutorFB.deleteChannelItems(ck, [item.id]);
     delete lessonCache[item.lessonId];
+    afterLessonsChanged();
+  }
+
+  // ---- заявка на дополнительное занятие ----
+  // Что мешает подтвердить: время прошло или уже занято (занятия, личное время).
+  async function bookProblem(item) {
+    if (!(item.newStartMs > Date.now())) return "Это время уже прошло — подтвердить нельзя.";
+    const probe = [{ data: { startMs: item.newStartMs, endMs: item.newEndMs } }];
+    const conflicts = await findConflicts(probe);
+    return conflicts.length ? `Это время уже занято: ${conflicts.map(x => isPersonal(x) ? "личное время" : displayTitle(x.title)).join(", ")}.` : "";
+  }
+  function bookRequestHtml(ck, item, meta, warn) {
+    const min = Math.round((item.newEndMs - item.newStartMs) / 60000);
+    return `<div class="req" data-ck="${escHtml(ck)}" data-id="${escHtml(item.id)}">
+        <div class="who">${escHtml(meta ? studentLabel(meta.studentId) : "?")} <span class="cls">· ${ROLE_RU[item.by] || escHtml(item.by)} · ${escHtml(new Date(item.createdAt).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }))}</span></div>
+        <div class="what">Новое занятие: <b>${escHtml(fmtWhen(item.newStartMs, item.newEndMs))}</b> (${min} мин)</div>
+        ${item.comment ? `<div class="comment">«${escHtml(item.comment)}»</div>` : ""}
+        ${warn ? `<div class="warn">${escHtml(warn)}</div>` : ""}
+        <div class="btn-row">
+          <button class="btn" type="button" data-req="approve" ${warn ? "disabled" : ""}>Подтвердить</button>
+          <button class="btn secondary" type="button" data-req="reject">Отклонить</button>
+        </div>
+      </div>`;
+  }
+  async function decideBook(ck, item, meta, approve) {
+    let reason = "", newLessonId = null;
+    if (approve) {
+      // перепроверка прямо перед созданием: время могли занять, пока заявка висела
+      const problem = await bookProblem(item);
+      if (problem) { alert(problem + "\nЗаявку можно отклонить — семья увидит причину."); return; }
+      const durMin = Math.round((item.newEndMs - item.newStartMs) / 60000);
+      if (!confirm(`Добавить занятие: ${studentLabel(meta.studentId)}, ${fmtWhen(item.newStartMs, item.newEndMs)}?`)) return;
+      // то же, что «+ Занятие»: название и studentId ученика этого канала, свой id
+      const [it] = buildSeries({ base: titleOfStudent(meta.studentId), startMs: item.newStartMs, durMin, count: 1 });
+      it.data.requestId = item.id;
+      await window.TutorFB.saveLessons([it]);
+      newLessonId = it.id;
+    } else {
+      const r = prompt("Причина отказа (увидит родитель/ученик, можно оставить пустым):", "");
+      if (r === null) return;
+      reason = r.trim().slice(0, 300);
+    }
+    await window.TutorFB.saveRequestDecision(item.id, decisionData(item, meta, null, approve ? "approved" : "rejected", reason, newLessonId));
+    await publishViews(activeKeysOf(meta.studentId));
+    await window.TutorFB.deleteChannelItems(ck, [item.id]);
     afterLessonsChanged();
   }
 

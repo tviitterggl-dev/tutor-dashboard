@@ -131,3 +131,124 @@ test("кабинет: пустое место в календаре → та ж�
   assert.deepEqual(cab.errors, []);
   await app.close();
 });
+
+// ---------- кабинет учителя ----------
+// заявка «с другого устройства»: пишем сообщение прямо в канал (как кабинет)
+async function putBook(app, ch, id, fields) {
+  await app.page.evaluate(({ ch, id, data }) => {
+    const db = JSON.parse(localStorage.__fakeDb);
+    db[`channels/${ch}/items/${id}`] = data;
+    localStorage.__fakeDb = JSON.stringify(db);
+  }, { ch, id, data: Object.assign({ type: "book", lessonId: "new_" + id, by: "parent", createdAt: Date.parse(NOW) }, fields) });
+}
+async function toRequests(page) {
+  await page.click('.tab[data-tab="requests"]');
+  await page.waitForSelector("#requestsList .req");
+}
+
+test("учитель: заявка на новое занятие — видна, подтверждение создаёт занятие ученика (цена по пакету), семья видит ответ", async () => {
+  const app = await openFamily({ editSeed: (seed) => { seed[statePath].pkgOverrides["Тест, 7 класс"].price = { mode: "total", value: 12000 }; } });
+  const { page } = app;
+  const ch = (await app.db())[`parentAccess/${PK}`].channel;
+  await putBook(app, ch, "bk1", { newStartMs: at("2026-09-29T12:00:00"), newEndMs: at("2026-09-29T13:30:00"), comment: "Контрольная в пятницу" });
+  await page.waitForFunction(() => document.querySelector("#reqBadge").textContent === "1");
+  await toRequests(page);
+  const card = await page.textContent("#requestsList .req");
+  assert.match(card, /Тест, 7 класс/);
+  assert.match(card, /Новое занятие: Вт?\S* ?29\.09[\s\S]*12:00–13:30[\s\S]*90 мин/i);
+  assert.match(card, /Контрольная в пятницу/);
+  assert.doesNotMatch(card, /не найдено/, "занятия нет — это нормально для новой заявки");
+  await page.waitForTimeout(600); // канал разобран — заявку никто не удалил
+  assert.ok((await app.db())[`channels/${ch}/items/bk1`], "заявка ждёт решения");
+  await page.click('#requestsList [data-req="approve"]');
+  await page.waitForFunction(() => /Новых заявок нет/.test(document.querySelector("#requestsList").textContent));
+  const db = await app.db();
+  const created = Object.entries(db).filter(([p, d]) => p.startsWith(`teacherSpaces/${T}/lessons/`) && d.startMs === at("2026-09-29T12:00:00"));
+  assert.equal(created.length, 1);
+  const [path, l] = created[0];
+  assert.deepEqual([l.title, l.studentId, l.status, l.endMs, l.durationMin], ["Тест 7 класс", "Тест, 7 класс", "planned", at("2026-09-29T13:30:00"), 90]);
+  assert.notEqual(path.split("/").pop(), "new_bk1", "id занятия — свой, не из заявки");
+  assert.equal(db[`channels/${ch}/items/bk1`], undefined, "заявка убрана из канала");
+  const dec = db[`teacherSpaces/${T}/requests/bk1`];
+  assert.deepEqual([dec.type, dec.status, dec.newLessonId], ["book", "approved", path.split("/").pop()]);
+  assert.match(await page.textContent("#requestsHistory"), /новое занятие[\s\S]*29\.09[\s\S]*подтверждено/i);
+  // цена занятия — по пакету ученика (12 000 за 8 = 1 500)
+  await page.click('.tab[data-tab="calendar"]');
+  await page.waitForSelector("#fcRoot .fc-event");
+  await page.click(".fc-next-button");
+  await page.locator("#fcRoot .fc-event", { hasText: "12:00" }).first().click();
+  await page.waitForSelector("#mAmount");
+  assert.equal(await page.getAttribute("#mAmount", "placeholder"), "1500");
+  await page.click("#mClose");
+  // семья: ответ и новое занятие
+  const cab = await openCabinet(app, `#p=${PK}`, null, false);
+  await cab.waitForFunction(() => [...document.querySelectorAll("#pane-lessons .lesson")].some((c) => /29 сентября, 12:00–13:30/.test(c.textContent)));
+  await cab.click('.ctab[data-ctab="requests"]');
+  assert.match(await cab.textContent("#pane-requests"), /Новое занятие[\s\S]*подтверждено/);
+  assert.deepEqual(app.errors, []);
+  await app.close();
+});
+
+test("учитель: отказ — занятие не создаётся, семья видит причину", async () => {
+  const app = await openFamily({ answer: "На этой неделе всё занято" });
+  const { page } = app;
+  const ch = (await app.db())[`parentAccess/${PK}`].channel;
+  const before = Object.keys(await app.db()).filter((p) => p.includes("/lessons/")).length;
+  await putBook(app, ch, "bk2", { by: "student", newStartMs: at("2026-09-30T14:00:00"), newEndMs: at("2026-09-30T15:00:00") });
+  await toRequests(page);
+  await page.click('#requestsList [data-req="reject"]');
+  await page.waitForFunction(() => /Новых заявок нет/.test(document.querySelector("#requestsList").textContent));
+  const db = await app.db();
+  assert.equal(Object.keys(db).filter((p) => p.includes("/lessons/")).length, before, "занятий не прибавилось");
+  const dec = db[`teacherSpaces/${T}/requests/bk2`];
+  assert.deepEqual([dec.status, dec.reason], ["rejected", "На этой неделе всё занято"]);
+  const cab = await openCabinet(app, `#s=${SK}`, null, false);
+  await cab.click('.ctab[data-ctab="requests"]');
+  await cab.waitForFunction(() => /отклонено[\s\S]*На этой неделе всё занято/.test(document.querySelector("#pane-requests").textContent));
+  await app.close();
+});
+
+test("учитель: время заняли, пока заявка висела — подтвердить нельзя (предупреждение, ничего не создаётся)", async () => {
+  const dialogs = [];
+  const app = await openFamily({ onDialog: (d) => { dialogs.push(d.message()); return true; } });
+  const { page } = app;
+  const ch = (await app.db())[`parentAccess/${PK}`].channel;
+  await putBook(app, ch, "bk3", { newStartMs: at("2026-09-30T14:00:00"), newEndMs: at("2026-09-30T15:00:00") });
+  await toRequests(page);
+  // тем временем в это время поставили занятие Анне
+  await page.evaluate(({ path, data }) => { const db = JSON.parse(localStorage.__fakeDb); db[path] = data; localStorage.__fakeDb = JSON.stringify(db); },
+    { path: L("race1"), data: { title: "Анна 6 класс", studentId: "Анна, 6 класс", startMs: at("2026-09-30T14:30:00"), endMs: at("2026-09-30T15:30:00"), start: "2026-09-30T14:30:00+03:00", end: "2026-09-30T15:30:00+03:00", status: "planned", source: "app", updatedAt: 1 } });
+  await page.waitForTimeout(500); // живая подписка получила новое занятие
+  await page.click('#requestsList [data-req="approve"]');
+  await waitFor(async () => dialogs.some((m) => /уже занято[\s\S]*Анна/.test(m)), "предупреждение");
+  const db = await app.db();
+  assert.equal(Object.values(db).filter((d) => d && d.startMs === at("2026-09-30T14:00:00")).length, 0, "занятие не создано");
+  assert.ok(db[`channels/${ch}/items/bk3`], "заявка по-прежнему ждёт решения (можно отклонить)");
+  assert.equal(db[`teacherSpaces/${T}/requests/bk3`], undefined);
+  await page.waitForFunction(() => /уже занято/.test(document.querySelector("#requestsList .req .warn")?.textContent || ""));
+  assert.equal(await page.isDisabled('#requestsList [data-req="approve"]'), true);
+  await app.close();
+});
+
+test("учитель: lessonId заявки — только метка: подделка с id чужого занятия ничего чужого не трогает", async () => {
+  const app = await openFamily();
+  const { page } = app;
+  const ch = (await app.db())[`parentAccess/${PK}`].channel;
+  const anna5 = (await app.db())[L("anna5")];
+  await putBook(app, ch, "bk4", { lessonId: "anna5", newStartMs: at("2026-10-01T12:00:00"), newEndMs: at("2026-10-01T13:00:00") });
+  await toRequests(page);
+  await page.click('#requestsList [data-req="approve"]');
+  await page.waitForFunction(() => /Новых заявок нет/.test(document.querySelector("#requestsList").textContent));
+  const db = await app.db();
+  assert.deepEqual(db[L("anna5")], anna5, "занятие Анны не тронуто");
+  const created = Object.entries(db).filter(([p, d]) => p.includes("/lessons/") && d.startMs === at("2026-10-01T12:00:00"));
+  assert.equal(created.length, 1);
+  assert.equal(created[0][1].studentId, "Тест, 7 класс", "занятие — ученика этого канала");
+  assert.notEqual(created[0][0].split("/").pop(), "anna5");
+  // заявки принимаются только из общего канала — из родительского отбрасываются
+  const pch = db[`parentAccess/${PK}`].parentChannel;
+  await putBook(app, pch, "bk5", { newStartMs: at("2026-10-02T12:00:00"), newEndMs: at("2026-10-02T13:00:00") });
+  await waitFor(async () => !(await app.db())[`channels/${pch}/items/bk5`], "отброшено");
+  assert.equal(await page.textContent("#reqBadge"), "0");
+  await app.close();
+});
