@@ -54,9 +54,13 @@ async function uploadHwTo(lessonId, files) {
   return uploaded.length;
 }
 // Следующее запланированное занятие этого же ученика (по studentId — с фамилией).
+// Ищем в ближайшие полгода после этого занятия: список берётся из живой
+// подписки на занятия (listLessons) — без чтений. Раньше здесь читались ВСЕ
+// занятия ученика за всё время — на каждое открытие окна (сотни чтений).
+const NEXT_HW_DAYS = 180;
 async function nextLessonOf(l) {
-  const own = await window.TutorFB.listLessonsOfStudent(l.studentId);
-  return own.filter(x => x.id !== l.id && x.status === "planned" && !isPersonal(x) && x.startMs > l.startMs)
+  const list = await window.TutorFB.listLessons(l.startMs + 1, l.startMs + NEXT_HW_DAYS * DAY_MS);
+  return list.filter(x => x.id !== l.id && x.studentId === l.studentId && x.status === "planned" && !isPersonal(x))
     .sort((a, b) => a.startMs - b.startMs)[0] || null;
 }
 async function renderNextHw(l, busy) {

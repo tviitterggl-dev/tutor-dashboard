@@ -187,8 +187,9 @@ async function renderPushStatus() {
   const perStudent = {};
   for (const [sid, ch] of Object.entries(studentChannels())) {
     if (!ch || !ch.shared) continue;
-    let items = [];
-    try { items = await window.TutorFB.listChannel(ch.shared); } catch (e) { /* пусто */ }
+    // каналы учеников и так живые (startChannelWatch) — берём оттуда, без чтений
+    let items = channelItems[ch.shared];
+    if (!items) { try { items = await window.TutorFB.listChannel(ch.shared); } catch (e) { items = []; } }
     const byHash = await NotifyCore.pushKeyMap(keys);
     const tokens = new Set(items.filter(i => i.type === "push" && NotifyCore.pushItemKey(i, byHash)).map(i => i.token));
     if (tokens.size) perStudent[sid] = tokens.size;

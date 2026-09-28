@@ -75,3 +75,35 @@ test("правка занятия → пакеты и витрины обнов�
 assert.ok(reads < 80, `открыть календарь + отчёт — ${reads} чтений`);
   await app.close();
 });
+
+test("окно занятия и вкладка «Уведомления» при большой истории — без чтения всей истории ученика и каналов", async () => {
+  // Раньше блок «ДЗ к следующему занятию» при КАЖДОМ открытии окна читал все
+  // занятия ученика за всё время (listLessonsOfStudent), а статус пушей во
+  // вкладке «Уведомления» заново читал каналы учеников, которые и так живые.
+  const { seed, n } = bigSeed();
+  const app = await openApp({ seed });
+  const { page } = app;
+  await page.waitForSelector("#lessonsList .lesson");
+  await settle(page);
+  await page.evaluate(() => { window.__fakeReads = 0; });
+  for (let i = 0; i < 3; i++) {
+    await page.locator("#lessonsList .lesson").nth(i).click();
+    await page.waitForSelector("#mNextHw");
+    await page.waitForFunction(() => !/Загрузка|Ищу/.test(document.getElementById("mNextHw").textContent));
+    await page.keyboard.press("Escape");
+  }
+  await settle(page, 1500);
+  const modalReads = await page.evaluate(() => window.__fakeReads);
+  assert.ok(modalReads < 15, `три окна занятия — ${modalReads} чтений (история: ${n} занятий)`);
+  // «ДЗ к следующему занятию» по-прежнему находит следующее занятие Бориса
+  await page.locator("#lessonsList .lesson").first().click();
+  await page.waitForFunction(() => /Борис|\d{2}\.\d{2}|сентяб|октяб/.test(document.getElementById("mNextHw").textContent));
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => { window.__fakeReads = 0; });
+  await page.click('.tab[data-tab="notify"]');
+  await settle(page, 2000);
+  const notifyReads = await page.evaluate(() => window.__fakeReads);
+  assert.ok(notifyReads < 15, `вкладка «Уведомления» — ${notifyReads} чтений`);
+  assert.deepEqual(app.errors, []);
+  await app.close();
+});
