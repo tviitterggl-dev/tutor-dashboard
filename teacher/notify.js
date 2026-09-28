@@ -1,5 +1,6 @@
 // Кабинет учителя — вкладка «Уведомления»: конструктор сообщений и
-// напоминаний, список, «Отправить сейчас», публикация в витрины.
+// напоминаний, список правил и журнал, «Отправить сейчас», статус пушей,
+// публикация в витрины.
 
 // ---------- УВЕДОМЛЕНИЯ (конструктор) ----------
 // Логика «кому и когда» — в notify-core.js (общая с кабинетами и фоновой
@@ -137,3 +138,172 @@ async function renderNotifyTab() {
   await ensureStarterTemplates();
   renderTemplates();
 }
+
+async function renderNfList() {
+  const el = $("nfList");
+  let rules, log = [];
+  try {
+    rules = await getNotifications(true);
+  } catch (e) {
+    el.innerHTML = isPermissionDenied(e)
+      ? '<div class="hint" style="margin-top:0">База пока не пускает к уведомлениям — нужно обновить правила (firebase deploy, см. README.md).</div>'
+      : '<div class="empty">Не удалось загрузить</div>';
+    return;
+  }
+  try { log = await window.TutorFB.listNotifLog(); } catch (e) { /* журнала нет */ }
+  const now = Date.now();
+  const fmtAt = (ms) => new Date(ms).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  const list = rules.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  if (!list.length) { el.innerHTML = '<div class="empty">Уведомлений пока нет — создай выше.</div>'; return; }
+  el.innerHTML = list.map(r => {
+    const mine = log.filter(x => x.ruleId === r.id);
+    const devices = mine.reduce((t, x) => t + (x.delivered || 0), 0);
+    const last = mine.reduce((t, x) => Math.max(t, x.sentAt || 0), 0);
+    const pushLine = r.push === false ? "без пуша"
+      : mine.length ? `пуш: ${mine.length} ${NotifyCore.plural(mine.length, ["рассылка", "рассылки", "рассылок"])}, доставлено на ${devices} ${NotifyCore.plural(devices, ["устройство", "устройства", "устройств"])}, последняя ${fmtAt(last)}`
+      : "пуш: ещё не отправлялся";
+    const when = r.mode === "before"
+      ? `Перед занятием — за ${NotifyCore.offsetText(r)}${Array.isArray(r.lessonIds) && r.lessonIds.length ? ` · к ${r.lessonIds.length} ${NotifyCore.plural(r.lessonIds.length, ["занятию", "занятиям", "занятиям"])}` : " · ко всем занятиям"}`
+      : r.mode === "once" ? `Разово — при открытии кабинета ${r.times || 1} ${NotifyCore.plural(r.times || 1, ["раз", "раза", "раз"])}`
+      : `Отправлено сейчас · ${fmtAt(r.createdAt || now)}${now - (r.createdAt || 0) > NotifyCore.NOW_TTL_MS ? " (в кабинете уже не показывается)" : ""}`;
+    const off = r.active === false;
+    return `<div class="nf-item${off ? " off" : ""}" data-nf="${escHtml(r.id)}">
+        <div class="nf-head${r.title ? "" : " dflt"}">${escHtml(r.title || NotifyCore.DEFAULT_TITLE[r.mode === "before" ? "rem" : "msg"])}</div>
+        <div class="nf-text">${escHtml(r.text || "")}</div>
+        <div class="nf-meta">${escHtml(when)} · ${escHtml(targetText(r.target))}${off ? " · <b>выключено</b>" : ""}</div>
+        <div class="nf-meta">${escHtml(pushLine)}</div>
+        <div class="nf-actions">
+          ${r.mode !== "now" ? '<button class="link-btn" type="button" data-nf-edit>Изменить</button>' : ""}
+          ${r.mode !== "now" ? `<button class="link-btn" type="button" data-nf-toggle>${off ? "Включить" : "Выключить"}</button>` : ""}
+          <button class="link-btn" type="button" data-nf-delete>Удалить</button>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+async function renderPushStatus() {
+  const el = $("nfPushStatus");
+  const keys = (accessKeysCache || []).filter(k => k.active);
+  const perStudent = {};
+  for (const [sid, ch] of Object.entries(studentChannels())) {
+    if (!ch || !ch.shared) continue;
+    let items = [];
+    try { items = await window.TutorFB.listChannel(ch.shared); } catch (e) { /* пусто */ }
+    const byHash = await NotifyCore.pushKeyMap(keys);
+    const tokens = new Set(items.filter(i => i.type === "push" && NotifyCore.pushItemKey(i, byHash)).map(i => i.token));
+    if (tokens.size) perStudent[sid] = tokens.size;
+  }
+  const run = remoteState.notifier && remoteState.notifier.lastRunAt;
+  const runLine = run
+    ? `Фоновая рассылка работает: последний запуск ${new Date(run).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}.`
+    : "Фоновая рассылка ещё ни разу не запускалась — пуши не уходят, пока её не настроить (README.md → «Уведомления»). Сообщения в кабинетах работают и без неё.";
+  const rows = Object.entries(perStudent).sort((a, b) => studentLabel(a[0]).localeCompare(studentLabel(b[0]), "ru"))
+    .map(([sid, n]) => `<div class="session-row"><span class="when">${escHtml(studentLabel(sid))}</span><span>${n} ${NotifyCore.plural(n, ["устройство", "устройства", "устройств"])}</span></div>`).join("");
+  el.innerHTML = `<div class="hint" style="margin-top:0">${escHtml(runLine)}</div>
+      ${rows ? `<div style="margin-top:8px">${rows}</div>` : '<div class="hint">Пока никто не включил уведомления на телефоне.</div>'}`;
+}
+
+$("nfTo").addEventListener("change", () => renderNfLessons([]));
+// тронули число или единицу — выбираем и сам вариант «Когда»
+document.querySelectorAll("#nfCard .nf-inline").forEach(row => row.addEventListener("focusin", () => {
+  document.querySelector(`input[name="nfMode"][value="${row.dataset.mode}"]`).checked = true;
+  syncHeadPlaceholder();
+}));
+$("nfCancel").addEventListener("click", () => { resetNfForm(); renderNfLessons([]); nfMsg("nfMsg", ""); });
+
+$("nfSave").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  const text = $("nfText").value.trim();
+  const mode = document.querySelector('input[name="nfMode"]:checked').value;
+  const target = readTarget($("nfTo"));
+  if (!text) { nfMsg("nfMsg", "Напиши текст уведомления.", "err"); return; }
+  if (!target) { nfMsg("nfMsg", "Выбери, кому.", "err"); return; }
+  const now = Date.now();
+  const data = { title: headOf("nfHead"), text: text.slice(0, 1000), mode, target, push: $("nfPush").checked, active: true, updatedAt: now };
+  if (mode === "once") {
+    const n = parseInt($("nfTimes").value, 10);
+    if (!(n >= 1 && n <= 50)) { nfMsg("nfMsg", "Сколько раз показать — число от 1 до 50.", "err"); return; }
+    data.times = n;
+  } else {
+    const v = parseFloat(String($("nfOffset").value).replace(",", "."));
+    const unit = $("nfUnit").value;
+    const ms = v * (NotifyCore.UNIT_MS[unit] || 0);
+    if (!(v > 0) || !(ms >= 60000) || ms > 60 * DAY_MS) { nfMsg("nfMsg", "За сколько до занятия — число больше нуля (не больше 60 дней).", "err"); return; }
+    data.offsetValue = v;
+    data.offsetUnit = unit;
+  }
+  data.lessonIds = [];
+  if (target.scope !== "all" && document.querySelector('input[name="nfLessonsMode"]:checked').value === "some") {
+    data.lessonIds = [...$("nfLessons").querySelectorAll("input:checked")].map(i => i.value);
+    if (!data.lessonIds.length) { nfMsg("nfMsg", "Отметь хотя бы одно занятие (или выбери «ко всем занятиям»).", "err"); return; }
+  }
+  // Разовое после правки — это новое сообщение: покажется и отправится заново.
+  const keepId = nfEditing && nfEditing.mode === "before" && mode === "before";
+  const id = keepId ? nfEditing.id : newId("n");
+  data.createdAt = keepId ? (nfEditing.createdAt || now) : now;
+  btn.disabled = true;
+  try {
+    await window.TutorFB.saveNotification(id, data);
+    if (nfEditing && !keepId) await window.TutorFB.deleteNotification(nfEditing.id);
+    notifCache = null;
+    const wasEdit = !!nfEditing;
+    resetNfForm();
+    renderNfLessons([]);
+    nfMsg("nfMsg", wasEdit ? "Изменения сохранены" : "Уведомление сохранено", "ok");
+    renderNfList();
+    await publishViews();
+  } catch (err) {
+    console.error(err);
+    nfMsg("nfMsg", isPermissionDenied(err) ? "База пока не пускает к уведомлениям — нужно обновить правила (firebase deploy)." : "Не сохранилось (нет интернета?)", "err");
+  }
+  btn.disabled = false;
+});
+
+$("nwSend").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  const text = $("nwText").value.trim();
+  const target = readTarget($("nwTo"));
+  if (!text) { nfMsg("nwMsg", "Напиши текст.", "err"); return; }
+  if (!target) { nfMsg("nwMsg", "Выбери, кому.", "err"); return; }
+  const matched = (accessKeysCache || []).filter(k => k.active && NotifyCore.keyMatches(target, k));
+  if (!matched.length) { nfMsg("nwMsg", "У этого адресата нет действующего доступа к кабинету.", "err"); return; }
+  const now = Date.now();
+  btn.disabled = true;
+  nfMsg("nwMsg", "Отправляю…");
+  try {
+    await window.TutorFB.saveNotification(newId("n"), { title: headOf("nwHead"), text: text.slice(0, 1000), mode: "now", times: 1, target, push: $("nwPush").checked, active: true, lessonIds: [], createdAt: now, updatedAt: now });
+    notifCache = null;
+    await publishViews(matched);
+    $("nwText").value = "";
+    $("nwHead").value = "";
+    nfMsg("nwMsg", `Отправлено: ${targetText(target)} (${matched.length} ${NotifyCore.plural(matched.length, ["кабинет", "кабинета", "кабинетов"])}).${$("nwPush").checked ? " Пуш уйдёт с ближайшей фоновой рассылкой." : ""}`, "ok");
+    renderNfList();
+  } catch (err) {
+    console.error(err);
+    nfMsg("nwMsg", isPermissionDenied(err) ? "База пока не пускает к уведомлениям — нужно обновить правила (firebase deploy)." : "Не отправилось (нет интернета?)", "err");
+  }
+  btn.disabled = false;
+});
+
+$("nfList").addEventListener("click", async (e) => {
+  const item = e.target.closest("[data-nf]");
+  if (!item) return;
+  const r = (notifCache || []).find(x => x.id === item.dataset.nf);
+  if (!r) return;
+  try {
+    if (e.target.closest("[data-nf-edit]")) { editNotification(r); return; }
+    if (e.target.closest("[data-nf-toggle]")) {
+      await window.TutorFB.patchNotification(r.id, { active: r.active === false, updatedAt: Date.now() });
+    } else if (e.target.closest("[data-nf-delete]")) {
+      if (!confirm("Удалить уведомление? В кабинетах оно пропадёт, пуши по нему больше не пойдут.")) return;
+      await window.TutorFB.deleteNotification(r.id);
+      if (nfEditing && nfEditing.id === r.id) resetNfForm();
+    } else return;
+    notifCache = null;
+    await renderNfList();
+    await publishViews();
+  } catch (err) {
+    console.error(err);
+    alert("Не получилось (нет интернета?)");
+  }
+});
