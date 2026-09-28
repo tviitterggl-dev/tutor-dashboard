@@ -2,53 +2,6 @@
 // кнопок. Код кабинета разложен по файлам в папке teacher/; они подключаются
 // обычными <script src> по порядку (без сборки) и делят одно общее
 // пространство имён — см. REVIEW.md, «Как устроен код кабинета учителя».
-let activeTab = "lessons"; // см. TEACHER_TABS
-// Вкладки учителя — по умолчанию в этом порядке; свой порядок — state/main.tabOrder.
-const TEACHER_TABS = ["lessons", "calendar", "requests", "notify", "stats", "students", "schedule", "settings"];
-const TAB_ORDER_STORE = "teacherTabOrder"; // копия на устройстве — чтобы порядок был сразу, до загрузки базы
-function currentTabOrder() {
-  let local = null;
-  try { local = JSON.parse(localStorage.getItem(TAB_ORDER_STORE) || "null"); } catch (e) { /* нет */ }
-  return TabOrder.normalize(legacyStats((remoteStateReady && remoteState.tabOrder) || local), TEACHER_TABS);
-}
-// До 27.09 «Итоги» и «Аналитика» были отдельными вкладками. В сохранённом
-// порядке «Статистика» встаёт на место первой из них, вторая убирается.
-function legacyStats(order) {
-  if (!Array.isArray(order) || !order.some(t => t === "summary" || t === "analytics")) return order;
-  const out = [];
-  order.forEach(t => {
-    const id = t === "summary" || t === "analytics" ? "stats" : t;
-    if (!out.includes(id)) out.push(id);
-  });
-  return out;
-}
-function applyTabOrder() {
-  const order = currentTabOrder();
-  TabOrder.apply(document.querySelector(".tabs"), "data-tab", order);
-  try { localStorage.setItem(TAB_ORDER_STORE, JSON.stringify(order)); } catch (e) { /* приватный режим */ }
-  return order;
-}
-
-// Занятия (день/неделя)
-let lessonMode = "day"; // day | week — по умолчанию «День»
-let dayOffset = 0;
-let weekOffset = 0;
-let events = [];
-let marks = {};
-let pollTimer = null;
-
-// Итоги
-let summaryMode = "week"; // week | month | range
-let summaryWeekOffset = 0;
-let summaryMonthOffset = 0;
-let summaryEvents = [];
-let lastStats = null;
-
-// Расписание
-let schedWeekOffset = 0;
-
-const $ = (id) => document.getElementById(id);
-
 // ---------- ВХОД (Firebase Authentication) ----------
 
 function authPanel(which) {
@@ -3162,37 +3115,6 @@ async function rotateChannels(studentId) {
   remoteState.studentChannels = Object.assign({}, studentChannels(), { [studentId]: fresh });
 }
 
-// ---------- МОДАЛЬНОЕ ОКНО ----------
-
-const MODAL_X = '<button type="button" class="modal-x" data-modal-x aria-label="Закрыть" title="Закрыть">×</button>';
-function openModal(html) {
-  pasteTarget = null; // новое окно — вставка из буфера только туда, где есть зона для файлов
-  modalLessonId = null;
-  // × в углу — один раз здесь, для всех окон; в конце разметки, чтобы не менять порядок кнопок
-  $("modal").innerHTML = html + MODAL_X;
-  $("modalBack").style.display = "flex";
-  $("modalBack").scrollTop = 0;
-  document.body.style.overflow = "hidden";
-}
-function closeModal() {
-  pasteTarget = null;
-  modalLessonId = null;
-  $("modalBack").style.display = "none";
-  $("modal").innerHTML = "";
-  document.body.style.overflow = "";
-}
-const modalOpen = () => $("modalBack").style.display !== "none";
-$("modalBack").addEventListener("click", (e) => { if (e.target === $("modalBack")) closeModal(); });
-$("modal").addEventListener("click", (e) => { if (e.target.closest("[data-modal-x]")) closeModal(); });
-document.addEventListener("keydown", (e) => { if (e.key === "Escape" && modalOpen()) closeModal(); });
-const mq = (sel) => $("modal").querySelector(sel);
-function modalMsg(text, kind) {
-  const el = mq("#mMsg");
-  if (!el) return;
-  el.textContent = text || "";
-  el.className = "msg" + (kind ? " " + kind : "");
-}
-
 // ---------- КАЛЕНДАРЬ-РЕДАКТОР (FullCalendar) ----------
 
 const FC_JS = "https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js";
@@ -4201,7 +4123,6 @@ function wireLessonModal(l) {
     modalMsg("Файл события скачан — открой его, чтобы добавить в календарь.", "ok");
   });
 }
-
 
 // ---------- окно группового занятия ----------
 // Сверху — участники: у каждого свои «Провёл», сумма (групповая цена),
@@ -5385,7 +5306,6 @@ document.querySelectorAll('.subtab[data-summode]').forEach(tab => {
 });
 document.querySelector('.subtab[data-summode="week"]').classList.add("active");
 
-
 $("prevBtn").addEventListener("click", () => {
   if (lessonMode === "day") dayOffset--; else weekOffset--;
   loadLessonEvents();
@@ -5410,7 +5330,6 @@ $("copySummaryBtn").addEventListener("click", copySummary);
 $("schedPrevBtn").addEventListener("click", () => { schedWeekOffset--; loadSchedule(); });
 $("schedNextBtn").addEventListener("click", () => { schedWeekOffset++; loadSchedule(); });
 $("schedExportBtn").addEventListener("click", exportScheduleImage);
-
 
 (function initRangeInputs() {
   const today = new Date();
