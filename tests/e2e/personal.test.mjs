@@ -199,6 +199,7 @@ test("смена класса: если такой ученик уже есть 
   const seed = defaultSeed();
   seed[statePath].studentProfiles["Анна, 7 класс"] = { name: "Анна", cls: 7, rate: 1000 };
   const app = await openApp({ seed, onDialog: () => { dialogs++; return dialogs > 1; } });
+  app.expectErrors = /Error: exists/; // тест нарочно ломает это — ошибка в консоли ожидаема
   const { page } = app;
   await page.click('.tab[data-tab="students"]');
   const card = page.locator('.student-card[data-student="Анна, 6 класс"]');

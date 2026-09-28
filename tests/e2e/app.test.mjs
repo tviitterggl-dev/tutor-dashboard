@@ -127,6 +127,7 @@ test("первый вход: проверка пароля, создание у�
 
 test("первый вход без старого ключа на устройстве: вставить старую ссылку → перенос", async () => {
   const app = await openApp({ signedIn: false, users: {}, seed: legacySeed(), rules: "old", nextUid: NEW_UID });
+  app.expectErrors = /Перенос не удался/; // тест нарочно ломает это — ошибка в консоли ожидаема
   const { page } = app;
   await signUp(page);
   await page.waitForSelector("#authMigrate", { state: "visible" });
@@ -148,6 +149,7 @@ test("устаревший ключ на устройстве: просьба в
     signedIn: false, users: {}, seed: legacySeed(), rules: "old", nextUid: NEW_UID,
     localStorage: { teacherKey: "staleKeyWithoutData_000000000000" },
   });
+  app.expectErrors = /Перенос не удался/; // тест нарочно ломает это — ошибка в консоли ожидаема
   const { page } = app;
   await signUp(page);
   await msgIs(page, /устарела/);
@@ -163,6 +165,7 @@ test("если новые правила задеплоены раньше пе�
     signedIn: false, users: {}, seed: legacySeed(), rules: "new", nextUid: NEW_UID,
     localStorage: { teacherKey: OLD_KEY },
   });
+  app.expectErrors = /Перенос не удался/; // тест нарочно ломает это — ошибка в консоли ожидаема
   await signUp(app.page);
   await msgIs(app.page, /закрыты новыми правилами/);
   await app.close();
@@ -233,4 +236,14 @@ test("в репозитории нет настоящих ключей (защи
     const words = fs.readFileSync(path.join(ROOT, f), "utf8").match(/[A-Za-z0-9_-]{32}/g) || [];
     for (const w of words) assert.equal(leakedSha.has(crypto.createHash("sha256").update(w).digest("hex")), false, `${f} содержит засвеченный ключ`);
   }
+});
+
+test("стенд: ошибка JS на любой странице теста роняет тест, даже если он сам app.errors не проверяет", async () => {
+  const app = await openApp();
+  await app.page.waitForSelector("#lessonsList .lesson");
+  const second = await app.context.newPage(); // как кабинет семьи в тестах
+  await second.goto(app.page.url());
+  await second.evaluate(() => setTimeout(() => { throw new Error("сломалось на второй странице"); }, 0));
+  await second.waitForTimeout(200);
+  await assert.rejects(app.close(), /Ошибки на странице: .*сломалось на второй странице/);
 });

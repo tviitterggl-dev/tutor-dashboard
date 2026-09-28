@@ -3,6 +3,8 @@
 // window.__FAKE_DENY = ["/lessons"] — имитирует «правила ещё не обновлены»:
 // любые операции с путём, содержащим подстроку, падают с permission-denied.
 
+import { checkWrite, checkRead } from "./rules-check.js";
+
 const STORE_KEY = "__fakeDb";
 
 function load() {
@@ -102,6 +104,8 @@ function snapshotOf(path, data) {
 function countReads(n) { window.__fakeReads = (window.__fakeReads || 0) + n; }
 export async function getDoc(ref) {
   checkDeny(ref.path);
+  const whyR = checkRead(ref.path);
+  if (whyR) denyWith(whyR);
   countReads(1);
   return snapshotOf(ref.path, noCache() ? undefined : load()[ref.path]);
 }
@@ -133,44 +137,40 @@ function applyUpdate(db, ref, args) {
   }
 }
 
-// Сообщения в каналах проверяем так же, как firestore.rules (validItem):
-// иначе расхождение кода кабинета с правилами тесты бы не заметили.
-function checkItem(path, d) {
-  if (!/^channels\/[^/]+\/items\/[^/]+$/.test(path)) return;
-  const bad = (why) => { const e = new Error("Missing or insufficient permissions. (" + why + ")"); e.code = "permission-denied"; throw e; };
-  const allowed = ["type", "lessonId", "by", "createdAt", "file", "newStartMs", "newEndMs", "comment", "paid", "token", "key"];
-  Object.keys(d).forEach((k) => { if (!allowed.includes(k)) bad("лишнее поле " + k); });
-  if (!["homework", "reschedule", "cancel", "paid", "note", "push", "book"].includes(d.type)) bad("type");
-  if (typeof d.lessonId !== "string" || !d.lessonId || d.lessonId.length > 128) bad("lessonId");
-  if (!["parent", "student", "teacher"].includes(d.by)) bad("by");
-  if (!Number.isInteger(d.createdAt)) bad("createdAt");
-  if ("comment" in d && (typeof d.comment !== "string" || d.comment.length > (d.type === "note" ? 1000 : 500))) bad("comment");
-  if (d.type === "note" && typeof d.comment !== "string") bad("note без comment");
-  if (d.type === "homework" && !(d.file && /^https:\/\/res[.]cloudinary[.]com\//.test(d.file.url))) bad("file");
-  if (d.type === "paid" && typeof d.paid !== "boolean") bad("paid");
-  if ((d.type === "reschedule" || d.type === "book") && !(Number.isInteger(d.newStartMs) && Number.isInteger(d.newEndMs) && d.newEndMs > d.newStartMs)) bad("время");
-  if (d.type === "book" && (!["parent", "student"].includes(d.by) || d.newEndMs - d.newStartMs > 8 * 3600000)) bad("book");
-  if (d.type === "push" && !(typeof d.token === "string" && d.token.length >= 20 && typeof d.key === "string" && d.key.length >= 24 && d.key.length <= 64)) bad("push");
-  if (d.type !== "push" && ("token" in d || "key" in d)) bad("token вне push");
+// Содержимое записи проверяем как firestore.rules (tests/stubs/rules-check.js;
+// паритет с настоящими правилами — tests/rules/parity.test.mjs). Проверяется
+// документ ПОСЛЕ записи (с учётом merge/update), как request.resource.data.
+function denyWith(why) { const e = new Error("Missing or insufficient permissions. (" + why + ")"); e.code = "permission-denied"; throw e; }
+function checkRules(path, next, prev) {
+  if (window.__FAKE_RULES === "old" && path.startsWith("teacherSpaces/")) return; // старые правила (тест переноса)
+  const why = checkWrite(path, next === undefined ? null : clone(next), prev === undefined ? undefined : clone(prev));
+  if (why) denyWith(why);
+}
+// применить запись к копии базы и проверить результат; вернуть новую базу
+function applyChecked(db, ref, fn) {
+  const prev = db[ref.path];
+  const tmp = { [ref.path]: prev === undefined ? undefined : clone(prev) };
+  fn(tmp);
+  checkRules(ref.path, tmp[ref.path] === undefined ? null : tmp[ref.path], prev);
+  if (tmp[ref.path] === undefined) delete db[ref.path]; else db[ref.path] = tmp[ref.path];
 }
 
 export async function setDoc(ref, data, opts) {
   checkDeny(ref.path);
-  checkItem(ref.path, data);
   const db = load();
-  applySet(db, ref, data, opts);
+  applyChecked(db, ref, (d) => applySet(d, ref, data, opts));
   save(db);
 }
 export async function updateDoc(ref, ...args) {
   checkDeny(ref.path);
   const db = load();
-  applyUpdate(db, ref, args);
+  applyChecked(db, ref, (d) => applyUpdate(d, ref, args));
   save(db);
 }
 export async function deleteDoc(ref) {
   checkDeny(ref.path);
   const db = load();
-  delete db[ref.path];
+  applyChecked(db, ref, (d) => { delete d[ref.path]; });
   save(db);
 }
 
@@ -188,6 +188,8 @@ const OPS = {
 
 function queryDocs(q) {
   checkDeny(q.path + "/");
+  const whyR = checkRead(q.path);
+  if (whyR) denyWith(whyR);
   const db = load();
   const prefix = q.path + "/";
   let docs = Object.keys(noCache() ? {} : db)
@@ -250,9 +252,9 @@ function notifyLive() { liveTicks.forEach((t) => t()); }
 export function writeBatch() {
   const ops = [];
   return {
-    set(ref, data, opts) { ops.push((db) => { checkDeny(ref.path); applySet(db, ref, data, opts); }); return this; },
-    update(ref, ...args) { ops.push((db) => { checkDeny(ref.path); applyUpdate(db, ref, args); }); return this; },
-    delete(ref) { ops.push((db) => { checkDeny(ref.path); delete db[ref.path]; }); return this; },
+    set(ref, data, opts) { ops.push((db) => { checkDeny(ref.path); applyChecked(db, ref, (d) => applySet(d, ref, data, opts)); }); return this; },
+    update(ref, ...args) { ops.push((db) => { checkDeny(ref.path); applyChecked(db, ref, (d) => applyUpdate(d, ref, args)); }); return this; },
+    delete(ref) { ops.push((db) => { checkDeny(ref.path); applyChecked(db, ref, (d) => { delete d[ref.path]; }); }); return this; },
     async commit() {
       if (ops.length > 500) throw new Error("batch too large: " + ops.length);
       const db = load();

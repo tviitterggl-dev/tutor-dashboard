@@ -200,6 +200,7 @@ export async function openApp(opts = {}) {
     if (u.hostname === "www.gstatic.com" && u.pathname.endsWith("/firebase-firestore.js")) return file(path.join(STUBS, "firebase-firestore.js"));
     if (u.hostname === "www.gstatic.com" && u.pathname.endsWith("/firebase-auth.js")) return file(path.join(STUBS, "firebase-auth.js"));
     if (u.hostname === "www.gstatic.com" && u.pathname.endsWith("/firebase-messaging.js")) return file(path.join(STUBS, "firebase-messaging.js"));
+    if (u.hostname === "www.gstatic.com" && u.pathname.endsWith("/rules-check.js")) return file(path.join(STUBS, "rules-check.js"));
     if (u.hostname.startsWith("fonts.") && opts.fontDir) {
       // Скачанные заранее шрифты Google (для скриншотов; см. tests/screens.mjs)
       if (u.hostname === "fonts.googleapis.com") {
@@ -227,6 +228,21 @@ export async function openApp(opts = {}) {
 
   const page = opts.persistent ? (context.pages()[0] || await context.newPage()) : await context.newPage();
   const errors = [];
+  // Ошибки JS и console.error на ЛЮБОЙ странице этого теста (кабинет учителя,
+  // открытые из теста кабинеты семьи): close() падает, если они были, — так
+  // тест не пропустит сломанную страницу, даже если сам app.errors не
+  // проверяет. Ожидаемые (тест нарочно ломает сеть и т. п.) — opts.expectErrors
+  // (регулярное выражение).
+  const allErrors = [];
+  const watchErrors = (pg) => {
+    // пустая вкладка (about:blank до перехода) — шум стенда (скрипт-заглушка
+    // трогает localStorage), к приложению отношения не имеет
+    const real = () => /^https?:/.test(pg.url());
+    pg.on("pageerror", (e) => { if (real()) allErrors.push(String(e)); });
+    pg.on("console", (m) => { if (m.type() === "error" && real()) allErrors.push("console: " + m.text()); });
+  };
+  context.pages().forEach(watchErrors);
+  context.on("page", watchErrors);
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => { if (m.type() === "error") errors.push("console: " + m.text()); });
   page.on("dialog", async (d) => {
@@ -237,11 +253,18 @@ export async function openApp(opts = {}) {
   await page.clock.setFixedTime(new Date(NOW));
   await page.goto(url0 + (opts.path || "/index.html") + (opts.hash || ""));
 
-  return {
+  const handle = {
     page, calls, errors, context,
     db: () => page.evaluate(() => JSON.parse(localStorage.getItem("__fakeDb") || "{}")),
-    close: async () => { await context.close(); if (profileDir) fs.rmSync(profileDir, { recursive: true, force: true }); },
+    close: async () => {
+      const expect = handle.expectErrors || opts.expectErrors; // можно задать и после открытия: app.expectErrors = /…/
+      const unexpected = allErrors.filter((e) => !(expect && expect.test(e)));
+      await context.close();
+      if (profileDir) fs.rmSync(profileDir, { recursive: true, force: true });
+      if (unexpected.length) throw new Error("Ошибки на странице: " + unexpected.join(" | ").slice(0, 1500));
+    },
   };
+  return handle;
 }
 
 export async function waitIdle(page) {

@@ -265,6 +265,7 @@ test("отметка «Провёл» из карточки занятия, от
 
 test("ошибка Cloudinary показывается понятным текстом", async () => {
   const app = await openImported({ cloudinaryFail: true });
+  app.expectErrors = /cloudinary|status of 400/; // тест нарочно ломает это — ошибка в консоли ожидаема
   const { page } = app;
   await page.locator("#fcRoot .fc-event", { hasText: "Тест 7 класс 5/8" }).click();
   await page.waitForSelector('#modal [data-drop="mHwFile"]');

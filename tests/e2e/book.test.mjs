@@ -256,6 +256,7 @@ test("учитель: lessonId заявки — только метка: под�
 test("учитель: подтверждение повторяемо — сбой после создания занятия, повтор и второе устройство не создают копий и не блокируют «Подтвердить»", async () => {
   const dialogs = [];
   const app = await openFamily({ onDialog: (d) => { dialogs.push(d.message()); return true; } });
+  app.expectErrors = /Не удалось сохранить в Firestore Error: сеть пропала/; // тест нарочно ломает это — ошибка в консоли ожидаема
   const { page } = app;
   const ch = (await app.db())[`parentAccess/${PK}`].channel;
   await putBook(app, ch, "bk6", { newStartMs: at("2026-10-01T16:00:00"), newEndMs: at("2026-10-01T17:00:00") });
