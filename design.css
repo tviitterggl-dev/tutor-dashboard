@@ -203,3 +203,11 @@ button:not(:disabled):active, .btn:not(:disabled):active, .tab:active, .subtab:a
 .modal > h2:first-child { padding-right: 36px; }
 .modal-x { position: absolute; top: 10px; right: 10px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border: none; border-radius: 50%; background: transparent; color: var(--muted); font-size: 24px; line-height: 1; cursor: pointer; padding: 0; }
 .modal-x:hover { background: var(--surface-2); color: var(--text); }
+
+/* iPhone (Safari) сам увеличивает страницу, когда нажимаешь на поле со шрифтом
+   меньше 16px, и не уменьшает обратно. На сенсорных экранах все поля ввода —
+   16px (на компьютере остаются компактными). !important — поверх размеров,
+   заданных у отдельных полей на страницах. Проверка — e2e/mobile-inputs. */
+@media (hover: none) and (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), select, textarea { font-size: 16px !important; }
+}
