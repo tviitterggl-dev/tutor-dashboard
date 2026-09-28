@@ -38,13 +38,6 @@ let events = [];
 let marks = {};
 let pollTimer = null;
 
-// Итоги
-let summaryMode = "week"; // week | month | range
-let summaryWeekOffset = 0;
-let summaryMonthOffset = 0;
-let summaryEvents = [];
-let lastStats = null;
-
 // Расписание
 let schedWeekOffset = 0;
 
