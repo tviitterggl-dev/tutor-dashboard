@@ -15,7 +15,7 @@
 const CACHE = "tutor-shell-v13";
 const SHELL = ["./", "./index.html", "./cabinet.html", "./design.css", "./theme.js", "./notify-core.js", "./tab-order.js", "./manifest.json",
   // кабинет учителя: файлы teacher/*.js — в том же порядке, что и в index.html
-  "./teacher/core.js", "./teacher/auth.js", "./teacher/helpers.js", "./teacher/data.js", "./teacher/lessons.js", "./teacher/summary.js", "./teacher/analytics.js", "./teacher/packages.js", "./teacher/students.js", "./teacher/schedule.js", "./teacher/access.js", "./teacher/requests.js", "./teacher/calendar.js", "./teacher/lesson-ops.js", "./teacher/groups.js", "./teacher/main.js",
+  "./teacher/core.js", "./teacher/auth.js", "./teacher/helpers.js", "./teacher/data.js", "./teacher/lessons.js", "./teacher/summary.js", "./teacher/analytics.js", "./teacher/packages.js", "./teacher/students.js", "./teacher/schedule.js", "./teacher/access.js", "./teacher/requests.js", "./teacher/calendar.js", "./teacher/lesson-ops.js", "./teacher/groups.js", "./teacher/lesson-modal.js", "./teacher/main.js",
   "./icons/icon-192.png", "./icons/icon-512.png", "./icons/apple-touch-icon.png", "./icons/favicon-32.png"];
 const CDN = [
   "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js",
