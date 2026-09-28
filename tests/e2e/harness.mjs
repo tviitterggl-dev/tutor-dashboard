@@ -54,6 +54,13 @@ async function ensureServer() {
   return baseUrl;
 }
 
+// Свои файлы сайта с кодом: страницы и подключённые ими скрипты (teacher/*.js
+// и общие theme.js и т. п.) — для проверок «чего в коде быть не должно».
+export function siteSources() {
+  const teacher = fs.readdirSync(path.join(ROOT, "teacher")).filter((f) => f.endsWith(".js")).sort().map((f) => "teacher/" + f);
+  return ["index.html", "cabinet.html", "theme.js", "notify-core.js", "tab-order.js", "sw.js", ...teacher];
+}
+
 export async function shutdown() {
   if (browser) await browser.close();
   if (server) await new Promise((r) => server.close(r));

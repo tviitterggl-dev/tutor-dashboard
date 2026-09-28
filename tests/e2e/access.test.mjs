@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { openApp, shutdown, T } from "./harness.mjs";
+import { openApp, shutdown, T, siteSources } from "./harness.mjs";
 
 after(shutdown);
 
@@ -22,7 +22,7 @@ async function waitFor(fn, what, timeout = 8000) {
 }
 
 test("в коде сайта нет ключа учителя (ни старого, ни какого-либо)", () => {
-  for (const f of ["index.html", "cabinet.html"]) {
+  for (const f of siteSources()) {
     const src = fs.readFileSync(path.join(ROOT, f), "utf8");
     assert.equal(/const TEACHER_ID = "/.test(src), false, f);
     const oldKeyMentions = src.split("2Vv0fLQi3MXbEgqpwlmWk5E1KnVRz9-q").length - 1;

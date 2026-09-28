@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as nodeCrypto from "node:crypto";
 const require_crypto = () => nodeCrypto;
-import { openApp, shutdown, T, TEACHER_EMAIL, TEACHER_PASSWORD, defaultSeed } from "./harness.mjs";
+import { openApp, shutdown, T, TEACHER_EMAIL, TEACHER_PASSWORD, defaultSeed, siteSources } from "./harness.mjs";
 
 after(shutdown);
 
@@ -214,7 +214,7 @@ test("отметки пишутся точечно: второе устройс�
 });
 
 test("в коде нет Google-входа, чтения календаря и таблицы", () => {
-  const src = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
+  const src = siteSources().map((f) => fs.readFileSync(path.join(ROOT, f), "utf8")).join("\n");
   for (const bad of ["accounts.google.com", "gsi/client", "oauth2", "googleapis.com/calendar", "sheets.googleapis", "CLIENT_ID", "calendar.readonly", "LESSONS_CALENDAR_ID"]) {
     assert.equal(src.includes(bad), false, bad);
   }
@@ -228,7 +228,7 @@ test("в репозитории нет настоящих ключей (защи
   const leakedSha = new Set([
     "f8b913da226e6f307beb539f9f2b6556c56a6b92704d69ce41d61882e73e7cc5", // sha256 ключа, засвеченного 2026-09-25
   ]);
-  const files = ["index.html", "cabinet.html", "DEVLOG.md", "firestore.rules", "tests/rules/rules.test.mjs", "tests/e2e/harness.mjs", "tests/e2e/app.test.mjs"];
+  const files = [...siteSources(), "DEVLOG.md", "firestore.rules", "tests/rules/rules.test.mjs", "tests/e2e/harness.mjs", "tests/e2e/app.test.mjs"];
   for (const f of files) {
     const words = fs.readFileSync(path.join(ROOT, f), "utf8").match(/[A-Za-z0-9_-]{32}/g) || [];
     for (const w of words) assert.equal(leakedSha.has(crypto.createHash("sha256").update(w).digest("hex")), false, `${f} содержит засвеченный ключ`);
