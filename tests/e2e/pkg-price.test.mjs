@@ -137,3 +137,31 @@ test("пакет со скидкой закончился — следующие
   assert.deepEqual(app.errors, []);
   await app.close();
 });
+
+test("открытые «Исправить» / «Новый пакет» не закрываются фоновым обновлением пакетов", async () => {
+  // Через ~0,8 с после любого сохранения пакеты пересчитываются в фоне
+  // (refreshPackageAlertsSoon). Раньше при этом карточки строились заново —
+  // открытая панель закрывалась, набранное пропадало.
+  const app = await openApp();
+  const { page } = app;
+  await page.waitForSelector("#lessonsList .lesson");
+  await page.click('.tab[data-tab="students"]');
+  await waitCard(page, "Тест, 7 класс", /2 из 8/);
+  await card(page, "Тест, 7 класс").locator(".pkg-edit-btn").click();
+  const ep = card(page, "Тест, 7 класс").locator(".pkg-edit-panel");
+  await ep.locator(".pkg-edit-total").fill("10");
+  await ep.locator(".pkg-price-mode").selectOption("pct");
+  await page.evaluate(() => refreshPackageAlertsSoon());
+  await page.waitForTimeout(1500);
+  assert.equal(await ep.isVisible(), true, "панель «Исправить» осталась открытой");
+  assert.equal(await ep.locator(".pkg-edit-total").inputValue(), "10", "набранное на месте");
+  assert.equal(await ep.locator(".pkg-price-mode").inputValue(), "pct");
+
+  // панели закрыты — фоновое обновление перерисовывает карточки, как раньше
+  await card(page, "Тест, 7 класс").locator(".pkg-edit-btn").click();
+  assert.equal(await ep.isVisible(), false);
+  await page.evaluate(() => { document.querySelector('.pkg-card[data-key="Тест, 7 класс"]').dataset.old = "1"; refreshPackageAlertsSoon(); });
+  await page.waitForFunction(() => { const c = document.querySelector('.pkg-card[data-key="Тест, 7 класс"]'); return c && !c.dataset.old; });
+  assert.deepEqual(app.errors, []);
+  await app.close();
+});

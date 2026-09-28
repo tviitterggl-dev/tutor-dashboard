@@ -1410,7 +1410,10 @@ function refreshPackageAlertsSoon() {
       const pk = buildPackages(evs);
       lastPackagesByKey = Object.fromEntries(pk.map(p => [p.key, p]));
       renderPkgAlert(pk);
-      if (activeTab === "students") { renderPackages(pk); renderStudentsRoster(); }
+      // Открытую «Исправить»/«Новый пакет» не трогаем: перерисовка закрыла бы
+      // её вместе с набранным. Свежие данные уже в lastPackageEvents — их
+      // покажет перерисовка после «Сохранить» / при следующем открытии вкладки.
+      if (activeTab === "students") { if (!pkgPanelOpen()) renderPackages(pk); renderStudentsRoster(); }
       publishViewsSoon();
     } catch (e) { /* не критично */ }
   }, 800);
@@ -1537,6 +1540,8 @@ async function loadPackages() {
     $("packagesList").innerHTML = '<div class="empty">Не удалось загрузить пакеты</div>';
   }
 }
+
+const pkgPanelOpen = () => [...$("packagesList").querySelectorAll(".pkg-edit-panel, .pkg-new-panel")].some(p => p.style.display !== "none");
 
 function rerenderPackages() {
   renderPackages(buildPackages(lastPackageEvents));
