@@ -196,3 +196,10 @@ button:not(:disabled):active, .btn:not(:disabled):active, .tab:active, .subtab:a
 .to-btn { min-width: 44px; min-height: 40px; border: 1px solid var(--border); background: var(--card-bg); color: var(--text); border-radius: 10px; font-size: 16px; cursor: pointer; }
 .to-btn:disabled { opacity: 0.35; cursor: default; }
 .to-row { margin-top: 8px; }
+
+/* × в правом верхнем углу любого окна — просто закрыть (как «Закрыть», фон, Escape).
+   Добавляется в общей обёртке openModal() обеих страниц. */
+.modal { position: relative; }
+.modal > h2:first-child { padding-right: 36px; }
+.modal-x { position: absolute; top: 10px; right: 10px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border: none; border-radius: 50%; background: transparent; color: var(--muted); font-size: 24px; line-height: 1; cursor: pointer; padding: 0; }
+.modal-x:hover { background: var(--surface-2); color: var(--text); }

@@ -1181,9 +1181,11 @@
   }
 
   // ---------- окно занятия ----------
+  const MODAL_X = '<button type="button" class="modal-x" data-modal-x aria-label="Закрыть" title="Закрыть">×</button>';
   function openModal(html) {
     modalPaste = null;
-    $("modal").innerHTML = html;
+    // × в углу — один раз здесь, для всех окон; в конце разметки, чтобы не менять порядок кнопок
+    $("modal").innerHTML = html + MODAL_X;
     $("modalBack").style.display = "flex";
     document.body.style.overflow = "hidden";
   }
@@ -1195,6 +1197,7 @@
     document.body.style.overflow = "";
   }
   $("modalBack").addEventListener("click", (e) => { if (e.target === $("modalBack")) closeModal(); });
+  $("modal").addEventListener("click", (e) => { if (e.target.closest("[data-modal-x]")) closeModal(); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
   const mq = (s) => $("modal").querySelector(s);
   function msg(text, kind) {
