@@ -59,7 +59,7 @@ for (const scheme of ["light", "dark"]) {
   await page.evaluate(() => { const b = document.getElementById("modalBack"); if (b && getComputedStyle(b).display !== "none") document.querySelector("#modalBack .modal-close, #mCancel, #mClose")?.click(); });
   await page.goto(base + "/index.html");
   await page.waitForSelector("#lessonsList .lesson");
-  await page.click('.tab[data-tab="summary"]');
+  await page.click('.tab[data-tab="stats"]');
   await shoot(page, `${scheme}-teacher-4-summary`);
   await page.click('.tab[data-tab="students"]');
   const card = page.locator('.student-card[data-student="Тест, 7 класс"]');
