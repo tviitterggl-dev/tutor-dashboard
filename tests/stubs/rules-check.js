@@ -41,10 +41,16 @@ export function validItem(d) {
   return true;
 }
 
+export function validMaterial(m) {
+  return isMap(m) && onlyKeys(m, ["url", "title"])
+    && isStr(m.url) && m.url.length <= 500 && /^https?:\/\/.+$/.test(m.url)
+    && (!("title" in m) || (isStr(m.title) && m.title.length <= 80));
+}
 export function validView(d) {
   return d.v === 1 && ["parent", "student"].includes(d.role)
     && Array.isArray(d.lessons) && d.lessons.length <= 500
-    && Array.isArray(d.busy) && d.busy.length <= 1500;
+    && Array.isArray(d.busy) && d.busy.length <= 1500
+    && (!("materials" in d) || (Array.isArray(d.materials) && d.materials.length <= 10 && d.materials.every(validMaterial)));
 }
 
 export const CAB_TAB_IDS = ["lessons", "calendar", "hw", "requests", "settings"];

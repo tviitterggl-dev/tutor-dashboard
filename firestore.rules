@@ -63,11 +63,30 @@ service cloud.firestore {
         && (d.type == "push" || !("token" in d || "key" in d));
     }
 
+    // Материалы ученика в витрине: ссылка http(s) и необязательное название.
+    function validMaterial(m) {
+      return m is map && m.keys().hasOnly(["url", "title"])
+        && m.url is string && m.url.size() <= 500 && m.url.matches("^https?://.+")
+        && (!("title" in m) || (m.title is string && m.title.size() <= 80));
+    }
+
     function validView(d) {
       return d.v == 1
         && d.role in ["parent", "student"]
         && d.lessons is list && d.lessons.size() <= 500
-        && d.busy is list && d.busy.size() <= 1500;
+        && d.busy is list && d.busy.size() <= 1500
+        // до 10 материалов; циклов в правилах нет — каждый проверяется по номеру
+        && (!("materials" in d) || (d.materials is list && d.materials.size() <= 10
+              && (d.materials.size() <= 0 || validMaterial(d.materials[0]))
+              && (d.materials.size() <= 1 || validMaterial(d.materials[1]))
+              && (d.materials.size() <= 2 || validMaterial(d.materials[2]))
+              && (d.materials.size() <= 3 || validMaterial(d.materials[3]))
+              && (d.materials.size() <= 4 || validMaterial(d.materials[4]))
+              && (d.materials.size() <= 5 || validMaterial(d.materials[5]))
+              && (d.materials.size() <= 6 || validMaterial(d.materials[6]))
+              && (d.materials.size() <= 7 || validMaterial(d.materials[7]))
+              && (d.materials.size() <= 8 || validMaterial(d.materials[8]))
+              && (d.materials.size() <= 9 || validMaterial(d.materials[9]))));
     }
 
     match /teacherSpaces/{uid}/state/{stateDoc} {

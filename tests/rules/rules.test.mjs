@@ -106,6 +106,23 @@ test("витрина родителя: точечное чтение, валид
   assert.equal(await put(`parentAccess/shortkey`, view), 403);
 });
 
+test("витрина: материалы — список до 10 ссылок https/http с необязательным названием", async () => {
+  const m = (i, extra) => Object.assign({ url: `https://disk.example.org/folder${i}`, title: "Папка " + i }, extra);
+  const ok = (list) => put(`parentAccess/${PKEY}`, { ...view, materials: list });
+  assert.equal(await ok([]), 200, "пустой список");
+  assert.equal(await ok([{ url: "http://example.org/a" }]), 200, "без названия, http");
+  assert.equal(await ok(Array.from({ length: 10 }, (_, i) => m(i))), 200, "десять");
+  assert.equal(await ok(Array.from({ length: 11 }, (_, i) => m(i))), 403, "одиннадцать — много");
+  assert.equal(await ok([m(0), { url: "javascript:alert(1)" }]), 403, "не http(s) — даже вторым");
+  assert.equal(await ok([m(0), m(1), m(2), m(3), m(4), m(5), m(6), m(7), m(8), m(9, { url: "ftp://x" })]), 403, "проверяется и десятый");
+  assert.equal(await ok([m(0, { title: "x".repeat(81) })]), 403, "длинное название");
+  assert.equal(await ok([m(0, { url: "https://" + "x".repeat(500) })]), 403, "длинная ссылка");
+  assert.equal(await ok([m(0, { extra: 1 })]), 403, "лишнее поле");
+  assert.equal(await ok([m(0, { title: 5 })]), 403, "название — не строка");
+  assert.equal(await ok(["https://example.org"]), 403, "элемент — не объект");
+  assert.equal(await ok("https://example.org"), 403, "не список");
+});
+
 const CK = "channel_key_for_tests_012345678";
 const item = { type: "reschedule", lessonId: "l1", by: "parent", createdAt: 1790000000000, newStartMs: 1790100000000, newEndMs: 1790103600000, comment: "можно позже?" };
 
