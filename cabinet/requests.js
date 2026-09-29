@@ -46,11 +46,19 @@ function openBookModal(startMs, day, selMin) {
   const dur = selMin && selMin > 30 && selMin <= 480 ? selMin : lastMin;
   const durs = BOOK_DURS.includes(dur) ? BOOK_DURS : BOOK_DURS.concat([dur]).sort((a, b) => a - b);
   let s = startMs;
+  // Время по умолчанию (как у последнего занятия или 16:00) подставляем, только
+  // если оно свободно; занято — поле времени пустое и подсказка выбрать своё.
+  // Время, которое человек выбрал сам (нажал в календаре), оставляем как есть —
+  // если оно занято, предупреждение появится сразу (check ниже).
+  let hint = "";
   if (!s) {
     const d = day ? new Date(day) : new Date(Date.now() + 86400000);
     const t = last ? new Date(last.startMs) : null;
     d.setHours(t ? t.getHours() : 16, t ? t.getMinutes() : 0, 0, 0);
     s = d.getTime();
+    if (slotProblem(null, s, s + dur * 60000)) {
+      hint = `Обычное время — ${toTimeInput(s)} — в этот день занято. Выберите свободное (в календаре оно не серое).`;
+    }
   }
   openLessonId = null;
   openModal(`
@@ -58,7 +66,7 @@ function openBookModal(startMs, day, selMin) {
       <div class="meta">Выберите свободное время — преподавателю уйдёт заявка. Занятие появится в расписании после подтверждения.</div>
       <div class="field-row">
         <div class="field"><span>Дата</span><input type="date" id="bDate" value="${toDateInput(s)}"></div>
-        <div class="field"><span>Время</span><input type="time" id="bTime" step="300" value="${toTimeInput(s)}"></div>
+        <div class="field"><span>Время</span><input type="time" id="bTime" step="300" value="${hint ? "" : toTimeInput(s)}"></div>
         <div class="field"><span>Длительность</span><select id="bDur">${durs.map((m) => `<option value="${m}"${m === dur ? " selected" : ""}>${m} мин</option>`).join("")}</select></div>
       </div>
       <div class="field"><span>Комментарий (необязательно)</span><textarea id="bComment" maxlength="500" placeholder="Например: на этой неделе контрольная"></textarea></div>
@@ -68,19 +76,36 @@ function openBookModal(startMs, day, selMin) {
         <button class="btn secondary" type="button" id="mClose">Закрыть</button>
       </div>`);
   mq("#mClose").addEventListener("click", closeModal);
+  // Проверка сразу: при открытии и при каждом изменении даты, времени,
+  // длительности — не дожидаясь «Отправить». Занято — «Отправить» выключена.
+  const readSlot = () => {
+    const d = mq("#bDate").value, t = mq("#bTime").value;
+    const start = d && t ? new Date(`${d}T${t}:00`).getTime() : NaN;
+    return Number.isNaN(start) ? null : { start, end: start + parseInt(mq("#bDur").value, 10) * 60000 };
+  };
+  let sent = false;
+  const check = () => {
+    if (sent) return "";
+    const sl = readSlot();
+    const problem = sl ? slotProblem(null, sl.start, sl.end) : "Выберите дату и время.";
+    mq("#bSend").disabled = !!problem;
+    if (!sl) msg(hint || "Выберите дату и время.", "");
+    else msg(problem, problem ? "err" : "");
+    return problem;
+  };
+  ["#bDate", "#bTime", "#bDur"].forEach((sel) => ["input", "change"].forEach((ev) => mq(sel).addEventListener(ev, () => { hint = ""; check(); })));
+  check();
   mq("#bSend").addEventListener("click", async (e) => {
     const btn = e.currentTarget;
-    const start = new Date(`${mq("#bDate").value}T${mq("#bTime").value}:00`).getTime();
-    if (Number.isNaN(start)) { msg("Выберите дату и время.", "err"); return; }
-    const end = start + parseInt(mq("#bDur").value, 10) * 60000;
-    const problem = slotProblem(null, start, end);
-    if (problem) { msg(problem, "err"); return; }
+    if (check()) return;
+    const { start, end } = readSlot();
     const comment = mq("#bComment").value.trim().slice(0, 500);
     btn.disabled = true;
     try {
       const item = await addItem(view.channel, { type: "book", lessonId: "new_" + newId(), by: current.role, createdAt: Date.now(), newStartMs: start, newEndMs: end, comment: comment || undefined });
       if (!shared.some((i) => i.id === item.id)) shared = shared.concat([item]); // сразу в «Заявки» и календарь
       render();
+      sent = true;
       msg("Заявка отправлена. Ответ появится во вкладке «Заявки».", "ok");
       btn.style.display = "none";
     } catch (err) {

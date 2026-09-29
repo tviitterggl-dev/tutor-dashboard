@@ -55,6 +55,32 @@ async function proposeViaForm(cab, date, time, dur, comment) {
   await cab.click("#bSend");
 }
 
+test("«Предложить время»: занятое время по умолчанию не подставляется; проверка — сразу, при каждом изменении", async () => {
+  // Раньше форма подставляла время последнего занятия (завтра, пт 25.09,
+  // 10:00 — а это своё занятие 6/8) и говорила «занято» только после
+  // «Отправить».
+  const app = await openFamily();
+  const cab = await openCabinet(app, `#p=${PK}`);
+  await cab.click("#bookBtn");
+  await cab.waitForSelector("#bDate");
+  assert.equal(await cab.inputValue("#bDate"), "2026-09-25");
+  assert.equal(await cab.inputValue("#bTime"), "", "занятое время не подставлено");
+  assert.match(await cab.textContent("#mMsg"), /Обычное время — 10:00 — в этот день занято/);
+  assert.equal(await cab.isDisabled("#bSend"), true);
+  // свободное время — предупреждения нет, можно отправить
+  await cab.fill("#bDate", "2026-09-29");
+  await cab.fill("#bTime", "13:30");
+  await cab.waitForFunction(() => !document.querySelector("#mMsg").textContent && !document.querySelector("#bSend").disabled);
+  // длительность залезла на чужое занятие (у Анны в 15:00) — сразу предупреждение
+  await cab.selectOption("#bDur", "120");
+  await cab.waitForFunction(() => /занято/.test(document.querySelector("#mMsg").textContent) && document.querySelector("#bSend").disabled);
+  await cab.selectOption("#bDur", "60");
+  await cab.waitForFunction(() => !document.querySelector("#mMsg").textContent && !document.querySelector("#bSend").disabled);
+  assert.equal(books(await app.db()).length, 0, "пока не нажали — ничего не ушло");
+  await cab.close();
+  await app.close();
+});
+
 test("кабинет: «Предложить время нового занятия» — проверка времени, отправка, видно в «Заявках» и календаре", async () => {
   const app = await openFamily();
   const cab = await openCabinet(app, `#p=${PK}`);
@@ -62,11 +88,12 @@ test("кабинет: «Предложить время нового занят�
   await cab.click("#bookBtn");
   await cab.waitForSelector("#bDate");
   assert.equal(await cab.inputValue("#bDur"), "60", "длительность — как у последнего занятия ученика");
+  // проблема со временем видна сразу, «Отправить» — выключена (нажимать не нужно)
   const tryAt = async (date, time, re) => {
     await cab.fill("#bDate", date);
     await cab.fill("#bTime", time);
-    await cab.click("#bSend");
     await cab.waitForFunction((src) => new RegExp(src).test(document.querySelector("#mMsg").textContent), re.source);
+    assert.equal(await cab.isDisabled("#bSend"), true, `${date} ${time}: «Отправить» выключена`);
   };
   await tryAt("2026-09-29", "15:00", /занято/);            // у Анны
   await tryAt("2026-09-28", "10:00", /ваше другое занятие/); // своё (7/8)
@@ -75,7 +102,11 @@ test("кабинет: «Предложить время нового занят�
   assert.equal(books(await app.db()).length, 0, "ничего не ушло");
   await cab.selectOption("#bDur", "90");
   await cab.fill("#bComment", "На этой неделе контрольная — можно ещё одно?");
-  await tryAt("2026-09-29", "12:00", /Заявка отправлена/);
+  await cab.fill("#bDate", "2026-09-29");
+  await cab.fill("#bTime", "12:00");
+  await cab.waitForFunction(() => !document.querySelector("#bSend").disabled && !document.querySelector("#mMsg").textContent);
+  await cab.click("#bSend");
+  await cab.waitForFunction(() => /Заявка отправлена/.test(document.querySelector("#mMsg").textContent));
   const [b] = books(await app.db());
   assert.equal(b.by, "parent");
   assert.equal(b.newStartMs, at("2026-09-29T12:00:00"));
