@@ -69,7 +69,7 @@ async function rescheduleGroup(copies, startMs, endMs) {
     const nid = newId("l");
     items.push({ id: nid, data: lessonData({
       title: c.title, startMs, endMs, status: c.status, packageId: c.packageId, recurrenceId: c.recurrenceId, source: "app",
-      extra: Object.assign({ rescheduledFrom: c.id, createdAt: now, report: c.report || "", homework: c.homework || [], groupId: c.groupId, groupOcc: occ }, c.callUrl ? { callUrl: c.callUrl } : {}, c.familyNote ? { familyNote: c.familyNote } : {}),
+      extra: Object.assign(carriedOnMove(c), { createdAt: now, groupId: c.groupId, groupOcc: occ }),
     }) });
     items.push({ id: c.id, merge: true, data: { status: "rescheduled", rescheduledTo: nid, updatedAt: now } });
   });
@@ -310,10 +310,7 @@ function wireGroupModal(copies, main) {
     modalMsg(r.text, r.kind);
   }));
   $("modal").querySelectorAll("[data-g-hw-remove]").forEach(b => b.addEventListener("click", () => busy(b, async () => {
-    const url = b.dataset.gHwRemove;
-    await window.TutorFB.saveLessons(live.filter(c => (c.homework || []).some(h => h.url === url))
-      .map(c => ({ id: c.id, merge: true, data: { homework: (c.homework || []).filter(h => h.url !== url), updatedAt: Date.now() } })));
-    publishViewsSoon();
+    await removeHwFrom(live.map(c => c.id), b.dataset.gHwRemove);
     await reopen("Файл убран");
   })));
   const zone = $("modal").querySelector('[data-drop="gHwFile"]');

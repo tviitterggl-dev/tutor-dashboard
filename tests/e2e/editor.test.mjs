@@ -255,7 +255,7 @@ test("отметка «Провёл» из карточки занятия, от
 
   // Убрать файл
   await page.waitForSelector("[data-hw-remove]");
-  await page.click('[data-hw-remove="0"]');
+  await page.locator("[data-hw-remove]").first().click();
   await page.waitForFunction(() => /убран/.test(document.querySelector("#mMsg").textContent));
   db = await app.db();
   assert.deepEqual(db[`teacherSpaces/${T}/lessons/serA_20260923T070000Z`].homework.map((h) => h.name), ["фото.jpg"]);

@@ -385,7 +385,7 @@ function renderLessonModal(l, note) {
   const hwHtml = `
       <div class="section">
         <div class="section-title">Домашнее задание (файлы)</div>
-        ${hw.length ? `<ul class="file-list">${hw.map((h, i) => `<li><span><a href="${escHtml(h.url)}" target="_blank" rel="noopener">${escHtml(h.name || "файл")}</a>${h.by && h.by !== "teacher" ? ` <span class="cls">(${ROLE_RU[h.by] || escHtml(h.by)})</span>` : ""}</span><button class="link-btn" type="button" data-hw-remove="${i}">убрать</button></li>`).join("")}</ul>` : '<div class="hint" style="margin-top:0">Файлов нет.</div>'}
+        ${hw.length ? `<ul class="file-list">${hw.map(h => `<li><span><a href="${escHtml(h.url)}" target="_blank" rel="noopener">${escHtml(h.name || "файл")}</a>${h.by && h.by !== "teacher" ? ` <span class="cls">(${ROLE_RU[h.by] || escHtml(h.by)})</span>` : ""}</span><button class="link-btn" type="button" data-hw-remove="${escHtml(h.url)}">убрать</button></li>`).join("")}</ul>` : '<div class="hint" style="margin-top:0">Файлов нет.</div>'}
         ${dropZoneHtml("mHwFile", "Добавить файлы к этому занятию")}
         <div class="hint">Фото, PDF, документы — до 10 МБ каждый. Хранятся в Cloudinary. Родитель и ученик видят эти файлы в своих кабинетах и могут добавлять свои (они появятся здесь с пометкой).</div>
       </div>`;
@@ -549,10 +549,7 @@ function wireLessonModal(l) {
     modalMsg(r.text, r.kind);
   }));
   $("modal").querySelectorAll("[data-hw-remove]").forEach(b => b.addEventListener("click", () => busy(b, async () => {
-    const i = parseInt(b.dataset.hwRemove, 10);
-    const hw = (l.homework || []).filter((_, j) => j !== i);
-    await window.TutorFB.updateLesson(l.id, { homework: hw, updatedAt: Date.now() });
-    publishViewsSoon();
+    await removeHwFrom([l.id], b.dataset.hwRemove);
     await reopen("Файл убран из занятия");
   })));
   const hwZone = $("modal").querySelector('[data-drop="mHwFile"]');

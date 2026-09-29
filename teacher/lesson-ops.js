@@ -4,15 +4,23 @@
 
 // ---- операции с занятиями ----
 
+// Что переезжает вместе с занятием при переносе — одно на обычный перенос и
+// на перенос всей группы (rescheduleGroup), чтобы они не разъезжались:
+// отчёт, файлы ДЗ, пояснение семьи и разовая ссылка на созвон.
+function carriedOnMove(c) {
+  return Object.assign({ rescheduledFrom: c.id, createdAt: Date.now(), report: c.report || "", homework: c.homework || [] },
+    c.familyNote ? { familyNote: c.familyNote } : {}, c.callUrl ? { callUrl: c.callUrl } : {});
+}
 // Перенос ОДНОГО занятия. У копии группового занятия (заявка семьи на
 // перенос) — ученик уходит на своё время: новое занятие уже личное, вне
 // группы и вне её серии. Всю группу переносит rescheduleGroup.
 async function rescheduleLesson(l, startMs, endMs) {
   const nid = newId("l");
+  const extra = carriedOnMove(l);
+  if (l.groupId) delete extra.callUrl; // разовая ссылка группы — для группы, не для ушедшего на своё время
   const moved = lessonData({
     title: l.title, startMs, endMs, status: "planned",
-    packageId: l.packageId, recurrenceId: l.groupId ? null : l.recurrenceId, source: "app",
-    extra: Object.assign({ rescheduledFrom: l.id, createdAt: Date.now(), report: l.report || "", homework: l.homework || [] }, l.familyNote ? { familyNote: l.familyNote } : {}),
+    packageId: l.packageId, recurrenceId: l.groupId ? null : l.recurrenceId, source: "app", extra,
   });
   await window.TutorFB.saveLessons([
     { id: nid, data: moved },
@@ -181,6 +189,7 @@ async function saveCallLink(lessons, value) {
 async function publishReport(lessons, main, report) {
   const changed = report !== (main.report || "").trim();
   const now = Date.now();
+  const prevReports = lessons.map(c => c.report);
   await window.TutorFB.saveLessons(lessons.map(c => ({ id: c.id, merge: true, data: { report, reportUpdatedAt: now, updatedAt: now } })));
   lessons.forEach(c => { c.report = report; });
   if (!report) { publishViewsSoon(); return { text: "Отчёт убран", kind: "ok" }; }
@@ -209,6 +218,8 @@ async function publishReport(lessons, main, report) {
     console.error(err);
     notifCache = null;
     publishViewsSoon();
-    return { text: "Отчёт сохранён, но уведомление не ушло (нет интернета?)", kind: "err" };
+    // уведомление не ушло — повторное «Отчёт» должно отправить, а не ответить «изменений нет»
+    lessons.forEach((c, i) => { c.report = prevReports[i]; });
+    return { text: "Отчёт сохранён, но уведомление не ушло (нет интернета?) — нажми «Отчёт» ещё раз", kind: "err" };
   }
 }

@@ -65,6 +65,20 @@ async function uploadHwTo(lessonId, files) {
   publishViewsSoon();
   return uploaded.length;
 }
+// Убрать файл ДЗ (по адресу) из занятий — общее для обычного и группового
+// окна. Занятия перечитываются прямо перед записью: пока окно было открыто,
+// в занятие могло прийти ДЗ от семьи (processChannel), и запись массива из
+// открытого окна его бы стёрла.
+async function removeHwFrom(lessonIds, url) {
+  const items = [];
+  for (const id of lessonIds) {
+    const fresh = await window.TutorFB.getLesson(id);
+    const hw = (fresh && fresh.homework) || [];
+    if (hw.some(h => h.url === url)) items.push({ id, merge: true, data: { homework: hw.filter(h => h.url !== url), updatedAt: Date.now() } });
+  }
+  if (items.length) await window.TutorFB.saveLessons(items);
+  publishViewsSoon();
+}
 // Следующее запланированное занятие этого же ученика (по studentId — с фамилией).
 // Ищем в ближайшие полгода после этого занятия: список берётся из живой
 // подписки на занятия (listLessons) — без чтений. Раньше здесь читались ВСЕ
