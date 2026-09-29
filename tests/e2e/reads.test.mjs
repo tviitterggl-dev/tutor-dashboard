@@ -108,3 +108,39 @@ test("окно занятия и вкладка «Уведомления» пр�
   assert.deepEqual(app.errors, []);
   await app.close();
 });
+
+test("диапазон шире живой подписки (аналитика за год, состав группы): напрямую читается только часть за окном", async () => {
+  // Окно живой подписки на занятия — 200 дней назад и 250 вперёд. Раньше любой
+  // запрос хоть чуть шире (аналитика за 12 месяцев, «все будущие занятия
+  // группы») читал ВЕСЬ диапазон заново, мимо подписки.
+  const seed = defaultSeed();
+  const iso = (ms) => new Date(ms + 3 * 3600000).toISOString().slice(0, 19) + "+03:00";
+  const base = Date.parse(NOW);
+  let old = 0, n = 0;
+  for (let d = -400; d <= 300; d += 2) {
+    const s = base + d * 86400000;
+    const id = `hist${n++}`;
+    seed[L(id)] = Object.assign(lessonDoc({ id, summary: "Борис 8 класс", start: { dateTime: iso(s) }, end: { dateTime: iso(s + 3600000) } }), { source: "app" });
+    if (d < -200 || d > 250) old++;
+  }
+  const app = await openApp({ seed });
+  const { page } = app;
+  await page.waitForSelector("#lessonsList .lesson");
+  await settle(page, 2500);
+  const r = await page.evaluate(async ({ from, to }) => {
+    window.__fakeReads = 0;
+    const got = await window.TutorFB.listLessons(from, to);
+    const reads = window.__fakeReads;
+    const db = JSON.parse(localStorage.getItem("__fakeDb"));
+    const all = Object.entries(db).filter(([p, d]) => p.includes("/lessons/") && d.startMs >= from && d.startMs < to).map(([p]) => p.split("/").pop()).sort();
+    return { reads, same: JSON.stringify(got.map((x) => x.id).sort()) === JSON.stringify(all), count: got.length, sorted: got.every((x, i) => !i || got[i - 1].startMs <= x.startMs) };
+  }, { from: base - 400 * 86400000, to: base + 300 * 86400000 });
+  assert.ok(r.same && r.sorted, "тот же список, что и полным чтением, по порядку");
+  assert.ok(r.count > 300);
+  assert.ok(r.reads <= old + 2, `прочитано ${r.reads} — только за окном подписки (${old} занятий), а не все ${r.count}`);
+  // второй раз — части за окном из памяти сессии
+  const again = await page.evaluate(async ({ from, to }) => { window.__fakeReads = 0; await window.TutorFB.listLessons(from, to); return window.__fakeReads; }, { from: base - 400 * 86400000, to: base + 300 * 86400000 });
+  assert.ok(again <= 2, `повтор — ${again} чтений`);
+  assert.deepEqual(app.errors, []);
+  await app.close();
+});

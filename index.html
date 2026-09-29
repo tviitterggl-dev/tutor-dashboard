@@ -100,7 +100,12 @@
   // подписку сразу (раньше, чем завершится запись), чужие устройства — тоже.
   // Запрос за пределами окна — как раньше, напрямую.
   const LIVE_TTL = 6 * 3600000; // окно «сейчас ± N дней» сдвигаем раз в 6 часов
-  function liveWindow(makeQuery, pastDays, futureDays, field) {
+  // rangeQuery(from, to) (необязательно): запрос шире окна тогда не читается
+  // целиком — из подписки берётся то, что внутри окна, а напрямую читаются
+  // только куски за его краями (аналитика за год, все будущие занятия
+  // группы). Прочитанные куски помнятся до конца окна / своей записи.
+  function liveWindow(makeQuery, pastDays, futureDays, field, rangeQuery) {
+    const outside = new Map(); // "from|to" → список (куски за окном)
     let st = null;
     const start = () => {
       if (st) st.unsub();
@@ -125,13 +130,25 @@
     return {
       // список из живой копии или null (не покрывает / подписка не работает)
       async get(fromMs, toMs) {
-        if (!st || Date.now() - st.at > LIVE_TTL) start();
+        if (!st || Date.now() - st.at > LIVE_TTL) { start(); outside.clear(); }
         const cur = st;
-        if (!(fromMs >= cur.from && toMs <= cur.to)) return null;
+        const covered = fromMs >= cur.from && toMs <= cur.to;
+        const overlap = Math.max(fromMs, cur.from) < Math.min(toMs, cur.to);
+        if (!covered && !(rangeQuery && overlap)) return null;
         if (!(await cur.ready) || !cur.ok) return null;
-        return [...cur.map.values()].filter((x) => x[field] >= fromMs && x[field] < toMs)
-          .sort((a, b) => a[field] - b[field]).map((x) => structuredClone(x)); // копии: вызывающий код их меняет
+        const lo = Math.max(fromMs, cur.from), hi = Math.min(toMs, cur.to);
+        const out = [...cur.map.values()].filter((x) => x[field] >= lo && x[field] < hi);
+        const piece = async (a, b) => {
+          const k = a + "|" + b;
+          if (!outside.has(k)) outside.set(k, (await getDocs(rangeQuery(a, b))).docs.map((d) => Object.assign({ id: d.id }, d.data())));
+          return outside.get(k);
+        };
+        if (fromMs < cur.from) out.push(...await piece(fromMs, cur.from));
+        if (toMs > cur.to) out.push(...await piece(cur.to, toMs));
+        return out.sort((a, b) => a[field] - b[field]).map((x) => structuredClone(x)); // копии: вызывающий код их меняет
       },
+      // своя запись могла задеть занятия за окном — прочитанные куски устарели
+      dirty() { outside.clear(); },
       stop() { if (st) st.unsub(); st = null; },
     };
   }
@@ -143,7 +160,8 @@
     const requestsCol = collection(db, "teacherSpaces", teacherId, "requests");
     const viewCol = (role) => (role === "parent" ? "parentAccess" : "studentAccess");
     // окно занятий покрывает пакеты (−180/+240 дн.), витрины (−120/+90), календарь и списки рядом с сегодня
-    const liveLessons = liveWindow((from, to) => query(lessonsCol, where("startMs", ">=", from), where("startMs", "<", to), orderBy("startMs")), 200, 250, "startMs");
+    const lessonsRange = (from, to) => query(lessonsCol, where("startMs", ">=", from), where("startMs", "<", to), orderBy("startMs"));
+    const liveLessons = liveWindow(lessonsRange, 200, 250, "startMs", lessonsRange);
     // журнал решений по заявкам: витрины берут за год, вкладка «Заявки» — за 60 дней
     const liveDecisions = liveWindow((from) => query(requestsCol, where("decidedAt", ">=", from), orderBy("decidedAt")), 400, Infinity, "decidedAt");
 
@@ -202,10 +220,6 @@
         }
       },
       // все копии занятий группы (у каждого участника — своя), только по равенству — без индекса
-      async listGroupLessons(groupId) {
-        const snap = await getDocs(query(lessonsCol, where("groupId", "==", groupId)));
-        return snap.docs.map((d) => Object.assign({ id: d.id }, d.data())).sort((a, b) => a.startMs - b.startMs);
-      },
       async listSeries(recurrenceId) {
         const snap = await getDocs(query(lessonsCol, where("recurrenceId", "==", recurrenceId)));
         return snap.docs.map((d) => Object.assign({ id: d.id }, d.data())).sort((a, b) => a.startMs - b.startMs);
@@ -216,6 +230,7 @@
       },
       // items: [{ id, data, merge? }] — пачками по 400 (лимит Firestore — 500).
       async saveLessons(items) {
+        liveLessons.dirty();
         for (const part of chunk(items, 400)) {
           const b = writeBatch(db);
           part.forEach((it) => b.set(doc(lessonsCol, it.id), it.data, it.merge ? { merge: true } : undefined));
@@ -223,9 +238,11 @@
         }
       },
       async updateLesson(id, fields) {
+        liveLessons.dirty();
         await setDoc(doc(lessonsCol, id), fields, { merge: true });
       },
       async deleteLessons(ids) {
+        liveLessons.dirty();
         for (const part of chunk(ids, 400)) {
           const b = writeBatch(db);
           part.forEach((id) => b.delete(doc(lessonsCol, id)));

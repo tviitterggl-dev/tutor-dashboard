@@ -97,14 +97,21 @@ async function editGroupScoped(copies, { startMs, durMin, scope }) {
   }));
   return targets.length;
 }
+// Будущие занятия группы: из живой подписки на занятия (листать всю историю
+// группы незачем — прошлое не меняется); дальше окна
+// подписки (250 дней) — дочитывается только этот кусок.
+const GROUP_AHEAD_MS = 3 * 365 * DAY_MS;
+async function futureGroupLessons(gid, now) {
+  return (await window.TutorFB.listLessons(now, now + GROUP_AHEAD_MS)).filter(l => l.groupId === gid);
+}
 // Состав группы: новые участники получают копии всех будущих занятий группы,
 // убранные — теряют свои будущие непроведённые копии (прошлое остаётся).
 async function applyGroupMembers(gid, members) {
   const now = Date.now();
   const prev = (groupsMap()[gid] || {}).members || [];
-  const all = await window.TutorFB.listGroupLessons(gid);
+  const all = await futureGroupLessons(gid, now);
   const byOcc = {};
-  all.filter(l => l.groupOcc && l.startMs >= now).forEach(l => { (byOcc[l.groupOcc] = byOcc[l.groupOcc] || []).push(l); });
+  all.filter(l => l.groupOcc).forEach(l => { (byOcc[l.groupOcc] = byOcc[l.groupOcc] || []).push(l); });
   const add = [], del = [];
   Object.values(byOcc).forEach(copies => {
     const tpl = copies.find(c => c.status === "planned");
@@ -349,7 +356,7 @@ function openGroupEditor(gid, backTo) {
     btn.disabled = true;
     try {
       const now = Date.now();
-      const doomed = (await window.TutorFB.listGroupLessons(gid)).filter(l => l.startMs >= now && l.status !== "done").map(l => l.id);
+      const doomed = (await futureGroupLessons(gid, now)).filter(l => l.status !== "done").map(l => l.id);
       await window.TutorFB.deleteLessons(doomed);
       await saveGroup(gid, null);
       closeModal();
