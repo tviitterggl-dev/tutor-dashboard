@@ -41,7 +41,8 @@ function refreshModal(force) {
   let reqHtml = "";
   if (req) {
     reqHtml = `<div class="section"><div class="section-title">Заявка</div>
-        <div>${req.type === "reschedule" ? `Вы попросили перенести на <b>${esc(fmtWhen(req.newStartMs, req.newEndMs))}</b>.` : "Вы попросили отменить это занятие."} Ждём ответа преподавателя.</div></div>`;
+        <div>${isMine(req) ? "Вы попросили" : (req.by === "parent" ? "Родитель попросил" : "Ученик попросил")} ${req.type === "reschedule" ? `перенести на <b>${esc(fmtWhen(req.newStartMs, req.newEndMs))}</b>.` : "отменить это занятие."} Ждём ответа преподавателя.</div>
+        ${isMine(req) ? `<div class="btn-row" style="margin:8px 0 0">${withdrawButton(req)}</div>` : ""}</div>`;
   } else if (canRequest(l)) {
     reqHtml = `<div class="section"><div class="section-title">Перенести или отменить</div>
         <div class="btn-row" id="reqButtons" style="margin-top:0">
@@ -101,6 +102,7 @@ function refreshModal(force) {
 
 function wireModal(l) {
   mq("#mClose").addEventListener("click", closeModal);
+  wireWithdraw($("modal"), () => refreshModal(true));
   let mode = null;
   if (mq("#mMove")) {
     const showForm = (m) => {

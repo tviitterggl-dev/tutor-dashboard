@@ -93,3 +93,40 @@ function openBookModal(startMs, day, selMin) {
 async function sendRequest(l, type, extra) {
   await addItem(view.channel, Object.assign({ type, lessonId: l.id, by: current.role, createdAt: Date.now() }, extra));
 }
+
+// ---------- отменить свою заявку ----------
+// Семья передумала: заявку, которую подал ЭТОТ кабинет (by совпадает с ролью
+// открытого кабинета) и на которую ещё нет ответа, можно убрать из канала.
+// На чужой заявке (родитель ↔ ученик одного ребёнка) кнопки нет. Это защита
+// интерфейса, а не базы: без входа правила не отличают, кто удаляет
+// (см. REVIEW.md, раздел 1). Учитель перед решением перечитывает заявку —
+// отозванную не применит.
+const isMine = (i) => !!(i && current && i.by === current.role);
+function isPendingRequest(i) {
+  const decided = new Set((view && view.requests || []).map((r) => r.id));
+  return !!i && isRequest(i) && !decided.has(i.id);
+}
+async function withdrawRequest(id) {
+  const item = shared.find((i) => i.id === id);
+  if (!item || !isMine(item) || !isPendingRequest(item)) return false;
+  const what = item.type === "reschedule" ? "перенос" : item.type === "book" ? "новое занятие" : "отмену";
+  if (!confirm(`Отменить заявку на ${what}? Преподаватель её больше не увидит.`)) return false;
+  requireOnline();
+  await deleteDoc(doc(db, "channels", view.channel, "items", id));
+  shared = shared.filter((i) => i.id !== id); // сразу, не дожидаясь подписки
+  return true;
+}
+const withdrawButton = (i) => `<button class="btn secondary withdraw-btn" type="button" data-withdraw="${esc(i.id)}">Отменить заявку</button>`;
+function wireWithdraw(container, after) {
+  container.querySelectorAll("[data-withdraw]").forEach((b) => b.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    b.disabled = true;
+    try {
+      if (await withdrawRequest(b.dataset.withdraw)) { render(); if (after) after(); }
+    } catch (err) {
+      alert(errText(err, "Не получилось отменить заявку (нет интернета?). Попробуйте ещё раз."));
+    } finally {
+      if (document.body.contains(b)) b.disabled = false;
+    }
+  }));
+}

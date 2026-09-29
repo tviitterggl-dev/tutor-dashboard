@@ -97,6 +97,7 @@ test("окно занятия и вкладка «Уведомления» пр�
   assert.ok(modalReads < 15, `три окна занятия — ${modalReads} чтений (история: ${n} занятий)`);
   // «ДЗ к следующему занятию» по-прежнему находит следующее занятие Бориса
   await page.locator("#lessonsList .lesson").first().click();
+  await page.waitForSelector("#mNextHw"); // окно открывается после чтения занятия — не сразу
   await page.waitForFunction(() => /Борис|\d{2}\.\d{2}|сентяб|октяб/.test(document.getElementById("mNextHw").textContent));
   await page.keyboard.press("Escape");
   await page.evaluate(() => { window.__fakeReads = 0; });

@@ -614,3 +614,83 @@ test("на карточке занятия в списке нет крестик
   assert.deepEqual(cancels.sort(), [["parent", "Заболели"], ["student", "Заболели"]]);
   await app.close();
 });
+
+test("«Отменить заявку»: только на своей ждущей заявке (родитель ↔ ученик); из «Заявок» и из окна занятия", async () => {
+  const app = await openFamily();
+  const vT = (await app.db())[`parentAccess/${PK_T}`];
+  const L78 = "serA_20260928T070000Z", L88 = "serA_20260930T070000Z";
+  await app.page.evaluate(({ ch, L78, L88 }) => {
+    const db = JSON.parse(localStorage.__fakeDb);
+    const t = Date.now();
+    db[`channels/${ch}/items/mine1`] = { type: "cancel", lessonId: L78, by: "parent", createdAt: t, comment: "Заболели" };
+    db[`channels/${ch}/items/theirs1`] = { type: "reschedule", lessonId: L88, by: "student", createdAt: t + 1, newStartMs: t + 5 * 86400000, newEndMs: t + 5 * 86400000 + 3600000 };
+    db[`channels/${ch}/items/mine2`] = { type: "book", lessonId: "b_mine2", by: "parent", createdAt: t + 2, newStartMs: t + 6 * 86400000, newEndMs: t + 6 * 86400000 + 3600000 };
+    localStorage.__fakeDb = JSON.stringify(db);
+  }, { ch: vT.channel, L78, L88 });
+  const cab = await openCabinet(app, `#p=${PK_T}`);
+  await cab.waitForSelector("#pane-lessons .lesson");
+  await cab.click('.ctab[data-ctab="requests"]');
+  await cab.waitForFunction(() => document.querySelectorAll("#pane-requests .req-item .pill.pending").length === 3);
+  // кнопки — только на двух заявках родителя, не на заявке ученика
+  assert.equal(await cab.locator("#pane-requests [data-withdraw]").count(), 2);
+  assert.deepEqual((await cab.locator("#pane-requests [data-withdraw]").evaluateAll((bs) => bs.map((b) => b.dataset.withdraw))).sort(), ["mine1", "mine2"]);
+  // отзываем «новое занятие» из «Заявок»
+  await cab.click('[data-withdraw="mine2"]');
+  await waitFor(async () => !(await app.db())[`channels/${vT.channel}/items/mine2`], "заявка удалена из канала");
+  await cab.waitForFunction(() => document.querySelectorAll("#pane-requests .req-item .pill.pending").length === 2);
+  assert.match(cab.dialogs.join("|"), /Отменить заявку на новое занятие\?/);
+  // окно занятия с заявкой ученика: «Ученик попросил…», кнопки нет
+  await cab.click('.ctab[data-ctab="lessons"]');
+  await cab.locator("#pane-lessons .lesson", { hasText: "8/8" }).first().click();
+  await cab.waitForSelector("#modalBack", { state: "visible" });
+  assert.match(await cab.textContent("#modal"), /Ученик попросил перенести/);
+  assert.equal(await cab.locator("#modal [data-withdraw]").count(), 0);
+  await cab.click("#modal .modal-x");
+  // окно своей заявки: «Вы попросили…» + «Отменить заявку» → снова можно перенести/отменить
+  await cab.locator("#pane-lessons .lesson", { hasText: "7/8" }).first().click();
+  await cab.waitForSelector("#modal [data-withdraw]");
+  assert.match(await cab.textContent("#modal"), /Вы попросили отменить/);
+  await cab.click("#modal [data-withdraw]");
+  await cab.waitForSelector("#modal #mCancel");
+  await waitFor(async () => !(await app.db())[`channels/${vT.channel}/items/mine1`], "своя заявка удалена");
+  assert.ok((await app.db())[`channels/${vT.channel}/items/theirs1`], "заявка ученика цела");
+  // у учителя в «Заявках» осталась только заявка ученика
+  await app.page.click('.tab[data-tab="requests"]');
+  await app.page.waitForFunction(() => document.querySelectorAll("#requestsList .req").length === 1);
+  assert.deepEqual(cab.errors, []);
+  await cab.close();
+  await app.close();
+});
+
+test("заявку отозвали, пока учитель подтверждал, — изменения не применяются", async () => {
+  let other = null, ch = null;
+  const dialogs = [];
+  const vKey = `parentAccess/${PK_T}`;
+  const app = await openFamily({ onDialog: async (d) => {
+    dialogs.push(d.message());
+    if (/^Перенести/.test(d.message())) {
+      // пока открыт вопрос «Перенести …?», семья нажала «Отменить заявку»
+      // (из другой вкладки: страница учителя стоит на окне подтверждения)
+      await other.evaluate((p) => { const db = JSON.parse(localStorage.__fakeDb); delete db[p]; localStorage.__fakeDb = JSON.stringify(db); }, `channels/${ch}/items/wd1`);
+    }
+    return true;
+  } });
+  other = await app.context.newPage();
+  await other.goto(app.base + "/cabinet.html");
+  ch = (await app.db())[vKey].channel;
+  const L78 = "serA_20260928T070000Z";
+  const t = Date.parse("2026-10-02T12:00:00+03:00");
+  await app.page.evaluate(({ ch, L78, t }) => {
+    const db = JSON.parse(localStorage.__fakeDb);
+    db[`channels/${ch}/items/wd1`] = { type: "reschedule", lessonId: L78, by: "parent", createdAt: Date.now(), newStartMs: t, newEndMs: t + 3600000 };
+    localStorage.__fakeDb = JSON.stringify(db);
+  }, { ch, L78, t });
+  await app.page.click('.tab[data-tab="requests"]');
+  await app.page.waitForSelector('#requestsList .req[data-id="wd1"] [data-req="approve"]');
+  await app.page.click('#requestsList .req[data-id="wd1"] [data-req="approve"]');
+  await waitFor(() => dialogs.some((m) => /уже отозвали/.test(m)), "учителю сказали, что заявку отозвали: " + JSON.stringify(dialogs));
+  const db = await app.db();
+  assert.equal(db[L(L78)].status, "planned", "занятие не перенесено");
+  assert.equal(db[`teacherSpaces/${T}/requests/wd1`], undefined, "решение не записано");
+  await app.close();
+});

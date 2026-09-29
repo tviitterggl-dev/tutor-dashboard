@@ -253,6 +253,10 @@
           (snap) => onItems(snap.docs.map((d) => Object.assign({ id: d.id }, d.data()))),
           onError);
       },
+      // Сообщение ещё в канале? (семья могла отозвать заявку, пока учитель решал)
+      async hasChannelItem(channelKey, id) {
+        return (await getDoc(doc(db, "channels", channelKey, "items", id))).exists();
+      },
       async listChannel(channelKey) {
         const snap = await getDocs(query(collection(db, "channels", channelKey, "items")));
         return snap.docs.map((d) => Object.assign({ id: d.id }, d.data()));

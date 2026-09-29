@@ -265,6 +265,15 @@ async function renderRequests() {
   }
 }
 
+// Семья может отозвать свою заявку, пока учитель думает над «Подтвердить /
+// Отклонить» (окно подтверждения открыто). Перед изменениями перечитываем
+// заявку (одно чтение): отозвана — ничего не меняем.
+async function stillPending(ck, item) {
+  if (await window.TutorFB.hasChannelItem(ck, item.id)) return true;
+  alert("Эту заявку уже отозвали — ничего не меняю.");
+  afterLessonsChanged();
+  return false;
+}
 async function decideRequest(ck, itemId, approve) {
   const meta = channelMeta[ck];
   const item = (channelItems[ck] || []).find(i => i.id === itemId);
@@ -282,15 +291,18 @@ async function decideRequest(ck, itemId, approve) {
         ? `Новое время пересекается с: ${conflicts.map(x => x.title).join(", ")}.\nВсё равно перенести?`
         : `Перенести «${l.title}» на ${fmtWhen(item.newStartMs, item.newEndMs)}?`;
       if (!confirm(q)) return;
+      if (!(await stillPending(ck, item))) return;
       await rescheduleLesson(l, item.newStartMs, item.newEndMs);
     } else {
       if (!confirm(`Отменить «${displayTitle(l.title)}», ${fmtWhen(l.startMs, l.endMs)}?`)) return;
+      if (!(await stillPending(ck, item))) return;
       await setStatusScoped(l, "cancelled", "one", ["planned"]);
     }
   } else {
     const r = prompt("Причина отказа (увидит родитель/ученик, можно оставить пустым):", "");
     if (r === null) return;
     reason = r.trim().slice(0, 300);
+    if (!(await stillPending(ck, item))) return;
   }
   await window.TutorFB.saveRequestDecision(item.id, decisionData(item, meta, valid ? l : null, approve ? "approved" : "rejected", reason));
   await publishViews(activeKeysOf(meta.studentId));
@@ -331,6 +343,7 @@ async function decideBook(ck, item, meta, approve) {
     if (problem) { alert(problem + "\nЗаявку можно отклонить — семья увидит причину."); return; }
     const durMin = Math.round((item.newEndMs - item.newStartMs) / 60000);
     if (!confirm(`Добавить занятие: ${studentLabel(meta.studentId)}, ${fmtWhen(item.newStartMs, item.newEndMs)}?`)) return;
+    if (!(await stillPending(ck, item))) return;
     newLessonId = bookLessonId(item);
     const prev = await window.TutorFB.getLesson(newLessonId);
     if (prev && (prev.requestId !== item.id || prev.studentId !== meta.studentId)) { alert("Не удалось создать занятие по заявке — попробуйте ещё раз или отклоните заявку."); return; }
@@ -345,6 +358,7 @@ async function decideBook(ck, item, meta, approve) {
     const r = prompt("Причина отказа (увидит родитель/ученик, можно оставить пустым):", "");
     if (r === null) return;
     reason = r.trim().slice(0, 300);
+    if (!(await stillPending(ck, item))) return;
   }
   await window.TutorFB.saveRequestDecision(item.id, decisionData(item, meta, null, approve ? "approved" : "rejected", reason, newLessonId));
   await publishViews(activeKeysOf(meta.studentId));

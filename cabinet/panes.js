@@ -101,6 +101,7 @@ function requestItem(r, pending) {
       <div class="top"><span class="what">${title}</span>${status}</div>
       ${lines.map((x) => `<div class="line">${x}</div>`).join("")}
       ${r.comment ? `<div class="comment">«${esc(r.comment)}»</div>` : ""}
+      ${pending && isMine(r) ? `<div class="btn-row" style="margin:6px 0 0">${withdrawButton(r)}</div>` : ""}
     </div>`;
 }
 
@@ -116,6 +117,7 @@ function renderRequestsPane() {
       <div class="hint">Перенести или отменить занятие можно в его карточке (вкладки «Занятия» и «Календарь»), а попросить дополнительное — кнопкой «Предложить время нового занятия» или нажав на свободное время в календаре. Преподаватель подтвердит или откажет, ответ появится здесь.</div>
     </div>`;
   $("pane-requests").innerHTML = html;
+  wireWithdraw($("pane-requests"));
 }
 
 // Вкладка «Занятия»: пакет (родителю) и лента

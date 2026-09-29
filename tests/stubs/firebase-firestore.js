@@ -103,6 +103,11 @@ function snapshotOf(path, data) {
 // при подписке, дальше только изменившиеся. window.__fakeReads.
 function countReads(n) { window.__fakeReads = (window.__fakeReads || 0) + n; }
 export async function getDoc(ref) {
+  // ответ — следующей задачей, как у настоящей сети (иначе запись из другой
+  // вкладки, ещё не дошедшая до этой, не видна — чего с сервером не бывает).
+  // Через MessageChannel, а не setTimeout: таймеры фоновой вкладки браузер
+  // замедляет до секунды.
+  await new Promise((r) => { const c = new MessageChannel(); c.port1.onmessage = () => r(); c.port2.postMessage(0); });
   checkDeny(ref.path);
   const whyR = checkRead(ref.path);
   if (whyR) denyWith(whyR);
