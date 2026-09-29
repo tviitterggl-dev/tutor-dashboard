@@ -63,7 +63,7 @@ service cloud.firestore {
         && (d.type == "push" || !("token" in d || "key" in d));
     }
 
-    // Материалы ученика в витрине: ссылка http(s) и необязательное название.
+    // Материалы ученика и контакты учителя в витрине: ссылка http(s) и необязательное название.
     function validMaterial(m) {
       return m is map && m.keys().hasOnly(["url", "title"])
         && m.url is string && m.url.size() <= 500 && m.url.matches("^https?://.+")
@@ -86,7 +86,15 @@ service cloud.firestore {
               && (d.materials.size() <= 6 || validMaterial(d.materials[6]))
               && (d.materials.size() <= 7 || validMaterial(d.materials[7]))
               && (d.materials.size() <= 8 || validMaterial(d.materials[8]))
-              && (d.materials.size() <= 9 || validMaterial(d.materials[9]))));
+              && (d.materials.size() <= 9 || validMaterial(d.materials[9]))))
+        // контакты учителя «Если что — пишите» (до 6, тот же формат, что материалы)
+        && (!("contacts" in d) || (d.contacts is list && d.contacts.size() <= 6
+              && (d.contacts.size() <= 0 || validMaterial(d.contacts[0]))
+              && (d.contacts.size() <= 1 || validMaterial(d.contacts[1]))
+              && (d.contacts.size() <= 2 || validMaterial(d.contacts[2]))
+              && (d.contacts.size() <= 3 || validMaterial(d.contacts[3]))
+              && (d.contacts.size() <= 4 || validMaterial(d.contacts[4]))
+              && (d.contacts.size() <= 5 || validMaterial(d.contacts[5]))));
     }
 
     match /teacherSpaces/{uid}/state/{stateDoc} {

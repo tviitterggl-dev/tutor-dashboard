@@ -289,6 +289,14 @@ function showTab(tab) {
 }
 document.querySelectorAll(".ctab").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.ctab)));
 
+// «Если что — пишите»: контакты учителя из витрины (только ссылки http/https —
+// то же проверяют правила). Нет контактов — нет и карточки.
+function renderContacts() {
+  const list = Materials.clean(view.contacts, Materials.CONTACTS_MAX);
+  $("contactsCard").hidden = !list.length;
+  $("contactsList").innerHTML = list.map((m) => `<a href="${esc(m.url)}" target="_blank" rel="noopener noreferrer">${esc(Materials.label(m))}</a>`).join("");
+}
+
 function render() {
   if (!view) return;
   const now = Date.now();
@@ -306,6 +314,7 @@ function render() {
   reqTab.innerHTML = "Заявки" + (hasPending ? '<span class="dot" title="есть заявка без ответа"></span>' : "");
 
   renderNotices(now);
+  renderContacts();
   renderPushCard();
   if (activeTab === "settings" && !tabOrderEditor) renderTabOrderEditor(); // «Настройки» — первая вкладка
   renderLessonsPane(now);

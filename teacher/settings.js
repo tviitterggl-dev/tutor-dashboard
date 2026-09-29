@@ -5,7 +5,69 @@
 // ---- «Настройки»: порядок вкладок, уведомления мне, шаблоны, статус пушей ----
 const TAB_LABELS = () => Object.fromEntries([...document.querySelectorAll(".tabs .tab")].map(t => [t.dataset.tab, t.childNodes[0].textContent.trim()]));
 let tabOrderEditor = null;
+// ---------- контакты «Если что — пишите» ----------
+// Список { title, url } (Materials.clean, до Materials.CONTACTS_MAX) в
+// state.contacts; публикуется в витрину каждого ученика (buildViews).
+const contactsOf = () => Materials.clean(remoteState.contacts, Materials.CONTACTS_MAX);
+const CONTACT_PH = "Например: Telegram";
+function renderContacts() {
+  const box = $("contactRows");
+  if (box.dataset.dirty) return; // не затирать то, что набирается
+  const list = contactsOf();
+  box.innerHTML = (list.length ? list : [{}]).map(m => matRowHtml(m, CONTACT_PH)).join("");
+}
+function contactMsg(t, k) { const m = $("contactMsg"); m.textContent = t; m.className = "msg" + (k ? " " + k : ""); }
+$("contactRows").addEventListener("input", () => { $("contactRows").dataset.dirty = "1"; });
+$("contactRows").addEventListener("click", (e) => {
+  const del = e.target.closest("[data-mat-del]");
+  if (del) { del.closest(".pf-mat-row").remove(); $("contactRows").dataset.dirty = "1"; }
+});
+$("contactAdd").addEventListener("click", () => {
+  const box = $("contactRows");
+  if (box.querySelectorAll(".pf-mat-row").length >= Materials.CONTACTS_MAX) { contactMsg(`Контактов — не больше ${Materials.CONTACTS_MAX}.`, "err"); return; }
+  box.insertAdjacentHTML("beforeend", matRowHtml({}, CONTACT_PH));
+  box.dataset.dirty = "1";
+  box.lastElementChild.querySelector(".pf-mat-title").focus();
+});
+$("contactSave").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  const check = checkLinkRows(matRowsOf($("contactRows")), "Контакт");
+  if (check.error) { contactMsg(check.error, "err"); return; }
+  if (check.rows.length > Materials.CONTACTS_MAX) { contactMsg(`Контактов — не больше ${Materials.CONTACTS_MAX}.`, "err"); return; }
+  if (!navigator.onLine) { contactMsg(OFFLINE_TEXT, "err"); return; }
+  const contacts = Materials.clean(check.rows, Materials.CONTACTS_MAX);
+  btn.disabled = true;
+  try {
+    await window.TutorFB.patchState({ contacts });
+    remoteState.contacts = contacts;
+    delete $("contactRows").dataset.dirty;
+    renderContacts();
+    await publishViews();
+    contactMsg(contacts.length ? "Сохранено — кабинеты родителей и учеников обновлены." : "Контакты убраны — в кабинетах карточки «Если что — пишите» больше нет.", "ok");
+  } catch (err) {
+    contactMsg(isOfflineError(err) ? OFFLINE_TEXT : "Не сохранилось (нет интернета?)", "err");
+  }
+  btn.disabled = false;
+});
+// Разовый перенос: до этого контакты были прописаны прямо в cabinet.html.
+// Поля contacts ещё нет — кладём прежние, чтобы семьи не остались без них
+// (дальше учитель правит их здесь, пустой список — тоже выбор, не переносим
+// снова). TODO: убрать этот перенос вместе со ссылками, когда он прошёл
+// у учителя (DEVLOG, запись 52): в открытом репозитории им не место.
+const LEGACY_CONTACTS = [
+  { title: "Telegram", url: "https://t.me/mat_repet" },
+  { title: "Яндекс Телемост", url: "https://yandex.ru/chat/p/ad9c2706-f36a-940f-7a90-d15f170427e5?utm_source=invite" },
+];
+async function ensureContactsMigrated() {
+  if (remoteState.contacts !== undefined || !navigator.onLine) return;
+  try {
+    await window.TutorFB.patchState({ contacts: LEGACY_CONTACTS });
+    remoteState.contacts = LEGACY_CONTACTS;
+  } catch (e) { /* в следующий раз */ }
+}
+
 function renderSettingsTab() {
+  renderContacts();
   const labels = TAB_LABELS();
   const items = TEACHER_TABS.map(id => ({ id, label: labels[id] || id }));
   if (!tabOrderEditor) {

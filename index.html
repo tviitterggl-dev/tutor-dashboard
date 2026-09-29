@@ -1426,6 +1426,16 @@
         <div class="msg" id="backupMsg"></div>
         <div class="hint">«Резервная копия» — один файл со всем: занятия (с отчётами, ДЗ, оплатой, пояснениями), ученики и ставки, отметки «Провёл», пакеты, доступы родителей/учеников и история заявок. Из него при необходимости всё можно восстановить. Раз в месяц достаточно нажать и сохранить файл (в «Файлы» на iPhone, на диск, себе в почту). В файле есть ссылки-ключи доступа родителей — не пересылай его посторонним. «Для Excel» — просто таблица занятий, чтобы посмотреть глазами.</div>
       </div>
+      <div class="card" id="contactsCard">
+        <div class="chart-title">Контакты для родителей и учеников</div>
+        <div class="hint" style="margin-top:0">Видны в кабинетах родителей и учеников во вкладке «Ещё» — карточка «Если что — пишите». Любые ссылки: мессенджер, чат, почта (<code>mailto:</code> не подойдёт — только https:// или http://). Пусто — карточки в кабинетах не будет.</div>
+        <div class="pf-mats" id="contactRows" style="margin-top:10px"></div>
+        <div class="btn-row" style="margin-bottom:0">
+          <button class="btn secondary" type="button" id="contactAdd">+ Контакт</button>
+          <button class="btn" type="button" id="contactSave">Сохранить контакты</button>
+        </div>
+        <div class="msg" id="contactMsg"></div>
+      </div>
       <div class="card">
         <div class="chart-title">Оформление</div>
         <div id="themeToggle"></div>

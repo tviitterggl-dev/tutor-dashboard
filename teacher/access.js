@@ -73,6 +73,8 @@ async function buildViews(keys) {
       // проверяют правила (validView), лишнее туда не попадёт.
       boardUrl: (() => { const u = profileOf(k.studentId).accessUrl; return u && safeHref(u) ? u : null; })(),
       materials: materialsOf(k.studentId),
+      // контакты учителя «Если что — пишите» (одни на всех; «Настройки»)
+      contacts: contactsOf(),
       lessons: own.map(l => {
         const out = {
           id: l.id,

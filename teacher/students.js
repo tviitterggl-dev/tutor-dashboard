@@ -18,16 +18,25 @@ function groupRateOf(sid) {
 }
 const safeHref = (u) => /^https?:\/\//i.test(u || "");
 const materialsOf = (sid) => (sid ? Materials.clean(profileOf(sid).materials) : []);
-// Редактор материалов в карточке ученика: строки «название + ссылка + ×»
-function matRowHtml(m) {
+// Редактор списка ссылок «название + ссылка + ×» — материалы в карточке
+// ученика и контакты учителя в «Настройках» (один формат, Materials.clean).
+function matRowHtml(m, titlePh) {
   return `<div class="pf-mat-row">
-              <input type="text" class="pf-mat-title" maxlength="${Materials.TITLE_MAX}" placeholder="Название (необязательно)" value="${escHtml(m.title || "")}">
+              <input type="text" class="pf-mat-title" maxlength="${Materials.TITLE_MAX}" placeholder="${escHtml(titlePh || "Название (необязательно)")}" value="${escHtml(m.title || "")}">
               <input type="url" class="pf-mat-url" maxlength="${Materials.URL_MAX}" placeholder="https://…" value="${escHtml(m.url || "")}">
-              <button class="pf-mat-del" type="button" data-mat-del aria-label="Убрать материал" title="Убрать">×</button>
+              <button class="pf-mat-del" type="button" data-mat-del aria-label="Убрать строку" title="Убрать">×</button>
             </div>`;
 }
 // что сейчас набрано в редакторе (как есть, без проверки)
-const matRowsOf = (card) => [...card.querySelectorAll(".pf-mat-row")].map(r => ({ title: r.querySelector(".pf-mat-title").value, url: r.querySelector(".pf-mat-url").value }));
+const matRowsOf = (box) => [...box.querySelectorAll(".pf-mat-row")].map(r => ({ title: r.querySelector(".pf-mat-title").value, url: r.querySelector(".pf-mat-url").value }));
+// Проверка набранного: пустые строки пропускаются; { rows } или { error }.
+// noun — «Материал» / «Контакт» (в тексте ошибки).
+function checkLinkRows(raw, noun) {
+  const rows = raw.map(m => ({ title: m.title.trim(), url: m.url.trim() })).filter(m => m.title || m.url);
+  const bad = rows.find(m => !Materials.normUrl(m.url));
+  if (!bad) return { rows };
+  return { error: bad.url ? `${noun} «${bad.title || bad.url}»: ссылка должна начинаться с https:// (или http://), без пробелов` : `У строки «${bad.title}» нет ссылки` };
+}
 let openProfile = null;
 
 // Ссылка на созвон для занятия: своя у занятия (разовая) → у группы → из профиля ученика.
@@ -115,7 +124,7 @@ function restoreRosterDrafts(list, d, opts) {
       if (el && el.defaultValue === f.base) el.value = f.value; // данные не менялись — черновик в силе
     }
     const box = card.querySelector(".pf-mats");
-    if (box && saved.mats && box.dataset.base === saved.mats.base) box.innerHTML = saved.mats.value.map(matRowHtml).join(""); // материалы не менялись — черновик в силе
+    if (box && saved.mats && box.dataset.base === saved.mats.base) box.innerHTML = saved.mats.value.map(m => matRowHtml(m)).join(""); // материалы не менялись — черновик в силе
     const m = card.querySelector(".pf-msg");
     if (m && saved.msg) { m.textContent = saved.msg.text; m.className = saved.msg.cls; }
   }
@@ -199,7 +208,7 @@ function renderStudentsRoster(opts = {}) {
           <div class="field"><span>Доска (постоянная ссылка, видна родителю и ученику)</span>
             <input type="url" class="pf-access" maxlength="500" placeholder="https://… (Miro, Сферум, Холст…)" value="${escHtml(p.accessUrl || "")}"></div>
           <div class="field"><span>Материалы (видны родителю и ученику)</span>
-            <div class="pf-mats" data-base="${escHtml(JSON.stringify(mats.map(m => ({ title: m.title || "", url: m.url }))))}">${mats.map(matRowHtml).join("")}</div>
+            <div class="pf-mats" data-base="${escHtml(JSON.stringify(mats.map(m => ({ title: m.title || "", url: m.url }))))}">${mats.map(m => matRowHtml(m)).join("")}</div>
             <div><button class="btn secondary" type="button" data-mat-add>+ Материалы</button></div></div>
           <div class="field"><span>Заметки (видишь только ты)</span>
             <textarea class="pf-notes" maxlength="10000" placeholder="Что уже прошли, что планируем дальше…">${escHtml(p.notes || "")}</textarea></div>
@@ -270,14 +279,9 @@ $("studentsRosterList").addEventListener("click", async (e) => {
     if (u && !safeHref(u)) { msg.textContent = "Ссылка должна начинаться с https:// (или http://)"; msg.className = "msg pf-msg err"; return; }
   }
   // материалы: пустые строки пропускаем; название без ссылки или кривая ссылка — ошибка
-  const matRows = matRowsOf(card).map(m => ({ title: m.title.trim(), url: m.url.trim() })).filter(m => m.title || m.url);
-  const badMat = matRows.find(m => !Materials.normUrl(m.url));
-  if (badMat) {
-    msg.textContent = badMat.url ? `Материал «${badMat.title || badMat.url}»: ссылка должна начинаться с https:// (или http://), без пробелов` : `У материала «${badMat.title}» нет ссылки`;
-    msg.className = "msg pf-msg err";
-    return;
-  }
-  const materials = Materials.clean(matRows);
+  const matCheck = checkLinkRows(matRowsOf(card), "Материал");
+  if (matCheck.error) { msg.textContent = matCheck.error; msg.className = "msg pf-msg err"; return; }
+  const materials = Materials.clean(matCheck.rows);
   saveBtn.disabled = true;
   let target = sid;
   let note = "Сохранено";

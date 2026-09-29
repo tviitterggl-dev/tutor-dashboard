@@ -83,10 +83,11 @@ test("витрина: прошлая неделя доступна, id заня�
   await cab.click("#cal .fc-prev-button");
   await cab.waitForFunction(() => /14/.test(document.querySelector("#cal .fc-toolbar-title").textContent));
   assert.ok(await cab.$$eval("#cal .fc-event.own", (e) => e.length) >= 3, "уроки прошлой недели видны");
-  // Контакты
-  assert.equal(await cab.getAttribute("#tgLink", "href"), "https://t.me/mat_repet");
-  assert.equal(await cab.getAttribute("#telemostLink", "href"), "https://yandex.ru/chat/p/ad9c2706-f36a-940f-7a90-d15f170427e5?utm_source=invite");
-  assert.match(await cab.textContent("body"), /Если что — пишите/);
+  // Контакты: в базе их ещё не было — перенеслись прежние (из старого cabinet.html)
+  const contacts = await cab.$$eval("#contactsList a", (as) => as.map((a) => [a.textContent, a.getAttribute("href")]));
+  assert.deepEqual(contacts.map((c) => c[0]), ["Telegram", "Яндекс Телемост"]);
+  assert.match(contacts[0][1], /^https:\/\/t\.me\//);
+  assert.equal(await cab.getAttribute("#contactsCard", "hidden"), null, "карточка контактов есть (во вкладке «Ещё»)");
   assert.deepEqual(cab.errors, []);
   await app.close();
 });
@@ -471,7 +472,7 @@ test("вкладки кабинета: Занятия по умолчанию, �
   // Настройки
   await cab.click('.ctab[data-ctab="settings"]');
   assert.deepEqual(await visible(), ["pane-settings"]);
-  assert.equal(await cab.isVisible("#tgLink"), true);
+  assert.equal(await cab.isVisible("#contactsList a >> nth=0"), true);
   assert.equal(await cab.isVisible("#forgetBtn"), true);
   assert.deepEqual(cab.errors, []);
   await app.close();

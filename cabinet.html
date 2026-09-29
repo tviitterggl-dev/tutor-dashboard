@@ -236,12 +236,10 @@
       <div class="hint">Кабинет запоминается в этом браузере. «Забыть» — если это чужой или общий телефон/компьютер; снова войти можно по ссылке от преподавателя.</div>
       <div class="hint" id="updatedAt"></div>
     </div>
-    <div class="card">
+    <!-- контакты учителя — из витрины (view.contacts, «Настройки» у учителя); пусто — карточки нет -->
+    <div class="card" id="contactsCard" hidden>
       <div class="card-title">Если что — пишите</div>
-      <div class="contacts">
-        <a id="tgLink" href="https://t.me/mat_repet" target="_blank" rel="noopener noreferrer">Telegram</a>
-        <a id="telemostLink" href="https://yandex.ru/chat/p/ad9c2706-f36a-940f-7a90-d15f170427e5?utm_source=invite" target="_blank" rel="noopener noreferrer">Яндекс Телемост</a>
-      </div>
+      <div class="contacts" id="contactsList"></div>
     </div>
   </section>
 </div>

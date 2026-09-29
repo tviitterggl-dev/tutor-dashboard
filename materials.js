@@ -1,6 +1,9 @@
 // Материалы ученика — общее для кабинета учителя и кабинетов родителя/ученика.
-//   Materials.clean(list)   — только годные ссылки http(s), не больше MAX, названия
-//                             обрезаны; то же проверяют правила (validView);
+//   Materials.clean(list, max) — только годные ссылки http(s), не больше max (по
+//                             умолчанию MAX), названия обрезаны; то же проверяют
+//                             правила (validView). Тем же форматом { url, title? }
+//                             хранятся и контакты учителя «Если что — пишите»
+//                             (Materials.clean(list, CONTACTS_MAX));
 //   Materials.label(m)      — название или, если его нет, адрес сайта;
 //   Materials.dropdownHtml(list, text) — «материалы N» раскрывающимся списком
 //                             (<details>: в тесных карточках, без скриптов);
@@ -8,7 +11,7 @@
 // Разметка экранируется здесь же. Ссылки открываются в новой вкладке.
 (function (root) {
   "use strict";
-  var MAX = 10, URL_MAX = 500, TITLE_MAX = 80;
+  var MAX = 10, URL_MAX = 500, TITLE_MAX = 80, CONTACTS_MAX = 6;
 
   function esc(s) {
     return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -20,10 +23,10 @@
     if (!m || u.length > URL_MAX) return null;
     return m[1].toLowerCase() + u.slice(m[1].length);
   }
-  function clean(list) {
-    var out = [];
+  function clean(list, max) {
+    var out = [], limit = max || MAX;
     (Array.isArray(list) ? list : []).forEach(function (m) {
-      if (out.length >= MAX || !m) return;
+      if (out.length >= limit || !m) return;
       var url = normUrl(m.url);
       if (!url) return;
       var title = typeof m.title === "string" ? m.title.trim().slice(0, TITLE_MAX) : "";
@@ -50,7 +53,7 @@
     return '<div class="mats-pills">' + list.map(function (m) { return link(m, "mat-pill"); }).join("") + "</div>";
   }
 
-  var api = { MAX: MAX, URL_MAX: URL_MAX, TITLE_MAX: TITLE_MAX, clean: clean, label: label, dropdownHtml: dropdownHtml, linksHtml: linksHtml, normUrl: normUrl };
+  var api = { MAX: MAX, CONTACTS_MAX: CONTACTS_MAX, URL_MAX: URL_MAX, TITLE_MAX: TITLE_MAX, clean: clean, label: label, dropdownHtml: dropdownHtml, linksHtml: linksHtml, normUrl: normUrl };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.Materials = api;
 })(typeof window !== "undefined" ? window : this);

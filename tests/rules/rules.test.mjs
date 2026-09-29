@@ -123,6 +123,19 @@ test("витрина: материалы — список до 10 ссылок h
   assert.equal(await ok("https://example.org"), 403, "не список");
 });
 
+test("витрина: контакты учителя — до 6 ссылок https/http с необязательным названием, как материалы", async () => {
+  const c = (i, extra) => Object.assign({ url: `https://t.example.org/c${i}`, title: "Мессенджер " + i }, extra);
+  const ok = (list) => put(`parentAccess/${PKEY}`, { ...view, contacts: list });
+  assert.equal(await ok([]), 200, "пустой список");
+  assert.equal(await ok(Array.from({ length: 6 }, (_, i) => c(i))), 200, "шесть");
+  assert.equal(await ok(Array.from({ length: 7 }, (_, i) => c(i))), 403, "семь — много");
+  assert.equal(await ok([c(0), c(1), c(2), c(3), c(4), c(5, { url: "javascript:x" })]), 403, "проверяется и шестой");
+  assert.equal(await ok([c(0, { title: "x".repeat(81) })]), 403, "длинное название");
+  assert.equal(await ok([c(0, { url: "https://" + "x".repeat(500) })]), 403, "длинная ссылка");
+  assert.equal(await ok([c(0, { phone: "+7" })]), 403, "лишнее поле");
+  assert.equal(await ok("https://t.example.org"), 403, "не список");
+});
+
 const CK = "channel_key_for_tests_012345678";
 const item = { type: "reschedule", lessonId: "l1", by: "parent", createdAt: 1790000000000, newStartMs: 1790100000000, newEndMs: 1790103600000, comment: "можно позже?" };
 

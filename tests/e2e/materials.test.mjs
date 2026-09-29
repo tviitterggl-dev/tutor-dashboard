@@ -174,3 +174,54 @@ test("без материалов — ни «материалы», ни пуст
   assert.deepEqual(v.materials, []);
   await app.close();
 });
+
+test("контакты «Если что — пишите»: учитель настраивает список в «Настройках», семья видит; пусто — карточки нет", async () => {
+  const seed = seedWithKey();
+  seed[S].contacts = [{ title: "Telegram", url: "https://t.me/example_teacher" }];
+  const app = await openApp({ seed });
+  const { page } = app;
+  await page.waitForSelector("#lessonsList .lesson");
+  await page.click('.tab[data-tab="settings"]');
+  await page.waitForSelector("#contactRows .pf-mat-row");
+  assert.equal(await page.inputValue("#contactRows .pf-mat-url"), "https://t.me/example_teacher");
+  // добавить: WhatsApp, кривая ссылка — ошибка, потом правильная
+  await page.click("#contactAdd");
+  const row = page.locator("#contactRows .pf-mat-row").last();
+  await row.locator(".pf-mat-title").fill("WhatsApp");
+  await row.locator(".pf-mat-url").fill("wa.me/79990000000");
+  await page.click("#contactSave");
+  await page.waitForFunction(() => /должна начинаться с https/.test(document.querySelector("#contactMsg").textContent));
+  await row.locator(".pf-mat-url").fill("https://wa.me/79990000000");
+  // не больше 6
+  for (let i = 0; i < 6; i++) await page.click("#contactAdd");
+  assert.equal(await page.locator("#contactRows .pf-mat-row").count(), Materials.CONTACTS_MAX);
+  assert.match(await page.textContent("#contactMsg"), /не больше 6/);
+  await page.click("#contactSave"); // пустые строки пропускаются
+  await page.waitForFunction(() => /Сохранено/.test(document.querySelector("#contactMsg").textContent));
+  const want = [{ title: "Telegram", url: "https://t.me/example_teacher" }, { title: "WhatsApp", url: "https://wa.me/79990000000" }];
+  assert.deepEqual((await app.db())[S].contacts, want);
+  const v = await waitFor(async () => { const x = (await app.db())[`parentAccess/${PK}`]; return x && x.contacts && x.contacts.length === 2 && x; }, "контакты в витрине");
+  assert.deepEqual(v.contacts, want);
+  assert.ok(validView(v), "витрина проходит правила");
+  // кабинет семьи — карточка со ссылками
+  const base = page.url().replace(/\/index\.html.*$/, "");
+  const cab = await app.context.newPage();
+  await cab.clock.setFixedTime(new Date(NOW));
+  await cab.goto(base + "/cabinet.html#p=" + PK);
+  await cab.waitForSelector("#pane-lessons .lesson");
+  assert.deepEqual(await cab.$$eval("#contactsList a", (as) => as.map((a) => [a.textContent, a.href, a.target])),
+    [["Telegram", "https://t.me/example_teacher", "_blank"], ["WhatsApp", "https://wa.me/79990000000", "_blank"]]);
+  // учитель убирает все — в кабинете карточки нет (и прежние контакты не возвращаются)
+  await page.locator("#contactRows [data-mat-del]").first().click();
+  await page.locator("#contactRows [data-mat-del]").first().click();
+  await page.click("#contactSave");
+  await page.waitForFunction(() => /Контакты убраны/.test(document.querySelector("#contactMsg").textContent));
+  assert.deepEqual((await app.db())[S].contacts, []);
+  await cab.waitForFunction(() => document.getElementById("contactsCard").hidden);
+  await page.reload();
+  await page.waitForSelector("#lessonsList .lesson");
+  await page.waitForTimeout(1500);
+  assert.deepEqual((await app.db())[S].contacts, [], "пустой список — выбор учителя, перенос не повторяется");
+  await cab.close();
+  await app.close();
+});
