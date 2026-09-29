@@ -151,13 +151,15 @@ test("окно группы: «Провёл»/«Оплачено» у каждо
   const own = va.lessons.find((l) => l.id === "gA1");
   assert.equal(own.group, true);
   assert.equal(va.lessons.some((l) => /^gB/.test(l.id)), false);
-  assert.doesNotMatch(JSON.stringify(va), /Борис|gB\d|grp_mini|Мини/);
+  // без случайных ключей каналов: в них «gB1» могло бы встретиться случайно; id — только целым значением
+  const dataOf = (v) => JSON.stringify(Object.assign({}, v, { channel: null, parentChannel: null }));
+  assert.doesNotMatch(dataOf(va), /Борис|"gB\d|grp_mini|Мини/);
   const s1 = Date.parse("2026-09-22T17:00:00+03:00");
   assert.equal(va.busy.some((b) => b.s === s1), false, "своё групповое занятие не «занято»");
   const vb = db[`parentAccess/${PK_B}`];
   assert.equal(vb.lessons.find((l) => l.id === "gB1").paid, true);
   assert.equal(va.lessons.find((l) => l.id === "gA1").paid, false);
-  assert.doesNotMatch(JSON.stringify(vb), /Анна|gA\d/);
+  assert.doesNotMatch(dataOf(vb), /Анна|"gA\d/);
   // обычное занятие Анны в 15:00 для Бориса — «занято» (одна запись, без имени)
   assert.ok(vb.busy.some((b) => b.s === Date.parse("2026-09-22T15:00:00+03:00")));
   assert.deepEqual(app.errors, []);

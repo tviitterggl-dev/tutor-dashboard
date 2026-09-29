@@ -220,7 +220,8 @@
           if (args.length) await updateDoc(stateRef, ...args);
         }
       },
-      // все копии занятий группы (у каждого участника — своя), только по равенству — без индекса
+      // все занятия серии (у группы — копии всех участников), только по равенству — без индекса;
+      // растёт с историей серии — только на редкое явное действие («это и следующие»)
       async listSeries(recurrenceId) {
         const snap = await getDocs(query(lessonsCol, where("recurrenceId", "==", recurrenceId)));
         return snap.docs.map((d) => Object.assign({ id: d.id }, d.data())).sort((a, b) => a.startMs - b.startMs);
@@ -299,9 +300,8 @@
         return snap.docs.map((d) => Object.assign({ id: d.id }, d.data()));
       },
       // Уведомления (вкладка «Уведомления») и журнал фоновой рассылки пушей.
-      // Все «разово»/«перед занятием» и «Отправить сейчас» за последние 30 дней.
-      // Старые «сейчас» (и отчёты) копятся годами — читать их на каждое
-      // открытие вкладки незачем (в кабинетах они давно не показываются).
+      // Все «разово»/«перед занятием» и «сейчас» за последнюю неделю: старше
+      // рассылка удаляет сама (отчёты — через 3 дня, «Отправить сейчас» — через 7).
       async listNotifications() {
         const col = collection(db, "teacherSpaces", teacherId, "notifications");
         const [a, b] = await Promise.all([
