@@ -226,3 +226,14 @@ button:not(:disabled):active, .btn:not(:disabled):active, .tab:active, .subtab:a
 .mats-pills { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0; }
 .mat-pill { display: inline-block; max-width: 100%; padding: 7px 14px; border-radius: var(--r-pill); border: 1px solid var(--border); background: var(--surface-2); color: var(--text); text-decoration: none; font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mat-pill:hover { border-color: var(--accent-2); }
+
+/* Месяц на телефоне (уже 640 px — тот же порог, что narrow при создании
+   календаря): в узкой ячейке только время, без названия и точки; имя видно по
+   нажатию (окно занятия). Размер и отступы фиксированы, от ширины ячейки не
+   зависят — «09:00» не обрезается даже на 320 px. На компьютере — как было. */
+@media (max-width: 639px) {
+  :is(#fcRoot, #cal) .fc-dayGridMonth-view .fc-daygrid-event :is(.fc-event-title, .fc-event-title-container, .fc-daygrid-event-dot) { display: none; }
+  :is(#fcRoot, #cal) .fc-dayGridMonth-view .fc-daygrid-event { margin: 1px 1px 0; padding: 1px 0; justify-content: center; overflow: visible; }
+  :is(#fcRoot, #cal) .fc-dayGridMonth-view .fc-daygrid-event .fc-event-time { font-size: 10.5px; font-weight: 700; line-height: 1.5; margin: 0; padding: 0 1px; letter-spacing: -0.2px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: visible; }
+  :is(#fcRoot, #cal) .fc-dayGridMonth-view .fc-daygrid-day-frame { min-width: 0; }
+}

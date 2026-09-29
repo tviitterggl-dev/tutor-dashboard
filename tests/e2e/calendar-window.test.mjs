@@ -114,3 +114,68 @@ test("месяц: число строк по месяцу (5 / 6 / 4), у учи
     await app.close();
   }
 });
+
+// Месяц на телефоне: в узкой ячейке только время («09:00»), без названия и
+// точки — имя видно по нажатию (окно занятия). Размер шрифта и отступы
+// зафиксированы: время не обрезается ни на 320, ни на 430 px. На компьютере —
+// время и название, как раньше. Порог — 640 px, как narrow в ensureCalendar().
+async function monthEvents(page, root) {
+  return page.$$eval(`${root} .fc-dayGridMonth-view .fc-daygrid-event`, (els) => els.map((e) => {
+    const time = e.querySelector(".fc-event-time");
+    const title = e.querySelector(".fc-event-title");
+    const box = e.getBoundingClientRect();
+    const cell = e.closest(".fc-daygrid-day").getBoundingClientRect();
+    const tr = time ? time.getBoundingClientRect() : null;
+    return {
+      time: time ? time.textContent.trim() : "",
+      timeFits: !!time && time.scrollWidth <= time.clientWidth + 0.5 && tr.right <= box.right + 0.5 && box.right <= cell.right + 0.5,
+      titleShown: !!title && title.offsetWidth > 0 && getComputedStyle(title).display !== "none",
+      font: time ? getComputedStyle(time).fontSize : "",
+    };
+  }));
+}
+test("месяц на телефоне: в ячейке только время, целиком и одного размера; на компьютере — время и название (учитель и семья)", async () => {
+  const app = await openWithFamily();
+  const { page } = app;
+  const fonts = new Set();
+  for (const width of [320, 390, 430]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.reload();
+    await page.waitForSelector("#lessonsList .lesson");
+    await page.click('.tab[data-tab="calendar"]');
+    await page.click("#fcRoot .fc-dayGridMonth-button");
+    await page.waitForSelector("#fcRoot .fc-dayGridMonth-view .fc-daygrid-event");
+    const evs = await monthEvents(page, "#fcRoot");
+    assert.ok(evs.length > 5);
+    for (const e of evs) {
+      assert.match(e.time, /^\d{2}:\d{2}$/, `${width}px: время «${e.time}»`);
+      assert.ok(e.timeFits, `${width}px: «${e.time}» не обрезано`);
+      assert.equal(e.titleShown, false, `${width}px: без названия`);
+      fonts.add(e.font);
+    }
+    // нажатие — окно занятия с именем
+    await page.locator("#fcRoot .fc-dayGridMonth-view .fc-daygrid-event").first().click();
+    await page.waitForSelector("#modalBack", { state: "visible" });
+    await page.keyboard.press("Escape");
+  }
+  assert.equal(fonts.size, 1, "размер шрифта не зависит от ширины: " + [...fonts]);
+  // компьютер — с названиями
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.reload();
+  await page.waitForSelector("#lessonsList .lesson");
+  await page.click('.tab[data-tab="calendar"]');
+  await page.click("#fcRoot .fc-dayGridMonth-button");
+  await page.waitForSelector("#fcRoot .fc-dayGridMonth-view .fc-daygrid-event");
+  const desk = await monthEvents(page, "#fcRoot");
+  assert.ok(desk.every((e) => e.titleShown), "на компьютере название видно");
+  // кабинет семьи на телефоне — так же
+  const cab = await openCab(app, { width: 390, height: 800 });
+  await cab.click("#cal .fc-dayGridMonth-button");
+  await cab.waitForSelector("#cal .fc-dayGridMonth-view .fc-daygrid-event");
+  for (const e of await monthEvents(cab, "#cal")) {
+    assert.ok(e.timeFits && !e.titleShown, `кабинет: «${e.time}» целиком, без названия`);
+  }
+  await cab.close();
+  assert.deepEqual(app.errors, []);
+  await app.close();
+});
