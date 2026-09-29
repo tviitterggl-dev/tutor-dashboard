@@ -126,6 +126,45 @@ test("журнал: старше 60 дней чистится, но «разов
   assert.equal(sent.filter((m) => m.data.tag === "once1__once").length, 0, "уже было отправлено раньше");
 });
 
+test("уведомления «сейчас» удаляются совсем: отчёты — через 3 дня, «Отправить сейчас» — через 7; настроенные — никогда; раз в сутки", async () => {
+  const D = 24 * H;
+  const all = { scope: "all", role: "any" };
+  const put = (id, doc) => tRef.collection("notifications").doc(id).set({ text: id, times: 1, target: all, active: true, ...doc });
+  await put("rep2", { mode: "now", source: "report", createdAt: NOW - 2 * D });
+  await put("rep4", { mode: "now", source: "report", createdAt: NOW - 4 * D });
+  await put("msg4", { mode: "now", createdAt: NOW - 4 * D });
+  await put("msg8", { mode: "now", createdAt: NOW - 8 * D });
+  await put("once90", { mode: "once", createdAt: NOW - 90 * D });
+  await put("before90", { mode: "before", offsetValue: 1, offsetUnit: "hour", createdAt: NOW - 90 * D });
+  const exists = async (id) => (await tRef.collection("notifications").doc(id).get()).exists;
+  await runOnce({ db, send: fakeSend([]), now: NOW, siteUrl: SITE, logger: quiet });
+  assert.equal(await exists("rep2"), true, "отчёт младше 3 дней остаётся");
+  assert.equal(await exists("rep4"), false, "отчёт старше 3 дней удалён (текст есть в занятии)");
+  assert.equal(await exists("msg4"), true, "«Отправить сейчас» 4 дня — остаётся (буфер 7 дней)");
+  assert.equal(await exists("msg8"), false, "«Отправить сейчас» старше 7 дней удалено");
+  assert.equal(await exists("once90"), true, "«разово» не трогаем");
+  assert.equal(await exists("before90"), true, "«перед занятием» не трогаем");
+  assert.equal(await exists("r90"), true);
+  // чистка — раз в сутки: через 12 часов ничего не удаляется, через сутки — да
+  await runOnce({ db, send: fakeSend([]), now: NOW + 12 * H, siteUrl: SITE, logger: quiet });
+  assert.equal(await exists("rep2"), true, "2,5 дня — ещё рано");
+  await runOnce({ db, send: fakeSend([]), now: NOW + D + H, siteUrl: SITE, logger: quiet });
+  assert.equal(await exists("rep2"), false, "3 дня с часом после отправки — удалён");
+  assert.equal(await exists("msg4"), true, "5 дней — ещё остаётся");
+  assert.equal(await exists("now1"), true, "«сейчас» из стенда, сутки — остаётся");
+  await runOnce({ db, send: fakeSend([]), now: NOW + 7 * D, siteUrl: SITE, logger: quiet });
+  assert.equal(await exists("msg4"), false);
+  assert.equal(await exists("now1"), false);
+  assert.equal(await exists("once90"), true);
+});
+
+test("чистка «сейчас» и общие сроки: sentKeepMs — 3 дня отчёту, 7 дней сообщению", () => {
+  assert.equal(core.sentKeepMs({ mode: "now", source: "report" }), core.NOW_TTL_MS);
+  assert.equal(core.NOW_TTL_MS, 3 * 24 * H);
+  assert.equal(core.sentKeepMs({ mode: "now" }), 7 * 24 * H);
+  assert.equal(core.SENT_KEEP_MS, 7 * 24 * H);
+});
+
 test("пуши учителю: оплата/пояснение/ДЗ от родителя и ученика — один раз, со своим текстом; события учителя и до подписки — нет", async () => {
   const st = tRef.collection("state").doc("main");
   await st.set({ teacherDevices: { dev1: { token: "tok-teacher-" + "x".repeat(30), createdAt: NOW - 2 * H } }, teacherPush: { paid: true, note: true, homework: true } }, { merge: true });

@@ -56,6 +56,22 @@ async function liveRules(tRef, now) {
   [...a.docs, ...b.docs].forEach((d) => byId.set(d.id, Object.assign({ id: d.id }, d.data())));
   return [...byId.values()];
 }
+// Старые «сейчас» удаляются совсем (раз в сутки, вместе с чисткой журнала):
+//  • отчёты (source: "report") — через NOW_TTL (3 дня): дальше они уже не
+//    показываются и не шлются, а сам текст навсегда остаётся в занятии (report);
+//  • ручное «Отправить сейчас» — через 7 дней: это единственная копия текста,
+//    учителю оставлен запас, чтобы посмотреть, что ушло.
+// Запрос только по mode (одно поле — без составного индекса), возраст — здесь;
+// после первой чистки «сейчас» в базе не больше, чем за 7 дней.
+function sentExpired(r, now) {
+  return r.mode === "now" && now - (r.createdAt || 0) >= core.sentKeepMs(r);
+}
+async function purgeSentNotifications(tRef, now) {
+  const snap = await tRef.collection("notifications").where("mode", "==", "now").limit(500).get();
+  let n = 0;
+  for (const d of snap.docs) if (sentExpired(d.data(), now)) { await d.ref.delete(); n++; }
+  return n;
+}
 // Какие из этих записей журнала уже есть — точечное чтение (getAll), не весь журнал.
 async function logHas(tRef, ids) {
   const uniq = [...new Set(ids)];
@@ -256,6 +272,7 @@ export async function runOnce({ db, send, now = Date.now(), siteUrl, logger = co
     if (now - lastPurge >= DAY) {
       const old = await tRef.collection("notifLog").where("sentAt", "<", now - 60 * DAY).limit(300).get();
       for (const d of old.docs) if (!d.id.endsWith("__once")) await d.ref.delete();
+      await purgeSentNotifications(tRef, now);
       purgedAt = now;
     }
     // statsSince — с какого момента рассылка ведёт счётчики в уведомлениях:

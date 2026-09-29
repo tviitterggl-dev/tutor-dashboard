@@ -26,6 +26,11 @@
   const UNIT_MS = { min: 60000, hour: 3600000, day: 86400000 };
   const UNIT_RU = { min: ["минуту", "минуты", "минут"], hour: ["час", "часа", "часов"], day: ["день", "дня", "дней"] };
   const NOW_TTL_MS = 3 * 86400000;      // «Отправить сейчас» висит в кабинете 3 дня
+  // Сколько уведомление «сейчас» живёт в базе: отчёт — NOW_TTL (текст есть в
+  // занятии), ручное «Отправить сейчас» — неделю (единственная копия текста).
+  // Старше удаляет ежедневная чистка рассылки (notifier/send.mjs).
+  const SENT_KEEP_MS = 7 * 86400000;
+  function sentKeepMs(rule) { return rule && rule.source === "report" ? NOW_TTL_MS : SENT_KEEP_MS; }
   // Напоминание, опоздавшее больше чем на 9 ч, не шлём. 9 ч — чтобы пережить
   // ночную паузу рассылки (запуски только 08:00–23:59 МСК, ~8¼ ч без них):
   // напоминание, выпавшее на ночь, приходит утром, а не пропадает.
@@ -261,7 +266,7 @@
     });
   }
 
-  const api = { TEACHER_KINDS, teacherEvents, planTeacherPushes, pushKeyId, isPushKeyId, pushKeyMap, pushItemKey, UNIT_MS, TITLE_MAX, DEFAULT_TITLE, titleFor, NOW_TTL_MS, PUSH_GRACE_MS, offsetMs, offsetText, keyMatches, targetStudent, ruleLessons, isLive, fillText, noticesForKey, dueReminders, planPushes, plural };
+  const api = { TEACHER_KINDS, teacherEvents, planTeacherPushes, pushKeyId, isPushKeyId, pushKeyMap, pushItemKey, UNIT_MS, TITLE_MAX, DEFAULT_TITLE, titleFor, NOW_TTL_MS, SENT_KEEP_MS, sentKeepMs, PUSH_GRACE_MS, offsetMs, offsetText, keyMatches, targetStudent, ruleLessons, isLive, fillText, noticesForKey, dueReminders, planPushes, plural };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   root.NotifyCore = api;
 })(typeof window !== "undefined" ? window : globalThis);
