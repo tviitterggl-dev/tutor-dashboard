@@ -71,7 +71,7 @@ function openCreateModal(start, end) {
         <div class="field"><span>Название группы (необязательно)</span><input type="text" id="mGroupName" maxlength="60" placeholder="Например: ОГЭ, 9 класс"></div>
         <div class="field"><span>Ученики</span></div>
         <div class="ge-list" id="mMembers">${studentList().map(st => `<label class="check"><input type="checkbox" data-member="${escHtml(st.id)}"> ${escHtml(st.name + (st.surname ? " " + st.surname : "") + ", " + st.cls + " класс")}</label>`).join("") || '<div class="hint">Сначала добавь учеников во вкладке «Ученики».</div>'}</div>
-        <div class="hint">У каждого ученика будет своё «Провёл» (идёт в его пакет), своя групповая цена и своё «Оплачено»; файлы ДЗ — общие.</div>
+        <div class="hint hint-help">У каждого ученика будет своё «Провёл» (идёт в его пакет), своя групповая цена и своё «Оплачено»; файлы ДЗ — общие.</div>
       </div>
       ${whenFieldsHtml(startMs, durMin)}
       <div id="mSlots"></div>
@@ -354,7 +354,7 @@ function renderLessonModal(l, note) {
           <button class="mark-btn paid-btn ${l.paid && l.paid.value ? "paid" : ""}" type="button" id="mPaid" aria-pressed="${l.paid && l.paid.value ? "true" : "false"}">${l.paid && l.paid.value ? "✓ Оплачено (снять)" : "Отметить оплату"}</button>
           ${l.paid && l.paid.value && l.paid.by === "parent" ? `<span class="cls">отметил родитель ${escHtml(new Date(l.paid.at).toLocaleDateString("ru-RU"))}</span>` : ""}
         </div>
-        <div class="hint" style="margin-top:0">Просто отметка для себя и родителя — родитель видит и может ставить её в своём кабинете.</div>
+        <div class="hint hint-help" style="margin-top:0">Просто отметка для себя и родителя — родитель видит и может ставить её в своём кабинете.</div>
       </div>` : "";
 
   const editHtml = isPlanned ? `
@@ -387,7 +387,7 @@ function renderLessonModal(l, note) {
         <div class="section-title">Домашнее задание (файлы)</div>
         ${hw.length ? `<ul class="file-list">${hw.map(h => `<li><span><a href="${escHtml(h.url)}" target="_blank" rel="noopener">${escHtml(h.name || "файл")}</a>${h.by && h.by !== "teacher" ? ` <span class="cls">(${ROLE_RU[h.by] || escHtml(h.by)})</span>` : ""}</span><button class="link-btn" type="button" data-hw-remove="${escHtml(h.url)}">убрать</button></li>`).join("")}</ul>` : '<div class="hint" style="margin-top:0">Файлов нет.</div>'}
         ${dropZoneHtml("mHwFile", "Добавить файлы к этому занятию")}
-        <div class="hint">Фото, PDF, документы — до 10 МБ каждый. Хранятся в Cloudinary. Родитель и ученик видят эти файлы в своих кабинетах и могут добавлять свои (они появятся здесь с пометкой).</div>
+        <div class="hint hint-help">Фото, PDF, документы — до 10 МБ каждый. Хранятся в Cloudinary. Родитель и ученик видят эти файлы в своих кабинетах и могут добавлять свои (они появятся здесь с пометкой).</div>
       </div>`;
 
   // ДЗ к следующему занятию этого же ученика (studentId учитывает фамилию —
@@ -424,7 +424,7 @@ function renderLessonModal(l, note) {
       <div class="section">
         <div class="section-title">Мой календарь</div>
         <button class="btn secondary" type="button" id="mExport">Добавить в календарь (.ics)</button>
-        <div class="hint">Скачается файл события — телефон или компьютер предложит добавить его в твой календарь (Google, Apple, Outlook), с напоминанием за 30 минут. Без входа в аккаунты. Каждое нажатие — новое событие; изменения занятия туда сами не попадут.</div>
+        <div class="hint hint-help">Скачается файл события — телефон или компьютер предложит добавить его в твой календарь (Google, Apple, Outlook), с напоминанием за 30 минут. Без входа в аккаунты. Каждое нажатие — новое событие; изменения занятия туда сами не попадут.</div>
       </div>`;
 
   openModal(`

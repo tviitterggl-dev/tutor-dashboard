@@ -86,7 +86,7 @@ test("родитель и ученик: вкладка «Настройки» в
   await mom.waitForSelector("#pane-lessons .lesson");
   assert.deepEqual(await tabs(mom, "#tabs .ctab", "data-ctab"), ["lessons", "calendar", "hw", "requests", "settings"]);
   await mom.click('.ctab[data-ctab="settings"]');
-  for (const id of ["#tabOrderEditor", "#pushCard", "#themeToggle", "#forgetBtn", "#tgLink"]) assert.equal(await mom.locator(`#pane-settings ${id}`).count(), 1, id);
+  for (const id of ["#tabOrderEditor", "#pushCard", "#themeToggle", "#forgetBtn", "#contactsCard"]) assert.equal(await mom.locator(`#pane-settings ${id}`).count(), 1, id);
   // «ДЗ» — наверх
   await mom.click('[data-to-up="hw"]');
   await mom.click('[data-to-up="hw"]');

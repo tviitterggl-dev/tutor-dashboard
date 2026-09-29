@@ -104,7 +104,7 @@ async function renderNextHw(l, busy) {
         <button class="link-btn" type="button" data-open="${escHtml(next.id)}">открыть</button></div>
       ${hw.length ? `<ul class="file-list">${hw.map(h => `<li><span><a href="${escHtml(h.url)}" target="_blank" rel="noopener">${escHtml(h.name || "файл")}</a></span></li>`).join("")}</ul>` : ""}
       ${dropZoneHtml("mNextHwFile", "Прикрепить ДЗ к следующему занятию")}
-      <div class="hint">Файлы попадут в следующее занятие ученика — родитель и ученик увидят их у него.</div>`;
+      <div class="hint hint-help">Файлы попадут в следующее занятие ученика — родитель и ученик увидят их у него.</div>`;
   const zone = box.querySelector('[data-drop="mNextHwFile"]');
   const upload = (files) => busy(zone, async () => {
     const n = await uploadHwTo(next.id, files);

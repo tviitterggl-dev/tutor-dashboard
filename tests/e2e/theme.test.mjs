@@ -178,6 +178,54 @@ test("палитры: 4 новые × светлая/тёмная; выбор н
   await app.close();
 });
 
+test("«Подсказки»: ползунок прячет справочные пояснения (.hint-help), статусы (.hint) остаются; на устройстве, без базы", async () => {
+  const app = await openApp({ seed: seed() });
+  const { page } = app;
+  await page.waitForSelector("#lessonsList .lesson");
+  await page.click('.tab[data-tab="settings"]');
+  await page.waitForSelector("[data-hints-toggle]");
+  const vis = (sel) => page.$$eval(sel, (els) => els.filter((e) => e.offsetParent !== null).length);
+  assert.equal(await page.isChecked("[data-hints-toggle]"), true, "по умолчанию включены");
+  assert.ok(await vis("#view-settings .hint-help") >= 5, "справочные видны");
+  await page.waitForFunction(() => document.getElementById("accountInfo").textContent.length > 0);
+  await page.evaluate(() => { window.__fakeReads = 0; });
+  await page.locator("label.theme-switch", { has: page.locator("[data-hints-toggle]") }).click();
+  assert.equal(await page.evaluate(() => [document.documentElement.getAttribute("data-hints"), localStorage.getItem("hints")].join("|")), "off|off");
+  assert.equal(await vis(".hint-help"), 0, "справочные спрятаны на всех вкладках");
+  assert.equal(await page.isVisible("#accountInfo"), true, "статус входа (голый .hint) виден");
+  assert.match(await page.textContent("[data-hints-state]"), /скрыты/);
+  assert.equal(await page.evaluate(() => window.__fakeReads), 0, "без чтений базы");
+  // другие вкладки: справочные спрятаны, статусы на месте
+  await page.click('.tab[data-tab="stats"]');
+  await page.waitForTimeout(500);
+  assert.equal(await vis(".hint-help"), 0);
+  // окно занятия: «Сохранить»/«Перенести» — пояснение остаётся (без него непонятно)
+  await page.evaluate(() => openLessonModal("serA_20260930T070000Z"));
+  await page.waitForSelector("#mMove");
+  assert.equal(await vis("#modal .hint-help"), 0);
+  assert.equal(await page.isVisible("#modal .hint >> text=«Перенести»"), true);
+  await page.click("#mClose");
+  // после перезагрузки — по-прежнему выключены
+  await page.reload();
+  await page.waitForSelector("#lessonsList .lesson");
+  assert.equal(await page.evaluate(() => document.documentElement.getAttribute("data-hints")), "off");
+  // кабинет семьи (тот же браузер — тот же выбор): «Ещё» без пояснений, «Расписание обновлено» на месте
+  await waitViews(app);
+  const cab = await app.context.newPage();
+  await cab.clock.setFixedTime(new Date(NOW));
+  await cab.goto(page.url().replace(/\/index\.html.*$/, "") + "/cabinet.html#p=" + PK);
+  await cab.waitForSelector("#pane-lessons .lesson");
+  await cab.click('.ctab[data-ctab="settings"]');
+  assert.equal(await cab.isVisible("#pane-settings .hint-help >> nth=0"), false);
+  assert.equal(await cab.isVisible("#updatedAt"), true);
+  // включить обратно в кабинете
+  await cab.locator("label.theme-switch", { has: cab.locator("[data-hints-toggle]") }).click();
+  assert.equal(await cab.isVisible("#pane-settings .hint-help >> nth=0"), true);
+  await cab.close();
+  assert.deepEqual(app.errors, []);
+  await app.close();
+});
+
 test("шрифты и скругления по стиль-гайду", async () => {
   const app = await openApp();
   const { page } = app;

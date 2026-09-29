@@ -116,7 +116,7 @@ function renderRequestsPane() {
   if (pend.length) html += `<div class="card"><div class="card-title">Ждут ответа</div>${pend.map((r) => requestItem(r, true)).join("")}</div>`;
   html += `<div class="card"><div class="card-title">История заявок</div>
       ${decided.length ? decided.map((r) => requestItem(r, false)).join("") : '<div class="empty">Решённых заявок пока нет</div>'}
-      <div class="hint">Перенести или отменить занятие можно в его карточке (вкладки «Занятия» и «Календарь»), а попросить дополнительное — кнопкой «Предложить время нового занятия» или нажав на свободное время в календаре. Преподаватель подтвердит или откажет, ответ появится здесь.</div>
+      <div class="hint hint-help">Перенести или отменить занятие можно в его карточке (вкладки «Занятия» и «Календарь»), а попросить дополнительное — кнопкой «Предложить время нового занятия» или нажав на свободное время в календаре. Преподаватель подтвердит или откажет, ответ появится здесь.</div>
     </div>`;
   $("pane-requests").innerHTML = html;
   wireWithdraw($("pane-requests"));
@@ -195,7 +195,7 @@ function renderHwPane(now) {
         <select id="hwLesson">${cands.map((l) => `<option value="${esc(l.id)}"${l.id === hwSelected ? " selected" : ""}>${esc(fmtWhen(l.startMs, l.endMs))}${l.pkg ? " · " + esc(l.pkg) : ""}</option>`).join("")}</select>
         ${dropZoneHtml("hwFile", "Загрузить выполненное ДЗ")}
         <div class="msg" id="hwMsg"></div>
-        <div class="hint">Фото или файл выполненного задания, до 10 МБ. Его сразу увидят преподаватель и ${current.role === "parent" ? "ученик" : "родитель"}.</div>
+        <div class="hint hint-help">Фото или файл выполненного задания, до 10 МБ. Его сразу увидят преподаватель и ${current.role === "parent" ? "ученик" : "родитель"}.</div>
       </div>`;
   } else if (!view.channel) {
     html += '<div class="card"><div class="hint" style="margin-top:0">Загрузка файлов появится после ближайшего входа преподавателя в свой кабинет.</div></div>';

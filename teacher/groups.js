@@ -175,7 +175,7 @@ function renderGroupModal(copies, note) {
       <div class="section">
         <div class="section-title">Участники</div>
         <div id="gMembers">${live.map(memberRow).join("")}</div>
-        <div class="hint">«Провёл» и «Оплачено» — у каждого свои; «Провёл» идёт в пакет этого ученика. Сумма — по групповой цене из карточки ученика (не задана — обычная ставка).</div>
+        <div class="hint hint-help">«Провёл» и «Оплачено» — у каждого свои; «Провёл» идёт в пакет этого ученика. Сумма — по групповой цене из карточки ученика (не задана — обычная ставка).</div>
         <div class="btn-row" style="margin:6px 0 0"><button class="btn secondary" type="button" id="gMembersEdit">Состав группы…</button></div>
       </div>
       ${status === "planned" ? `<div class="section">
@@ -208,7 +208,7 @@ function renderGroupModal(copies, note) {
         <div class="section-title">Домашнее задание (общее на группу)</div>
         ${hwAll.length ? `<ul class="file-list">${hwAll.map(h => `<li><span><a href="${escHtml(h.url)}" target="_blank" rel="noopener">${escHtml(h.name || "файл")}</a>${h.who ? ` <span class="cls">(${escHtml(h.who)}, ${ROLE_RU[h.by] || escHtml(h.by)})</span>` : ""}</span><button class="link-btn" type="button" data-g-hw-remove="${escHtml(h.url)}">убрать</button></li>`).join("")}</ul>` : '<div class="hint" style="margin-top:0">Файлов нет.</div>'}
         ${dropZoneHtml("gHwFile", "Добавить файлы для всей группы")}
-        <div class="hint">Файлы увидят все участники в своих кабинетах. Файлы, загруженные родителем или учеником, видны только тебе и ему.</div>
+        <div class="hint hint-help">Файлы увидят все участники в своих кабинетах. Файлы, загруженные родителем или учеником, видны только тебе и ему.</div>
       </div>
       <div class="section">
         <div class="section-title">Мой календарь</div>
@@ -339,7 +339,7 @@ function openGroupEditor(gid, backTo) {
       <div class="field"><span>Участники</span></div>
       <div class="ge-list">${students.map(st => `<label class="check"><input type="checkbox" data-ge-member="${escHtml(st.id)}"${(g.members || []).includes(st.id) ? " checked" : ""}> ${escHtml(st.name + (st.surname ? " " + st.surname : "") + ", " + st.cls + " класс")}</label>`).join("")}</div>
       <div class="field" style="margin-top:8px"><span>Ссылка на созвон группы (видна участникам)</span><input type="url" id="geCall" maxlength="500" placeholder="https://…" value="${escHtml(g.callUrl || "")}"></div>
-      <div class="hint">Новый участник получит все будущие занятия группы (с общими файлами ДЗ), убранный — потеряет свои будущие непроведённые. Прошедшие и проведённые занятия не меняются.</div>
+      <div class="hint hint-help">Новый участник получит все будущие занятия группы (с общими файлами ДЗ), убранный — потеряет свои будущие непроведённые. Прошедшие и проведённые занятия не меняются.</div>
       <div class="msg" id="mMsg"></div>
       <div class="btn-row">
         <button class="btn" type="button" id="geSave">Сохранить состав</button>

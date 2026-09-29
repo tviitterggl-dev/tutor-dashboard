@@ -383,7 +383,7 @@ function renderPackages(packages) {
             </div>
           </div>
           <div class="pkg-new-panel" style="display:none; margin-top:8px;">
-            <div class="hint" style="margin-top:0">Новый пакет: счётчик начнётся с 0, дальше считаются отметки «Провёл».</div>
+            <div class="hint hint-help" style="margin-top:0">Новый пакет: счётчик начнётся с 0, дальше считаются отметки «Провёл».</div>
             <div style="display:flex; gap:6px; margin-bottom:6px;">
               <label class="pkg-lbl">Занятий в новом пакете<input type="number" class="pkg-input pkg-new-total" min="1" max="200" inputmode="numeric" value="${p.total}"></label>
             </div>

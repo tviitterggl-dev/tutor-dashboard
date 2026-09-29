@@ -92,7 +92,7 @@ function refreshModal(force) {
       <div class="section"><div class="section-title">Домашнее задание</div>
         ${files.length ? `<ul class="files">${files.map((h) => `<li><a href="${esc(h.url)}" target="_blank" rel="noopener noreferrer">${esc(h.name || "файл")}</a> <span class="who">(${esc(ROLE[h.by] || ROLE.teacher)})</span></li>`).join("")}</ul>` : '<div class="hint" style="margin-top:0">Файлов пока нет.</div>'}
         ${view.channel ? `<div style="margin-top:10px">${dropZoneHtml("mFile", "Добавить файлы")}</div>
-        <div class="hint">Сфотографируйте или приложите выполненное задание (до 10 МБ). Его сразу увидят преподаватель и ${current.role === "parent" ? "ученик" : "родитель"}.</div>` : '<div class="hint">Загрузка файлов и заявки появятся после ближайшего входа преподавателя в свой кабинет.</div>'}
+        <div class="hint hint-help">Сфотографируйте или приложите выполненное задание (до 10 МБ). Его сразу увидят преподаватель и ${current.role === "parent" ? "ученик" : "родитель"}.</div>` : '<div class="hint">Загрузка файлов и заявки появятся после ближайшего входа преподавателя в свой кабинет.</div>'}
       </div>
       ${paidHtml}
       ${reqHtml}
