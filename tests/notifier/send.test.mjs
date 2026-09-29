@@ -222,3 +222,30 @@ test("экономия чтений: большая история журнал�
   // «разово/сейчас» после отправки помечено — дальше не проверяется по журналу
   assert.ok((await tRef.collection("notifications").doc("now1").get()).data().pushedAt, "now1 помечено pushedAt");
 });
+
+test("счётчики рассылок — в самом уведомлении (вкладке не нужен журнал); statsSince ставится один раз", async () => {
+  const sent = [];
+  await runOnce({ db, send: fakeSend(sent), now: NOW, siteUrl: SITE, logger: quiet });
+  const r90 = (await tRef.collection("notifications").doc("r90").get()).data();
+  assert.deepEqual([r90.pushRuns, r90.pushDelivered, r90.pushLastAt], [1, 1, NOW], "напоминание: 1 рассылка, доставлено 1 (второй токен мёртвый)");
+  assert.equal(r90.pushedAt, undefined, "напоминание к занятию — не «навсегда»");
+  const now1 = (await tRef.collection("notifications").doc("now1").get()).data();
+  assert.deepEqual([now1.pushRuns, now1.pushDelivered, now1.pushedAt], [1, 1, NOW], "«сейчас»: счётчик и пометка «отправлено»");
+  let st = (await tRef.collection("state").doc("main").get()).data();
+  assert.equal(st.notifier.statsSince, NOW);
+  await runOnce({ db, send: fakeSend([]), now: NOW + 20 * M, siteUrl: SITE, logger: quiet });
+  st = (await tRef.collection("state").doc("main").get()).data();
+  assert.equal(st.notifier.statsSince, NOW, "statsSince не сдвигается");
+  assert.equal((await tRef.collection("notifications").doc("r90").get()).data().pushRuns, 1, "повтора нет — счётчик тот же");
+});
+
+test("уведомление удалили во время рассылки — не воскресает пустым документом", async () => {
+  const send = async (messages) => {
+    await tRef.collection("notifications").doc("now1").delete(); // учитель нажал «Удалить»
+    await tRef.collection("notifications").doc("r90").delete();
+    return messages.map(() => ({ success: true }));
+  };
+  await runOnce({ db, send, now: NOW, siteUrl: SITE, logger: quiet });
+  assert.equal((await tRef.collection("notifications").doc("now1").get()).exists, false);
+  assert.equal((await tRef.collection("notifications").doc("r90").get()).exists, false);
+});

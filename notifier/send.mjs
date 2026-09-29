@@ -65,8 +65,19 @@ async function logHas(tRef, ids) {
   snaps.forEach((s) => { if (s.exists) out[s.id] = true; });
   return out;
 }
+// Пометки и счётчики — в самом уведомлении, через update: если учитель как
+// раз удалил уведомление, запись просто не пройдёт (set с merge воскресил бы
+// его пустым документом без текста).
 async function markPushed(tRef, ruleId, now) {
-  await tRef.collection("notifications").doc(ruleId).set({ pushedAt: now }, { merge: true }).catch(() => {});
+  await tRef.collection("notifications").doc(ruleId).update({ pushedAt: now }).catch(() => {});
+}
+// Счётчики рассылок для вкладки «Уведомления»: сколько раз, на сколько
+// устройств, когда последний раз. Раньше вкладка ради этих цифр читала весь
+// журнал за 60 дней при каждом открытии — сотни чтений.
+async function countPush(tRef, ruleId, delivered, now, once) {
+  const f = { pushRuns: FieldValue.increment(1), pushDelivered: FieldValue.increment(delivered), pushLastAt: now };
+  if (once) f.pushedAt = now; // «разово»/«сейчас» — отправлено навсегда
+  await tRef.collection("notifications").doc(ruleId).update(f).catch(() => {});
 }
 
 // Пуши учителю: устройства — state.teacherDevices { id: { token, createdAt } }
@@ -226,7 +237,7 @@ export async function runOnce({ db, send, now = Date.now(), siteUrl, logger = co
           }
         }
         await logRef.set({ delivered, failed, status: "done" }, { merge: true });
-        if (!p.lessonId) await markPushed(tRef, p.ruleId, now); // «разово»/«сейчас» — отправлено навсегда
+        await countPush(tRef, p.ruleId, delivered, now, !p.lessonId);
         summary.sent += delivered;
         summary.failed += failed;
         sentHere += delivered;
@@ -247,7 +258,10 @@ export async function runOnce({ db, send, now = Date.now(), siteUrl, logger = co
       for (const d of old.docs) if (!d.id.endsWith("__once")) await d.ref.delete();
       purgedAt = now;
     }
-    await stateRef.set({ notifier: { lastRunAt: now, lastSent: sentHere, lastPurgeAt: purgedAt } }, { merge: true });
+    // statsSince — с какого момента рассылка ведёт счётчики в уведомлениях:
+    // записи журнала до него кабинет учителя один раз переносит в pushLegacy.
+    const statsSince = (state.notifier && state.notifier.statsSince) || now;
+    await stateRef.set({ notifier: { lastRunAt: now, lastSent: sentHere, lastPurgeAt: purgedAt, statsSince } }, { merge: true });
   }
   return summary;
 }

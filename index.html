@@ -277,9 +277,18 @@
         return snap.docs.map((d) => Object.assign({ id: d.id }, d.data()));
       },
       // Уведомления (вкладка «Уведомления») и журнал фоновой рассылки пушей.
+      // Все «разово»/«перед занятием» и «Отправить сейчас» за последние 30 дней.
+      // Старые «сейчас» (и отчёты) копятся годами — читать их на каждое
+      // открытие вкладки незачем (в кабинетах они давно не показываются).
       async listNotifications() {
-        const snap = await getDocs(collection(db, "teacherSpaces", teacherId, "notifications"));
-        return snap.docs.map((d) => Object.assign({ id: d.id }, d.data()));
+        const col = collection(db, "teacherSpaces", teacherId, "notifications");
+        const [a, b] = await Promise.all([
+          getDocs(query(col, where("mode", "in", ["once", "before"]))),
+          getDocs(query(col, where("createdAt", ">=", Date.now() - 30 * 86400000))),
+        ]);
+        const byId = new Map();
+        [...a.docs, ...b.docs].forEach((d) => byId.set(d.id, Object.assign({ id: d.id }, d.data())));
+        return [...byId.values()];
       },
       async saveNotification(id, data) {
         await setDoc(doc(db, "teacherSpaces", teacherId, "notifications", id), data);
@@ -290,8 +299,12 @@
       async deleteNotification(id) {
         await deleteDoc(doc(db, "teacherSpaces", teacherId, "notifications", id));
       },
-      async listNotifLog() {
-        const snap = await getDocs(collection(db, "teacherSpaces", teacherId, "notifLog"));
+      // Журнал рассылки — только записи ДО beforeMs (разовый перенос старой
+      // статистики в уведомления, см. notify.js); без beforeMs — весь (пока
+      // рассылка ещё не начала вести счётчики сама).
+      async listNotifLog(beforeMs) {
+        const col = collection(db, "teacherSpaces", teacherId, "notifLog");
+        const snap = await getDocs(beforeMs ? query(col, where("sentAt", "<", beforeMs)) : col);
         return snap.docs.map((d) => Object.assign({ id: d.id }, d.data()));
       },
       // Резервная копия: всё хозяйство учителя целиком (для кнопки «Скачать»).

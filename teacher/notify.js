@@ -139,6 +139,48 @@ async function renderNotifyTab() {
   renderTemplates();
 }
 
+// Сколько раз уведомление ушло пушем. Счётчики ведёт сама фоновая рассылка
+// (pushRuns/pushDelivered/pushLastAt в уведомлении, с момента
+// state.notifier.statsSince); старое — из журнала, один раз перенесённое в
+// pushLegacy. Раньше вкладка читала весь журнал за 60 дней при КАЖДОМ
+// открытии и после каждой правки — сотни чтений.
+function pushStatsOf(r, log) {
+  const lg = r.pushLegacy || {};
+  const out = { runs: (r.pushRuns || 0) + (lg.runs || 0), delivered: (r.pushDelivered || 0) + (lg.delivered || 0), last: Math.max(r.pushLastAt || 0, lg.lastAt || 0) };
+  // рассылка ещё не начала вести счётчики (до первого её запуска с новым кодом) — по журналу, как раньше
+  (log || []).filter(x => x.ruleId === r.id).forEach(x => { out.runs++; out.delivered += x.delivered || 0; out.last = Math.max(out.last, x.sentAt || 0); });
+  return out;
+}
+// Возвращает журнал, который надо учесть при показе (только в переходный
+// период — пока у рассылки нет statsSince), иначе []. Один раз после
+// появления statsSince переносит старые записи в pushLegacy уведомлений.
+async function notifLegacyLog(rules) {
+  const since = remoteState.notifier && remoteState.notifier.statsSince;
+  if (!since) {
+    try { return await window.TutorFB.listNotifLog(); } catch (e) { return []; }
+  }
+  if (remoteState.notifStatsFrom === since) return [];
+  let old;
+  try { old = await window.TutorFB.listNotifLog(since); } catch (e) { return []; }
+  const agg = {};
+  old.forEach(x => {
+    const a = agg[x.ruleId] = agg[x.ruleId] || { runs: 0, delivered: 0, lastAt: 0 };
+    a.runs++; a.delivered += x.delivered || 0; a.lastAt = Math.max(a.lastAt, x.sentAt || 0);
+  });
+  try {
+    for (const r of rules) {
+      if (!agg[r.id]) continue;
+      await window.TutorFB.patchNotification(r.id, { pushLegacy: agg[r.id] }).catch(() => {}); // удалено — не страшно
+      r.pushLegacy = agg[r.id];
+    }
+    await window.TutorFB.patchState({ notifStatsFrom: since });
+    remoteState.notifStatsFrom = since;
+  } catch (e) {
+    return old; // не сохранилось (нет сети) — покажем по журналу, перенесём в следующий раз
+  }
+  return [];
+}
+
 async function renderNfList() {
   const el = $("nfList");
   let rules, log = [];
@@ -150,17 +192,15 @@ async function renderNfList() {
       : '<div class="empty">Не удалось загрузить</div>';
     return;
   }
-  try { log = await window.TutorFB.listNotifLog(); } catch (e) { /* журнала нет */ }
+  log = await notifLegacyLog(rules);
   const now = Date.now();
   const fmtAt = (ms) => new Date(ms).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   const list = rules.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   if (!list.length) { el.innerHTML = '<div class="empty">Уведомлений пока нет — создай выше.</div>'; return; }
   el.innerHTML = list.map(r => {
-    const mine = log.filter(x => x.ruleId === r.id);
-    const devices = mine.reduce((t, x) => t + (x.delivered || 0), 0);
-    const last = mine.reduce((t, x) => Math.max(t, x.sentAt || 0), 0);
+    const st = pushStatsOf(r, log);
     const pushLine = r.push === false ? "без пуша"
-      : mine.length ? `пуш: ${mine.length} ${NotifyCore.plural(mine.length, ["рассылка", "рассылки", "рассылок"])}, доставлено на ${devices} ${NotifyCore.plural(devices, ["устройство", "устройства", "устройств"])}, последняя ${fmtAt(last)}`
+      : st.runs ? `пуш: ${st.runs} ${NotifyCore.plural(st.runs, ["рассылка", "рассылки", "рассылок"])}, доставлено на ${st.delivered} ${NotifyCore.plural(st.delivered, ["устройство", "устройства", "устройств"])}, последняя ${fmtAt(st.last)}`
       : "пуш: ещё не отправлялся";
     const when = r.mode === "before"
       ? `Перед занятием — за ${NotifyCore.offsetText(r)}${Array.isArray(r.lessonIds) && r.lessonIds.length ? ` · к ${r.lessonIds.length} ${NotifyCore.plural(r.lessonIds.length, ["занятию", "занятиям", "занятиям"])}` : " · ко всем занятиям"}`
@@ -242,6 +282,8 @@ $("nfSave").addEventListener("click", async (e) => {
   const keepId = nfEditing && nfEditing.mode === "before" && mode === "before";
   const id = keepId ? nfEditing.id : newId("n");
   data.createdAt = keepId ? (nfEditing.createdAt || now) : now;
+  // то же уведомление — счётчики рассылок сохраняются (запись заменяет документ целиком)
+  if (keepId) ["pushRuns", "pushDelivered", "pushLastAt", "pushLegacy"].forEach(k => { if (nfEditing[k] !== undefined) data[k] = nfEditing[k]; });
   btn.disabled = true;
   try {
     await window.TutorFB.saveNotification(id, data);

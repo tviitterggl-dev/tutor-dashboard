@@ -184,6 +184,7 @@ const OPS = {
   "<": (a, b) => a < b,
   "<=": (a, b) => a <= b,
   ">": (a, b) => a > b,
+  in: (a, b) => b.includes(a),
 };
 
 function queryDocs(q) {

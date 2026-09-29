@@ -371,3 +371,46 @@ test("старые подписки с самим ключом в общем к�
   assert.deepEqual(app.errors, []);
   await app.close();
 });
+
+test("вкладка «Уведомления»: счётчики пушей из уведомлений, журнал — только один раз (перенос старого); старые «сейчас» не читаются", async () => {
+  const now = Date.parse(NOW);
+  const DAY = 86400000;
+  const since = now - 2 * DAY; // с этого момента рассылка ведёт счётчики сама
+  const seed = defaultSeed();
+  const S = `teacherSpaces/${T}/state/main`;
+  seed[S] = Object.assign({}, seed[S] || {}, { notifier: { lastRunAt: now - 60000, statsSince: since } });
+  seed[N("r1")] = { text: "Напоминание", mode: "before", offsetValue: 1, offsetUnit: "hour", target: { scope: "all", role: "any" }, active: true, createdAt: now - 50 * DAY,
+    pushRuns: 3, pushDelivered: 5, pushLastAt: now - DAY };
+  // журнал: 200 записей до statsSince (старое — переносится один раз), 30 после (уже в счётчиках)
+  for (let i = 0; i < 200; i++) seed[`teacherSpaces/${T}/notifLog/old${i}`] = { ruleId: i < 10 ? "r1" : "zz" + i, sentAt: since - (i + 1) * 60000, delivered: 2, status: "done" };
+  for (let i = 0; i < 30; i++) seed[`teacherSpaces/${T}/notifLog/new${i}`] = { ruleId: "r1", sentAt: since + (i + 1) * 60000, delivered: 1, status: "done" };
+  // 100 старых «Отправить сейчас» (старше 30 дней) — в список не читаются
+  for (let i = 0; i < 100; i++) seed[N("old_now" + i)] = { text: "Старое " + i, mode: "now", times: 1, target: { scope: "all", role: "any" }, active: true, createdAt: now - (40 + i) * DAY, pushedAt: 1 };
+  seed[N("fresh_now")] = { text: "Свежее", mode: "now", times: 1, target: { scope: "all", role: "any" }, active: true, createdAt: now - DAY };
+  const app = await openApp({ seed });
+  const { page } = app;
+  await page.waitForSelector("#lessonsList .lesson");
+  await page.waitForTimeout(3000);
+  const open = async () => {
+    await page.click('.tab[data-tab="lessons"]');
+    await page.evaluate(() => { window.__fakeReads = 0; });
+    await page.click('.tab[data-tab="notify"]');
+    await page.waitForSelector('.nf-item[data-nf="r1"]');
+    await page.waitForTimeout(1200);
+    return page.evaluate(() => window.__fakeReads);
+  };
+  const first = await open();
+  const meta = await page.locator('.nf-item[data-nf="r1"]').textContent();
+  assert.match(meta, /пуш: 13 рассылок, доставлено на 25 устройств/, "3 из счётчиков + 10 старых из журнала (новые 30 уже в счётчиках)");
+  assert.equal(await page.locator('.nf-item[data-nf="fresh_now"]').count(), 1, "свежее «сейчас» — в списке");
+  assert.equal(await page.locator('.nf-item[data-nf^="old_now"]').count(), 0, "старые «сейчас» не читаются и не показываются");
+  const db = await app.db();
+  assert.deepEqual(db[N("r1")].pushLegacy, { runs: 10, delivered: 20, lastAt: since - 60000 });
+  assert.equal(db[S].notifStatsFrom, since);
+  assert.ok(first < 240, `первое открытие (с переносом старого журнала) — ${first} чтений`);
+  const second = await open();
+  assert.ok(second < 20, `дальше журнал не читается: ${second} чтений`);
+  assert.match(await page.locator('.nf-item[data-nf="r1"]').textContent(), /пуш: 13 рассылок/);
+  assert.deepEqual(app.errors, []);
+  await app.close();
+});
