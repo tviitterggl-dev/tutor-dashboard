@@ -336,6 +336,7 @@ test("заголовок: свой — в кабинете вместо стан
   ]);
 
   // правка: заголовок подставляется в форму и меняется
+  await page.click('[data-nfmode="configured"]'); // после «Отправить сейчас» открыта вкладка отправленных
   await page.locator("#nfList .nf-item", { hasText: "Завтра в" }).locator("[data-nf-edit]").click();
   assert.equal(await page.inputValue("#nfHead"), "Важно: {ученик}");
   await page.fill("#nfHead", "");
@@ -415,44 +416,87 @@ test("вкладка «Уведомления»: счётчики пушей и�
   await app.close();
 });
 
-test("список уведомлений: две группы (настроенные / отчёты и отправленные), адресат — отдельной плашкой", async () => {
+test("список уведомлений: подвкладки «Настроенные» / «Отчёты и отправленные», адресат — отдельной плашкой", async () => {
   const now = Date.parse(NOW);
   const DAY = 86400000;
   const seed = defaultSeed();
   const all = { scope: "all", role: "any" };
   seed[N("b1")] = { text: "Перед занятием", mode: "before", offsetValue: 1, offsetUnit: "hour", target: { scope: "student", studentId: "Тест, 7 класс", role: "parent" }, active: true, createdAt: now - 5 * DAY };
-  seed[N("o1")] = { text: "Разово", mode: "once", atMs: now + DAY, target: all, active: false, createdAt: now - 4 * DAY };
+  seed[N("o1")] = { text: "Разово", mode: "once", atMs: now + DAY, target: all, active: false, createdAt: now - 40 * DAY };
   seed[N("r1")] = { text: "Отчёт о занятии", mode: "now", source: "report", times: 1, target: all, active: true, createdAt: now - 2 * DAY };
-  seed[N("n1")] = { text: "Срочно", mode: "now", times: 1, target: all, active: true, createdAt: now - DAY };
+  seed[N("n1")] = { text: "Срочно", mode: "now", times: 1, target: all, active: true, createdAt: now - 5 * DAY };
+  // отчёт старше 3 дней и сообщение старше 7 — рассылка их удалит; до чистки не показываются
+  seed[N("r_old")] = { text: "Старый отчёт", mode: "now", source: "report", times: 1, target: all, active: true, createdAt: now - 4 * DAY };
+  seed[N("n_old")] = { text: "Старое сообщение", mode: "now", times: 1, target: all, active: true, createdAt: now - 8 * DAY };
   const app = await openApp({ seed });
   const { page } = app;
   await page.waitForSelector("#lessonsList .lesson");
   await page.click('.tab[data-tab="notify"]');
-  await page.waitForSelector('.nf-item[data-nf="n1"]');
+  await page.waitForSelector('.nf-item[data-nf="b1"]');
   const ids = (g) => page.locator(`[data-nf-group="${g}"] .nf-item`).evaluateAll((els) => els.map((e) => e.dataset.nf).sort());
+  const visibleIds = () => page.locator("#nfList .nf-item:visible").evaluateAll((els) => els.map((e) => e.dataset.nf).sort());
   assert.deepEqual(await ids("configured"), ["b1", "o1"]);
-  assert.deepEqual(await ids("sent"), ["n1", "r1"]);
-  assert.match(await page.locator('[data-nf-group="configured"] .nf-group-title').textContent(), /Настроенные\s*2/);
-  assert.match(await page.locator('[data-nf-group="sent"] .nf-group-title').textContent(), /Отчёты и отправленные\s*2/);
-  // настроенные можно изменить, отправленные — только удалить
-  assert.equal(await page.locator('[data-nf-group="configured"] [data-nf-edit]').count(), 2);
-  assert.equal(await page.locator('[data-nf-group="sent"] [data-nf-edit]').count(), 0);
+  assert.deepEqual(await ids("sent"), ["n1", "r1"], "старые «сейчас» не показываются");
+  // подписи вкладок со счётчиками; по умолчанию — «Настроенные», видна только она
+  assert.deepEqual((await page.locator("#nfList [data-nfmode]").allInnerTexts()).map((t) => t.replace(/\s+/g, " ").trim()), ["Настроенные 2", "Отчёты и отправленные 2"]);
+  assert.match(await page.getAttribute('[data-nfmode="configured"]', "class"), /active/);
+  assert.deepEqual(await visibleIds(), ["b1", "o1"]);
+  assert.match(await page.locator('[data-nf-group="configured"] .nf-group-hint').innerText(), /Работают постоянно/);
+  // переключение — сразу, без чтения из базы
+  await page.evaluate(() => { window.__fakeReads = 0; });
+  await page.click('[data-nfmode="sent"]');
+  assert.deepEqual(await visibleIds(), ["n1", "r1"]);
+  assert.equal(await page.evaluate(() => window.__fakeReads), 0, "переключение не читает базу");
+  const hint = await page.locator('[data-nf-group="sent"] .nf-group-hint').innerText();
+  assert.match(hint, /Отчёты.*3 дня.*в карточке занятия/);
+  assert.match(hint, /«Отправить сейчас» — 7 дней/);
+  assert.equal(await page.locator('[data-nf-group="sent"] [data-nf-edit]').count(), 0, "отправленные — только удалить");
   // адресат — отдельной плашкой, не в строке с датой
-  assert.match(await page.locator('.nf-item[data-nf="b1"] .nf-to').textContent(), /^Кому:\s*Тест.*родител/);
   assert.equal((await page.locator('.nf-item[data-nf="n1"] .nf-to').textContent()).replace(/\s+/g, " ").trim(), "Кому: все родители и ученики");
   assert.doesNotMatch(await page.locator('.nf-item[data-nf="n1"] .nf-meta').first().textContent(), /родители/);
   assert.match(await page.locator('.nf-item[data-nf="r1"] .nf-meta').first().textContent(), /^Отчёт ·/);
+  // выбранная вкладка остаётся при перерисовке (уход на другую вкладку и обратно)
+  await page.click('.tab[data-tab="lessons"]');
+  await page.click('.tab[data-tab="notify"]');
+  await page.waitForSelector('.nf-item[data-nf="n1"]:visible');
+  assert.deepEqual(await visibleIds(), ["n1", "r1"]);
+  await page.click('[data-nfmode="configured"]');
+  assert.match(await page.locator('.nf-item[data-nf="b1"] .nf-to').textContent(), /^Кому:\s*Тест.*родител/);
+  assert.equal(await page.locator('[data-nf-group="configured"] [data-nf-edit]').count(), 2);
   assert.deepEqual(app.errors, []);
   await app.close();
 });
 
-test("список уведомлений: пустые группы подсказывают, что делать", async () => {
+test("список уведомлений: пустые вкладки подсказывают, что делать", async () => {
   const app = await openApp({ seed: defaultSeed() });
   const { page } = app;
   await page.waitForSelector("#lessonsList .lesson");
   await page.click('.tab[data-tab="notify"]');
-  await page.waitForSelector('[data-nf-group="sent"] .empty');
-  assert.match(await page.locator('[data-nf-group="configured"] .empty').textContent(), /Пока нет/);
-  assert.match(await page.locator('[data-nf-group="sent"] .empty').textContent(), /ничего не отправлялось/);
+  await page.waitForSelector('[data-nf-group="configured"] .empty');
+  assert.match(await page.locator('[data-nf-group="configured"] .empty').innerText(), /Пока нет/);
+  await page.click('[data-nfmode="sent"]');
+  assert.match(await page.locator('[data-nf-group="sent"] .empty').innerText(), /За последние 7 дней ничего не отправлялось/);
+  await app.close();
+});
+
+test("«Отправить сейчас» открывает вкладку отправленных, сохранение настроенного — вкладку настроенных", async () => {
+  const seed = defaultSeed();
+  seed[`teacherSpaces/${T}/accessKeys/${PK}`] = { role: "parent", studentId: "Тест, 7 класс", label: "", createdAt: 1, active: true, revokedAt: null };
+  const app = await openApp({ seed });
+  const { page } = app;
+  await page.waitForSelector("#lessonsList .lesson");
+  await page.click('.tab[data-tab="notify"]');
+  await page.waitForSelector('[data-nf-group="configured"] .empty');
+  await page.fill("#nwText", "Срочное сообщение");
+  await page.click("#nwSend");
+  await page.waitForSelector('#nfList .nf-item:visible >> text=Срочное сообщение');
+  assert.match(await page.getAttribute('[data-nfmode="sent"]', "class"), /active/);
+  // сохранение настроенного — обратно на «Настроенные»
+  await page.check('input[name="nfMode"][value="once"]');
+  await page.fill("#nfText", "Разовое");
+  await page.click("#nfSave");
+  await page.waitForSelector('#nfList .nf-item:visible >> text=Разовое');
+  assert.match(await page.getAttribute('[data-nfmode="configured"]', "class"), /active/);
+  assert.deepEqual(app.errors, []);
   await app.close();
 });

@@ -306,7 +306,8 @@
         const col = collection(db, "teacherSpaces", teacherId, "notifications");
         const [a, b] = await Promise.all([
           getDocs(query(col, where("mode", "in", ["once", "before"]))),
-          getDocs(query(col, where("createdAt", ">=", Date.now() - 30 * 86400000))),
+          // «сейчас» старше недели удаляет рассылка — читать дальше незачем
+          getDocs(query(col, where("createdAt", ">=", Date.now() - NotifyCore.SENT_KEEP_MS))),
         ]);
         const byId = new Map();
         [...a.docs, ...b.docs].forEach((d) => byId.set(d.id, Object.assign({ id: d.id }, d.data())));
@@ -1003,10 +1004,14 @@
   .nf-meta { font-size: 12px; color: var(--muted); margin-top: 6px; }
   .nf-actions { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 10px; }
   /* две группы списка: настроенные и уже отправленные */
-  .nf-group + .nf-group { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border); }
-  .nf-group-title { font-weight: 700; font-size: 15px; color: var(--text); display: flex; align-items: center; gap: 8px; }
-  .nf-group-count { font-size: 12px; font-weight: 700; color: var(--muted); background: var(--accent-soft); border-radius: var(--r-pill); padding: 1px 9px; }
-  .nf-group-hint { font-size: 12.5px; color: var(--muted); margin: 4px 0 12px; }
+  .nf-subtabs { margin-bottom: 10px; }
+  /* ширина — по подписи, в одну строку; на узких (iPhone SE/mini) — короткая подпись */
+  .nf-subtabs .subtab { flex: 1 1 auto; white-space: nowrap; padding: 7px 6px; font-size: 12px; }
+  .nf-tab-short { display: none; }
+  @media (max-width: 379px) { .nf-tab-full { display: none; } .nf-tab-short { display: inline; } }
+  .nf-group-count { display: inline-block; margin-left: 3px; font-size: 11px; font-weight: 700; line-height: 1.5; color: var(--muted); background: var(--card-bg); border-radius: var(--r-pill); padding: 0 6px; }
+  .subtab.active .nf-group-count { color: inherit; background: rgba(255, 255, 255, 0.22); }
+  .nf-group-hint { font-size: 12.5px; color: var(--muted); margin: 0 0 12px; }
   /* кому адресовано — плашка, заметнее даты и статистики */
   .nf-to { display: inline-block; margin-top: 8px; padding: 3px 11px; border-radius: var(--r-pill); background: var(--indigo-soft); color: var(--accent-2); font-size: 12.5px; font-weight: 700; max-width: 100%; overflow-wrap: anywhere; }
   .nf-to-label { font-weight: 600; opacity: 0.8; }

@@ -181,6 +181,8 @@ async function notifLegacyLog(rules) {
   return [];
 }
 
+// Выбранная подвкладка списка запоминается до перезагрузки страницы (как statsMode).
+let nfMode = "configured";
 async function renderNfList() {
   const el = $("nfList");
   let rules, log = [];
@@ -220,21 +222,34 @@ async function renderNfList() {
         </div>
       </div>`;
   };
-  // Две группы: настроенные (работают постоянно — можно изменить, выключить) и
-  // журнал того, что уже ушло (отчёты и «Отправить сейчас» — только удалить).
+  // Две группы подвкладками (как «День/Неделя», «Итоги/Аналитика»): настроенные
+  // (работают постоянно — можно изменить, выключить) и то, что уже ушло
+  // (отчёты и «Отправить сейчас» — только удалить). Старые «сейчас» удаляет
+  // рассылка (NotifyCore.sentKeepMs); здесь прячем их и до ночной чистки.
   const configured = list.filter(r => r.mode !== "now");
-  const sent = list.filter(r => r.mode === "now");
+  const sent = list.filter(r => r.mode === "now" && now - (r.createdAt || 0) < NotifyCore.sentKeepMs(r));
+  const tab = (mode, label, n) => `<div class="subtab" role="tab" data-nfmode="${mode}">${label} <span class="nf-group-count">${n}</span></div>`;
   el.innerHTML = `
+      <div class="subtabs nf-subtabs" role="tablist" aria-label="Список уведомлений">
+        ${tab("configured", "Настроенные", configured.length)}
+        ${tab("sent", '<span class="nf-tab-full">Отчёты и отправленные</span><span class="nf-tab-short">Отправленные</span>', sent.length)}
+      </div>
       <div class="nf-group" data-nf-group="configured">
-        <div class="nf-group-title">Настроенные <span class="nf-group-count">${configured.length}</span></div>
         <div class="nf-group-hint">Работают постоянно: напоминания перед занятиями и сообщения «разово». Можно изменить или выключить.</div>
         ${configured.length ? configured.map(item).join("") : '<div class="empty">Пока нет — создай выше («Новое уведомление»).</div>'}
       </div>
       <div class="nf-group" data-nf-group="sent">
-        <div class="nf-group-title">Отчёты и отправленные <span class="nf-group-count">${sent.length}</span></div>
-        <div class="nf-group-hint">То, что уже ушло, — за последние 30 дней: отчёты о занятиях и «Отправить сейчас». Только для истории.</div>
-        ${sent.length ? sent.map(item).join("") : '<div class="empty">За 30 дней ничего не отправлялось.</div>'}
+        <div class="nf-group-hint">То, что уже ушло. Отчёты о занятиях хранятся здесь 3 дня — сам отчёт остаётся в карточке занятия. Сообщения «Отправить сейчас» — 7 дней, потом удаляются.</div>
+        ${sent.length ? sent.map(item).join("") : '<div class="empty">За последние 7 дней ничего не отправлялось.</div>'}
       </div>`;
+  showNfMode(nfMode);
+}
+
+function showNfMode(mode) {
+  nfMode = mode === "sent" ? "sent" : "configured";
+  const el = $("nfList");
+  el.querySelectorAll("[data-nfmode]").forEach(t => { const on = t.dataset.nfmode === nfMode; t.classList.toggle("active", on); t.setAttribute("aria-selected", on ? "true" : "false"); });
+  el.querySelectorAll("[data-nf-group]").forEach(g => { g.style.display = g.dataset.nfGroup === nfMode ? "block" : "none"; });
 }
 
 async function renderPushStatus() {
@@ -309,6 +324,7 @@ $("nfSave").addEventListener("click", async (e) => {
     resetNfForm();
     renderNfLessons([]);
     nfMsg("nfMsg", wasEdit ? "Изменения сохранены" : "Уведомление сохранено", "ok");
+    nfMode = "configured"; // сохранённое — на виду
     renderNfList();
     await publishViews();
   } catch (err) {
@@ -336,6 +352,7 @@ $("nwSend").addEventListener("click", async (e) => {
     $("nwText").value = "";
     $("nwHead").value = "";
     nfMsg("nwMsg", `Отправлено: ${targetText(target)} (${matched.length} ${NotifyCore.plural(matched.length, ["кабинет", "кабинета", "кабинетов"])}).${$("nwPush").checked ? " Пуш уйдёт с ближайшей фоновой рассылкой." : ""}`, "ok");
+    nfMode = "sent";
     renderNfList();
   } catch (err) {
     console.error(err);
@@ -345,6 +362,8 @@ $("nwSend").addEventListener("click", async (e) => {
 });
 
 $("nfList").addEventListener("click", async (e) => {
+  const sub = e.target.closest("[data-nfmode]");
+  if (sub) { showNfMode(sub.dataset.nfmode); return; } // сразу, без чтения из базы
   const item = e.target.closest("[data-nf]");
   if (!item) return;
   const r = (notifCache || []).find(x => x.id === item.dataset.nf);
