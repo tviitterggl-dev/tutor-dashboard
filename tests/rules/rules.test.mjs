@@ -214,5 +214,9 @@ test("настройки кабинета (accessPrefs): по ключу — ч�
   assert.equal(await put(`accessPrefs/${PKEY}`, { tabOrder: "hw,lessons" }), 403, "не список");
   assert.equal(await put(`accessPrefs/${PKEY}`, { tabOrder: Array.from({ length: 13 }, (_, i) => "t" + i) }), 403, "слишком длинный");
   assert.equal(await put("accessPrefs/shortkey", { tabOrder: ["hw"] }), 403, "короткий ключ");
+  // только известные вкладки кабинета — не произвольные строки (и не огромные)
+  assert.equal(await put(`accessPrefs/${PKEY}`, { tabOrder: ["lessons", "x".repeat(100000)] }), 403, "чужая вкладка");
+  assert.equal(await put(`accessPrefs/${PKEY}`, { tabOrder: ["lessons", 5] }), 403, "не строка");
+  assert.equal(await put(`accessPrefs/${PKEY}`, { tabOrder: ["settings"] }), 200, "часть вкладок — можно (остальные встанут по умолчанию)");
   assert.equal(await del(`accessPrefs/${PKEY}`), 200);
 });

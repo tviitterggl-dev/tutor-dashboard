@@ -131,10 +131,13 @@ service cloud.firestore {
     // Личные настройки кабинета родителя/ученика (порядок вкладок) — по
     // тому же ключу доступа, что и витрина: «ключ = пароль», только точечно,
     // перечислять нельзя. Учитель эти документы не трогает, поэтому
-    // публикация витрин их не затирает. Только tabOrder (короткий список) и время.
+    // публикация витрин их не затирает. Только tabOrder и время. В tabOrder —
+    // только известные вкладки кабинета (как CAB_TABS в cabinet/core.js; новая
+    // вкладка — сначала сюда и деплой правил, потом в кабинет).
     function validPrefs(d) {
       return d.keys().hasOnly(["tabOrder", "updatedAt"])
         && d.tabOrder is list && d.tabOrder.size() <= 12
+        && d.tabOrder.hasOnly(["lessons", "calendar", "hw", "requests", "settings"])
         && (!("updatedAt" in d) || d.updatedAt is int);
     }
     match /accessPrefs/{accessKey} {

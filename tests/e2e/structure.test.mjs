@@ -66,3 +66,11 @@ test("все свои скрипты страниц — в офлайн-кэше
     assert.deepEqual(shell.filter((s) => s.startsWith(dir + "/")), t);
   }
 });
+
+test("вкладки кабинета семьи: список в firestore.rules (accessPrefs) = CAB_TABS в cabinet/core.js", () => {
+  // Новая вкладка без правки правил — порядок вкладок перестанет сохраняться.
+  const rules = read("firestore.rules");
+  const inRules = JSON.parse(/tabOrder\.hasOnly\((\[[^\]]*\])\)/.exec(rules)[1]);
+  const inCab = JSON.parse(/const CAB_TABS = (\[[^\]]*\]);/.exec(read("cabinet/core.js"))[1]);
+  assert.deepEqual(inRules.slice().sort(), inCab.slice().sort());
+});

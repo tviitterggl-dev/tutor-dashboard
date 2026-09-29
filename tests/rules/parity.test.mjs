@@ -96,6 +96,9 @@ const CASES = [
   ["настройки: лишнее поле", `accessPrefs`, { tabOrder: [], theme: "dark" }],
   ["настройки: 13 вкладок", `accessPrefs`, { tabOrder: Array(13).fill("a") }],
   ["настройки: время не целое", `accessPrefs`, { tabOrder: [], updatedAt: "вчера" }],
+  ["настройки: неизвестная вкладка", `accessPrefs`, { tabOrder: ["lessons", "evil"] }],
+  ["настройки: не строка", `accessPrefs`, { tabOrder: [1] }],
+  ["настройки: все пять вкладок", `accessPrefs`, { tabOrder: ["settings", "hw", "requests", "calendar", "lessons"] }],
   ["закрытая коллекция", `secrets`, { a: 1 }],
 ];
 

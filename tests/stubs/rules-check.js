@@ -47,9 +47,11 @@ export function validView(d) {
     && Array.isArray(d.busy) && d.busy.length <= 1500;
 }
 
+export const CAB_TAB_IDS = ["lessons", "calendar", "hw", "requests", "settings"];
 export function validPrefs(d) {
   return onlyKeys(d, ["tabOrder", "updatedAt"])
     && Array.isArray(d.tabOrder) && d.tabOrder.length <= 12
+    && d.tabOrder.every((t) => CAB_TAB_IDS.includes(t))
     && (!("updatedAt" in d) || isInt(d.updatedAt));
 }
 
