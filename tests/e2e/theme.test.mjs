@@ -129,7 +129,7 @@ test("палитры: 4 новые × светлая/тёмная; выбор н
   const tokens = () => page.evaluate(() => { const cs = getComputedStyle(document.documentElement); return Object.fromEntries(["--bg", "--card-bg", "--accent", "--done-bg", "--pending-bg", "--danger", "--busy", "--viz-1"].map((k) => [k, cs.getPropertyValue(k).trim()])); });
   const base = await tokens();
   await page.evaluate(() => { window.__fakeReads = 0; });
-  const want = { pink: ["rgb(248, 241, 243)", "#1D1518"], wine: ["rgb(248, 241, 239)", "#1C1212"], green: ["rgb(245, 247, 240)", "#161A16"], orange: ["rgb(245, 230, 211)", "#1C1511"] };
+  const want = { pink: ["rgb(248, 241, 243)", "#1D1518"], wine: ["rgb(248, 241, 239)", "#1C1212"], green: ["rgb(245, 247, 240)", "#161A16"], orange: ["rgb(248, 244, 239)", "#1C1511"] };
   for (const [id, [lightBg]] of Object.entries(want)) {
     await page.click(`[data-palette-opt="${id}"]`);
     await waitBg(page, lightBg);
@@ -171,7 +171,7 @@ test("палитры: 4 новые × светлая/тёмная; выбор н
   await cab.click('.ctab[data-ctab="settings"]');
   await cab.evaluate(() => { window.__fakeReads = 0; });
   await cab.click('#pane-settings [data-palette-opt="orange"]');
-  await waitBg(cab, "rgb(245, 230, 211)");
+  await waitBg(cab, "rgb(248, 244, 239)");
   assert.equal(await cab.evaluate(() => window.__fakeReads || 0), 0);
   await cab.close();
   assert.deepEqual(app.errors, []);

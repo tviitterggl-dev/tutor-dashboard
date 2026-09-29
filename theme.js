@@ -16,13 +16,13 @@
     { id: "pink", name: "Розовая", sw: ["#F8F1F3", "#B97D8E"] },
     { id: "wine", name: "Бордовая", sw: ["#F8F1EF", "#8C3A35"] },
     { id: "green", name: "Зелёная", sw: ["#F5F7F0", "#5C7A5E"] },
-    { id: "orange", name: "Оранжевая", sw: ["#F5E6D3", "#A66B45"] },
+    { id: "orange", name: "Оранжевая", sw: ["#F8F4EF", "#A66B45"] },
   ];
   // цвет полосы браузера/статус-бара = фон страницы палитры
   var BARS = {
     "": { light: "#F7F5F0", dark: "#1C1D21" },
     pink: { light: "#F8F1F3", dark: "#1D1518" }, wine: { light: "#F8F1EF", dark: "#1C1212" },
-    green: { light: "#F5F7F0", dark: "#161A16" }, orange: { light: "#F5E6D3", dark: "#1C1511" },
+    green: { light: "#F5F7F0", dark: "#161A16" }, orange: { light: "#F8F4EF", dark: "#1C1511" },
   };
   var root = document.documentElement;
   function store(k, v) { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch (e) { /* приватный режим */ } }
