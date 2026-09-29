@@ -372,6 +372,15 @@ async function renameStudent(oldId, name, cls, surname) {
     delete data.id;
     await window.TutorFB.saveRequestDecision(d.id, data);
   }
+  // Уведомления этому ученику (или конкретному его человеку): адресат — тоже по
+  // новому идентификатору. Иначе после «перевести в N класс» они перестают
+  // совпадать с ключами доступа и молча не приходят.
+  const rules = await getNotifications(true).catch(() => []);
+  for (const r of rules) {
+    const t = r.target || {};
+    if (t.studentId === oldId) await window.TutorFB.patchNotification(r.id, { target: Object.assign({}, t, { studentId: newSid }), updatedAt: now });
+  }
+  notifCache = null;
   if (lastStudentChoice.toLowerCase().startsWith(name.toLowerCase() + " ")) lastStudentChoice = "";
   await getAccessKeys(true);
   await startChannelWatch();
@@ -485,17 +494,7 @@ async function deleteStudent(sid, withPast) {
     await window.TutorFB.deleteView(k.role, k.id);
     await window.TutorFB.saveAccessKey(k.id, { active: false, revokedAt: now, revokedReason: "student-deleted" });
   }
-  const ch = studentChannels()[sid];
-  if (ch) {
-    for (const ck of [ch.shared, ch.parent].filter(Boolean)) {
-      const items = await window.TutorFB.listChannel(ck).catch(() => []);
-      if (items.length) await window.TutorFB.deleteChannelItems(ck, items.map(i => i.id));
-    }
-    await window.TutorFB.setStudentChannels(sid, null);
-    const map = Object.assign({}, studentChannels());
-    delete map[sid];
-    remoteState.studentChannels = map;
-  }
+  await dropChannels(sid);
   if (packageOverrides[sid]) {
     delete packageOverrides[sid];
     await window.TutorFB.setPkgOverride(sid, null);
