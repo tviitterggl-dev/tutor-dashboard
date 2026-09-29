@@ -1,0 +1,95 @@
+"use strict";
+// Кабинет семьи — заявки и сообщения в канал: запись в канал (addItem),
+// проверка времени (slotProblem), понятные тексты ошибок, «Предложить
+// время нового занятия» (book), заявки на перенос/отмену (sendRequest).
+
+// ---------- действия ----------
+async function addItem(channel, data) {
+  requireOnline();
+  const clean = {};
+  // пустую строку оставляем: пустое «пояснение» = «убрать» (правилам нужен comment-строка)
+  Object.entries(data).forEach(([k, v]) => { if (v !== undefined && v !== null) clean[k] = v; });
+  const id = newId();
+  await setDoc(doc(db, "channels", channel, "items", id), clean);
+  return Object.assign({ id }, clean);
+}
+
+function slotProblem(l, s, e) {
+  if (!(s > Date.now())) return "Выберите время в будущем.";
+  if (view.busyTo && e > view.busyTo) return "Так далеко расписание пока не открыто — напишите преподавателю.";
+  if ((view.busy || []).some((b) => b.s < e && b.e > s)) return "Это время уже занято — выберите свободное (в календаре оно не серое).";
+  if (myLessons().some((x) => (!l || x.id !== l.id) && (x.status === "planned" || x.status === "done") && x.startMs < e && x.endMs > s)) return "В это время уже стоит ваше другое занятие.";
+  return "";
+}
+
+// База отвечает «нет прав», пока преподаватель не обновил настройки
+// доступа (правила Firestore) — объясняем по-человечески.
+function errText(err, fallback) {
+  if (err && err.offline) return OFFLINE_TEXT;
+  if (err && (err.code === "permission-denied" || /insufficient permissions/i.test(err.message || ""))) {
+    return "Эта функция ещё не включена у преподавателя. Пока напишите, пожалуйста, в Telegram.";
+  }
+  return (err && err.userText) || fallback;
+}
+
+// ---------- заявка на дополнительное занятие (book) ----------
+// Ученика учитель знает по каналу; lessonId — просто новая метка (занятия
+// ещё нет). Учитель создаёт занятие со своим id, эту метку не использует.
+const BOOK_DURS = [30, 45, 60, 90, 120];
+function lastLessonOf() {
+  return myLessons().filter((x) => x.status === "planned" || x.status === "done").sort((a, b) => b.startMs - a.startMs)[0] || null;
+}
+function openBookModal(startMs, day, selMin) {
+  const last = lastLessonOf();
+  const lastMin = last ? Math.round((last.endMs - last.startMs) / 60000) : 60;
+  // выделили одну клетку (30 мин) — обычная длина занятия ученика; больше — сколько выделили
+  const dur = selMin && selMin > 30 && selMin <= 480 ? selMin : lastMin;
+  const durs = BOOK_DURS.includes(dur) ? BOOK_DURS : BOOK_DURS.concat([dur]).sort((a, b) => a - b);
+  let s = startMs;
+  if (!s) {
+    const d = day ? new Date(day) : new Date(Date.now() + 86400000);
+    const t = last ? new Date(last.startMs) : null;
+    d.setHours(t ? t.getHours() : 16, t ? t.getMinutes() : 0, 0, 0);
+    s = d.getTime();
+  }
+  openLessonId = null;
+  openModal(`
+      <h2>Новое занятие</h2>
+      <div class="meta">Выберите свободное время — преподавателю уйдёт заявка. Занятие появится в расписании после подтверждения.</div>
+      <div class="field-row">
+        <div class="field"><span>Дата</span><input type="date" id="bDate" value="${toDateInput(s)}"></div>
+        <div class="field"><span>Время</span><input type="time" id="bTime" step="300" value="${toTimeInput(s)}"></div>
+        <div class="field"><span>Длительность</span><select id="bDur">${durs.map((m) => `<option value="${m}"${m === dur ? " selected" : ""}>${m} мин</option>`).join("")}</select></div>
+      </div>
+      <div class="field"><span>Комментарий (необязательно)</span><textarea id="bComment" maxlength="500" placeholder="Например: на этой неделе контрольная"></textarea></div>
+      <div class="msg" id="mMsg"></div>
+      <div class="btn-row">
+        <button class="btn" type="button" id="bSend">Отправить заявку</button>
+        <button class="btn secondary" type="button" id="mClose">Закрыть</button>
+      </div>`);
+  mq("#mClose").addEventListener("click", closeModal);
+  mq("#bSend").addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    const start = new Date(`${mq("#bDate").value}T${mq("#bTime").value}:00`).getTime();
+    if (Number.isNaN(start)) { msg("Выберите дату и время.", "err"); return; }
+    const end = start + parseInt(mq("#bDur").value, 10) * 60000;
+    const problem = slotProblem(null, start, end);
+    if (problem) { msg(problem, "err"); return; }
+    const comment = mq("#bComment").value.trim().slice(0, 500);
+    btn.disabled = true;
+    try {
+      const item = await addItem(view.channel, { type: "book", lessonId: "new_" + newId(), by: current.role, createdAt: Date.now(), newStartMs: start, newEndMs: end, comment: comment || undefined });
+      if (!shared.some((i) => i.id === item.id)) shared = shared.concat([item]); // сразу в «Заявки» и календарь
+      render();
+      msg("Заявка отправлена. Ответ появится во вкладке «Заявки».", "ok");
+      btn.style.display = "none";
+    } catch (err) {
+      btn.disabled = false;
+      msg(errText(err, "Не удалось отправить. Проверьте интернет и попробуйте ещё раз."), "err");
+    }
+  });
+}
+
+async function sendRequest(l, type, extra) {
+  await addItem(view.channel, Object.assign({ type, lessonId: l.id, by: current.role, createdAt: Date.now() }, extra));
+}
