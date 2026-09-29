@@ -196,8 +196,7 @@ async function renderNfList() {
   const now = Date.now();
   const fmtAt = (ms) => new Date(ms).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
   const list = rules.slice().sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  if (!list.length) { el.innerHTML = '<div class="empty">Уведомлений пока нет — создай выше.</div>'; return; }
-  el.innerHTML = list.map(r => {
+  const item = (r) => {
     const st = pushStatsOf(r, log);
     const pushLine = r.push === false ? "без пуша"
       : st.runs ? `пуш: ${st.runs} ${NotifyCore.plural(st.runs, ["рассылка", "рассылки", "рассылок"])}, доставлено на ${st.delivered} ${NotifyCore.plural(st.delivered, ["устройство", "устройства", "устройств"])}, последняя ${fmtAt(st.last)}`
@@ -205,12 +204,14 @@ async function renderNfList() {
     const when = r.mode === "before"
       ? `Перед занятием — за ${NotifyCore.offsetText(r)}${Array.isArray(r.lessonIds) && r.lessonIds.length ? ` · к ${r.lessonIds.length} ${NotifyCore.plural(r.lessonIds.length, ["занятию", "занятиям", "занятиям"])}` : " · ко всем занятиям"}`
       : r.mode === "once" ? `Разово — при открытии кабинета ${r.times || 1} ${NotifyCore.plural(r.times || 1, ["раз", "раза", "раз"])}`
-      : `Отправлено сейчас · ${fmtAt(r.createdAt || now)}${now - (r.createdAt || 0) > NotifyCore.NOW_TTL_MS ? " (в кабинете уже не показывается)" : ""}`;
+      : `${r.source === "report" ? "Отчёт" : "Отправлено сейчас"} · ${fmtAt(r.createdAt || now)}${now - (r.createdAt || 0) > NotifyCore.NOW_TTL_MS ? " (в кабинете уже не показывается)" : ""}`;
     const off = r.active === false;
+    // «Кому» — отдельной плашкой, а не мелким серым текстом рядом с датой и статистикой
     return `<div class="nf-item${off ? " off" : ""}" data-nf="${escHtml(r.id)}">
         <div class="nf-head${r.title ? "" : " dflt"}">${escHtml(r.title || NotifyCore.DEFAULT_TITLE[r.mode === "before" ? "rem" : "msg"])}</div>
         <div class="nf-text">${escHtml(r.text || "")}</div>
-        <div class="nf-meta">${escHtml(when)} · ${escHtml(targetText(r.target))}${off ? " · <b>выключено</b>" : ""}</div>
+        <div class="nf-to"><span class="nf-to-label">Кому:</span> ${escHtml(targetText(r.target))}</div>
+        <div class="nf-meta">${escHtml(when)}${off ? " · <b>выключено</b>" : ""}</div>
         <div class="nf-meta">${escHtml(pushLine)}</div>
         <div class="nf-actions">
           ${r.mode !== "now" ? '<button class="link-btn" type="button" data-nf-edit>Изменить</button>' : ""}
@@ -218,7 +219,22 @@ async function renderNfList() {
           <button class="link-btn" type="button" data-nf-delete>Удалить</button>
         </div>
       </div>`;
-  }).join("");
+  };
+  // Две группы: настроенные (работают постоянно — можно изменить, выключить) и
+  // журнал того, что уже ушло (отчёты и «Отправить сейчас» — только удалить).
+  const configured = list.filter(r => r.mode !== "now");
+  const sent = list.filter(r => r.mode === "now");
+  el.innerHTML = `
+      <div class="nf-group" data-nf-group="configured">
+        <div class="nf-group-title">Настроенные <span class="nf-group-count">${configured.length}</span></div>
+        <div class="nf-group-hint">Работают постоянно: напоминания перед занятиями и сообщения «разово». Можно изменить или выключить.</div>
+        ${configured.length ? configured.map(item).join("") : '<div class="empty">Пока нет — создай выше («Новое уведомление»).</div>'}
+      </div>
+      <div class="nf-group" data-nf-group="sent">
+        <div class="nf-group-title">Отчёты и отправленные <span class="nf-group-count">${sent.length}</span></div>
+        <div class="nf-group-hint">То, что уже ушло, — за последние 30 дней: отчёты о занятиях и «Отправить сейчас». Только для истории.</div>
+        ${sent.length ? sent.map(item).join("") : '<div class="empty">За 30 дней ничего не отправлялось.</div>'}
+      </div>`;
 }
 
 async function renderPushStatus() {

@@ -414,3 +414,45 @@ test("вкладка «Уведомления»: счётчики пушей и�
   assert.deepEqual(app.errors, []);
   await app.close();
 });
+
+test("список уведомлений: две группы (настроенные / отчёты и отправленные), адресат — отдельной плашкой", async () => {
+  const now = Date.parse(NOW);
+  const DAY = 86400000;
+  const seed = defaultSeed();
+  const all = { scope: "all", role: "any" };
+  seed[N("b1")] = { text: "Перед занятием", mode: "before", offsetValue: 1, offsetUnit: "hour", target: { scope: "student", studentId: "Тест, 7 класс", role: "parent" }, active: true, createdAt: now - 5 * DAY };
+  seed[N("o1")] = { text: "Разово", mode: "once", atMs: now + DAY, target: all, active: false, createdAt: now - 4 * DAY };
+  seed[N("r1")] = { text: "Отчёт о занятии", mode: "now", source: "report", times: 1, target: all, active: true, createdAt: now - 2 * DAY };
+  seed[N("n1")] = { text: "Срочно", mode: "now", times: 1, target: all, active: true, createdAt: now - DAY };
+  const app = await openApp({ seed });
+  const { page } = app;
+  await page.waitForSelector("#lessonsList .lesson");
+  await page.click('.tab[data-tab="notify"]');
+  await page.waitForSelector('.nf-item[data-nf="n1"]');
+  const ids = (g) => page.locator(`[data-nf-group="${g}"] .nf-item`).evaluateAll((els) => els.map((e) => e.dataset.nf).sort());
+  assert.deepEqual(await ids("configured"), ["b1", "o1"]);
+  assert.deepEqual(await ids("sent"), ["n1", "r1"]);
+  assert.match(await page.locator('[data-nf-group="configured"] .nf-group-title').textContent(), /Настроенные\s*2/);
+  assert.match(await page.locator('[data-nf-group="sent"] .nf-group-title').textContent(), /Отчёты и отправленные\s*2/);
+  // настроенные можно изменить, отправленные — только удалить
+  assert.equal(await page.locator('[data-nf-group="configured"] [data-nf-edit]').count(), 2);
+  assert.equal(await page.locator('[data-nf-group="sent"] [data-nf-edit]').count(), 0);
+  // адресат — отдельной плашкой, не в строке с датой
+  assert.match(await page.locator('.nf-item[data-nf="b1"] .nf-to').textContent(), /^Кому:\s*Тест.*родител/);
+  assert.equal((await page.locator('.nf-item[data-nf="n1"] .nf-to').textContent()).replace(/\s+/g, " ").trim(), "Кому: все родители и ученики");
+  assert.doesNotMatch(await page.locator('.nf-item[data-nf="n1"] .nf-meta').first().textContent(), /родители/);
+  assert.match(await page.locator('.nf-item[data-nf="r1"] .nf-meta').first().textContent(), /^Отчёт ·/);
+  assert.deepEqual(app.errors, []);
+  await app.close();
+});
+
+test("список уведомлений: пустые группы подсказывают, что делать", async () => {
+  const app = await openApp({ seed: defaultSeed() });
+  const { page } = app;
+  await page.waitForSelector("#lessonsList .lesson");
+  await page.click('.tab[data-tab="notify"]');
+  await page.waitForSelector('[data-nf-group="sent"] .empty');
+  assert.match(await page.locator('[data-nf-group="configured"] .empty').textContent(), /Пока нет/);
+  assert.match(await page.locator('[data-nf-group="sent"] .empty').textContent(), /ничего не отправлялось/);
+  await app.close();
+});
