@@ -92,7 +92,7 @@ test("«Пояснение»: родитель пишет → видно уче�
   await page.click('.subtab[data-lessonmode="week"]');
   await page.waitForFunction(() => /пояснение/.test(document.querySelector("#lessonsList").innerText));
   const row = page.locator("#lessonsList .lesson", { hasText: "пояснение" }).first();
-  await row.locator("button.edit-link").click();
+  await row.locator(".lesson-name").click(); // вся карточка открывает окно («изменить» убрана)
   await page.waitForSelector(".family-note");
   assert.match(await page.innerText(".family-note"), /разобрать задачи 5–7/);
   assert.match(await page.textContent("#modal"), /Пояснение от родителя/);

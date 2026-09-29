@@ -59,7 +59,7 @@ async function ensureServer() {
 export function siteSources() {
   const teacher = fs.readdirSync(path.join(ROOT, "teacher")).filter((f) => f.endsWith(".js")).sort().map((f) => "teacher/" + f);
   const cabinet = fs.readdirSync(path.join(ROOT, "cabinet")).filter((f) => f.endsWith(".js")).sort().map((f) => "cabinet/" + f);
-  return ["index.html", "cabinet.html", "theme.js", "notify-core.js", "tab-order.js", "sw.js", ...teacher, ...cabinet];
+  return ["index.html", "cabinet.html", "theme.js", "notify-core.js", "tab-order.js", "materials.js", "sw.js", ...teacher, ...cabinet];
 }
 
 export async function shutdown() {

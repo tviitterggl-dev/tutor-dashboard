@@ -400,13 +400,19 @@ function renderLessonModal(l, note) {
 
   const call = callLinkFor(l);
   const prof = profileOf(l.studentId);
+  // доска и материалы — из профиля ученика, независимо от того, есть ли ссылка на созвон
+  const board = l.studentId && prof.accessUrl && safeHref(prof.accessUrl) ? prof.accessUrl : null;
+  const mats = materialsOf(l.studentId);
+  const boardMatsHtml = (board ? `<div class="btn-row" style="margin:6px 0 0"><a class="btn secondary" id="mBoardOpen" href="${escHtml(board)}" target="_blank" rel="noopener" style="text-decoration:none">Доска</a></div>` : "")
+    + (mats.length ? `<div class="hint" style="margin:10px 0 0">Материалы (${mats.length}):</div>${Materials.linksHtml(mats)}` : "");
   const callHtml = `
       <div class="section">
-        <div class="section-title">Созвон</div>
-        ${call ? `<div class="btn-row" style="margin:0 0 6px"><a class="btn" id="mCallOpen" href="${escHtml(call.url)}" target="_blank" rel="noopener" style="text-decoration:none">Открыть созвон</a>${prof.accessUrl && safeHref(prof.accessUrl) ? `<a class="btn secondary" href="${escHtml(prof.accessUrl)}" target="_blank" rel="noopener" style="text-decoration:none">Материалы</a>` : ""}</div>
+        <div class="section-title">${board || mats.length ? "Созвон, доска и материалы" : "Созвон"}</div>
+        ${call ? `<div class="btn-row" style="margin:0 0 6px"><a class="btn" id="mCallOpen" href="${escHtml(call.url)}" target="_blank" rel="noopener" style="text-decoration:none">Открыть созвон</a></div>
           <div class="hint" id="mCallSrc" style="margin-top:0">${call.own ? "Разовая ссылка — только для этого занятия." : "Обычная ссылка из профиля ученика (вкладка «Ученики»)."}</div>`
       : `<div class="hint" style="margin-top:0">${l.studentId ? "У ученика не указана ссылка на созвон — её можно добавить во вкладке «Ученики»." : "Занятие не привязано к ученику — ссылку можно указать только для него ниже."}</div>`}
-        <div class="field" style="margin-top:8px"><span>Другая ссылка только для этого занятия</span>
+        ${boardMatsHtml}
+        <div class="field" style="margin-top:12px"><span>Другая ссылка на созвон только для этого занятия</span>
           <input type="url" id="mCallUrl" maxlength="500" placeholder="https://…" value="${escHtml(l.callUrl || "")}"></div>
         <div class="btn-row" style="margin:0">
           <button class="btn secondary" type="button" id="mCallSave">Сохранить для этого занятия</button>

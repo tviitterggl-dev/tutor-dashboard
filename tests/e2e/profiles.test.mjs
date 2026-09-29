@@ -31,7 +31,7 @@ test("профиль ученика: сохранить ссылки и заме
   assert.equal(prof.callUrl, "https://telemost.yandex.ru/j/111");
   assert.equal(prof.accessUrl, "https://miro.com/board/abc");
   assert.equal(prof.notes, "Прошли дроби. Дальше — уравнения.");
-  assert.match(await card.locator(".agg").textContent(), /созвон · материалы · заметки/);
+  assert.match(await card.locator(".agg").textContent(), /созвон · доска · заметки/); // ссылка из поля «Доска» (материалов нет)
 
   // После перезагрузки — на месте
   await page.reload();
@@ -45,7 +45,7 @@ test("профиль ученика: сохранить ссылки и заме
   await page.waitForSelector("#lessonsList .lesson");
   await page.click('.subtab[data-lessonmode="week"]'); // у Теста занятий сегодня нет — смотрим неделю
   await page.waitForSelector("#lessonsList .lesson");
-  const quick = page.locator(".lesson", { hasText: "Тест, 7 класс" }).first().locator('a.edit-link');
+  const quick = page.locator(".lesson", { hasText: "Тест, 7 класс" }).first().locator("a.edit-link", { hasText: "созвон" });
   assert.equal(await quick.getAttribute("href"), "https://telemost.yandex.ru/j/111");
 
   // Карточка занятия: ссылка из профиля

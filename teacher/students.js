@@ -3,7 +3,9 @@
 // перерисовке, добавление, переименование и удаление ученика.
 
 // ---------- ПРОФИЛИ УЧЕНИКОВ ----------
-// state/main.studentProfiles["Имя, N класс"] = { callUrl, accessUrl, notes, updatedAt }.
+// state/main.studentProfiles["Имя, N класс"] = { callUrl, accessUrl, materials, notes, updatedAt }.
+// accessUrl — «Доска» (одна постоянная ссылка), materials — «Материалы»:
+// список [{ url, title? }] (до Materials.MAX, общий materials.js).
 // В витрины родителя/ученика попадают ОБЕ ссылки: callUrl — «Подключиться»
 // у занятий, accessUrl — кнопка «Доска» у ближайших занятий. Заметки,
 // ставка и остальное профиля — только у учителя.
@@ -15,6 +17,17 @@ function groupRateOf(sid) {
   return p && !p.hidden && typeof p.groupRate === "number" ? p.groupRate : null;
 }
 const safeHref = (u) => /^https?:\/\//i.test(u || "");
+const materialsOf = (sid) => (sid ? Materials.clean(profileOf(sid).materials) : []);
+// Редактор материалов в карточке ученика: строки «название + ссылка + ×»
+function matRowHtml(m) {
+  return `<div class="pf-mat-row">
+              <input type="text" class="pf-mat-title" maxlength="${Materials.TITLE_MAX}" placeholder="Название (необязательно)" value="${escHtml(m.title || "")}">
+              <input type="url" class="pf-mat-url" maxlength="${Materials.URL_MAX}" placeholder="https://…" value="${escHtml(m.url || "")}">
+              <button class="pf-mat-del" type="button" data-mat-del aria-label="Убрать материал" title="Убрать">×</button>
+            </div>`;
+}
+// что сейчас набрано в редакторе (как есть, без проверки)
+const matRowsOf = (card) => [...card.querySelectorAll(".pf-mat-row")].map(r => ({ title: r.querySelector(".pf-mat-title").value, url: r.querySelector(".pf-mat-url").value }));
 let openProfile = null;
 
 // Ссылка на созвон для занятия: своя у занятия (разовая) → у группы → из профиля ученика.
@@ -66,9 +79,12 @@ function captureRosterDrafts(list) {
       const el = card.querySelector(sel);
       if (el && el.value !== el.defaultValue) fields[sel] = { value: el.value, base: el.defaultValue };
     });
+    const box = card.querySelector(".pf-mats");
+    const matsNow = box ? JSON.stringify(matRowsOf(card)) : null;
+    const mats = box && matsNow !== box.dataset.base ? { value: JSON.parse(matsNow), base: box.dataset.base } : null;
     const m = card.querySelector(".pf-msg");
     const msg = m && m.textContent ? { text: m.textContent, cls: m.className } : null;
-    if (Object.keys(fields).length || msg) cards[card.dataset.student] = { fields, msg };
+    if (Object.keys(fields).length || msg || mats) cards[card.dataset.student] = { fields, msg, mats };
   });
   const form = $("stAddForm");
   const add = form ? {
@@ -80,7 +96,11 @@ function captureRosterDrafts(list) {
   let focus = null;
   if (a && list.contains(a)) {
     const card = a.closest(".student-card");
-    const sel = a.id ? "#" + a.id : PF_FIELDS.find(f => a.matches(f));
+    let sel = a.id ? "#" + a.id : PF_FIELDS.find(f => a.matches(f));
+    if (!sel && card && a.matches(".pf-mat-title, .pf-mat-url")) { // строка материала — по номеру
+      const i = [...card.querySelectorAll(".pf-mat-row")].indexOf(a.closest(".pf-mat-row"));
+      sel = `.pf-mat-row:nth-child(${i + 1}) ${a.matches(".pf-mat-url") ? ".pf-mat-url" : ".pf-mat-title"}`;
+    }
     if (sel) focus = { sid: card ? card.dataset.student : null, sel, start: a.selectionStart, end: a.selectionEnd };
   }
   return { cards, add, focus };
@@ -94,6 +114,8 @@ function restoreRosterDrafts(list, d, opts) {
       const el = card.querySelector(sel);
       if (el && el.defaultValue === f.base) el.value = f.value; // данные не менялись — черновик в силе
     }
+    const box = card.querySelector(".pf-mats");
+    if (box && saved.mats && box.dataset.base === saved.mats.base) box.innerHTML = saved.mats.value.map(matRowHtml).join(""); // материалы не менялись — черновик в силе
     const m = card.querySelector(".pf-msg");
     if (m && saved.msg) { m.textContent = saved.msg.text; m.className = saved.msg.cls; }
   }
@@ -146,7 +168,8 @@ function renderStudentsRoster(opts = {}) {
   list.innerHTML = addForm + students.map(st => {
     const p = profileOf(st.id);
     const isOpen = openProfile === st.id;
-    const tags = [p.callUrl ? "созвон" : "", p.accessUrl ? "материалы" : "", p.notes ? "заметки" : ""].filter(Boolean).join(" · ");
+    const mats = Materials.clean(p.materials);
+    const tags = [p.callUrl ? "созвон" : "", p.accessUrl ? "доска" : "", mats.length ? `материалы ${mats.length}` : "", p.notes ? "заметки" : ""].filter(Boolean).join(" · ");
     return `
       <div class="student-card${isOpen ? " open" : ""}" data-student="${escHtml(st.id)}">
         <div class="student-head">
@@ -173,14 +196,17 @@ function renderStudentsRoster(opts = {}) {
           ${studentGroupsHtml(st.id)}
           <div class="field"><span>Ссылка на созвон (постоянная, видна родителю и ученику)</span>
             <input type="url" class="pf-call" maxlength="500" placeholder="https://telemost.yandex.ru/…" value="${escHtml(p.callUrl || "")}"></div>
-          <div class="field"><span>Ссылка на доску / материалы (видна родителю и ученику)</span>
-            <input type="url" class="pf-access" maxlength="500" placeholder="доска, папка с материалами, платформа…" value="${escHtml(p.accessUrl || "")}"></div>
+          <div class="field"><span>Доска (постоянная ссылка, видна родителю и ученику)</span>
+            <input type="url" class="pf-access" maxlength="500" placeholder="https://… (Miro, Сферум, Холст…)" value="${escHtml(p.accessUrl || "")}"></div>
+          <div class="field"><span>Материалы (видны родителю и ученику)</span>
+            <div class="pf-mats" data-base="${escHtml(JSON.stringify(mats.map(m => ({ title: m.title || "", url: m.url }))))}">${mats.map(matRowHtml).join("")}</div>
+            <div><button class="btn secondary" type="button" data-mat-add>+ Материалы</button></div></div>
           <div class="field"><span>Заметки (видишь только ты)</span>
             <textarea class="pf-notes" maxlength="10000" placeholder="Что уже прошли, что планируем дальше…">${escHtml(p.notes || "")}</textarea></div>
           <div class="btn-row" style="margin-bottom:0">
             <button class="btn" type="button" data-pf-save>Сохранить</button>
             ${p.callUrl && safeHref(p.callUrl) ? `<a class="btn secondary" href="${escHtml(p.callUrl)}" target="_blank" rel="noopener" style="text-decoration:none;text-align:center">Открыть созвон</a>` : ""}
-            ${p.accessUrl && safeHref(p.accessUrl) ? `<a class="btn secondary" href="${escHtml(p.accessUrl)}" target="_blank" rel="noopener" style="text-decoration:none;text-align:center">Материалы</a>` : ""}
+            ${p.accessUrl && safeHref(p.accessUrl) ? `<a class="btn secondary" href="${escHtml(p.accessUrl)}" target="_blank" rel="noopener" style="text-decoration:none;text-align:center">Доска</a>` : ""}
           </div>
           <div class="msg pf-msg"></div>
           <div class="btn-row" style="margin:12px 0 0; justify-content:flex-end">
@@ -211,6 +237,18 @@ $("studentsRosterList").addEventListener("click", async (e) => {
     $("studentsRosterList").querySelectorAll(".student-card").forEach(c => { if (c !== card) c.classList.remove("open"); });
     return;
   }
+  if (e.target.closest("[data-mat-add]")) {
+    const box = card.querySelector(".pf-mats");
+    if (box.querySelectorAll(".pf-mat-row").length >= Materials.MAX) {
+      const m = card.querySelector(".pf-msg"); m.textContent = `Материалов — не больше ${Materials.MAX}.`; m.className = "msg pf-msg err";
+      return;
+    }
+    box.insertAdjacentHTML("beforeend", matRowHtml({}));
+    box.lastElementChild.querySelector(".pf-mat-title").focus();
+    return;
+  }
+  const del = e.target.closest("[data-mat-del]");
+  if (del) { del.closest(".pf-mat-row").remove(); return; }
   const saveBtn = e.target.closest("[data-pf-save]");
   if (!saveBtn) return;
   const msg = card.querySelector(".pf-msg");
@@ -231,6 +269,15 @@ $("studentsRosterList").addEventListener("click", async (e) => {
   for (const u of [callUrl, accessUrl]) {
     if (u && !safeHref(u)) { msg.textContent = "Ссылка должна начинаться с https:// (или http://)"; msg.className = "msg pf-msg err"; return; }
   }
+  // материалы: пустые строки пропускаем; название без ссылки или кривая ссылка — ошибка
+  const matRows = matRowsOf(card).map(m => ({ title: m.title.trim(), url: m.url.trim() })).filter(m => m.title || m.url);
+  const badMat = matRows.find(m => !Materials.normUrl(m.url));
+  if (badMat) {
+    msg.textContent = badMat.url ? `Материал «${badMat.title || badMat.url}»: ссылка должна начинаться с https:// (или http://), без пробелов` : `У материала «${badMat.title}» нет ссылки`;
+    msg.className = "msg pf-msg err";
+    return;
+  }
+  const materials = Materials.clean(matRows);
   saveBtn.disabled = true;
   let target = sid;
   let note = "Сохранено";
@@ -251,7 +298,7 @@ $("studentsRosterList").addEventListener("click", async (e) => {
       target = await renameStudent(sid, prof.name, clsNew, surnameInId);
       note = clsChanged ? `Сохранено: теперь ${clsNew} класс` : "Сохранено";
     }
-    const value = Object.assign({}, profileOf(target), { surname: surnameNew, rate, groupRate, callUrl, accessUrl, notes, updatedAt: Date.now() });
+    const value = Object.assign({}, profileOf(target), { surname: surnameNew, rate, groupRate, callUrl, accessUrl, materials, notes, updatedAt: Date.now() });
     await window.TutorFB.setStudentProfile(target, value);
     const all = Object.assign({}, studentProfiles());
     all[target] = value;

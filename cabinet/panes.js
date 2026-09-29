@@ -57,6 +57,7 @@ function lessonCard(l, now, rank) {
   const links = rank === 0 || rank === 1;
   const call = links && l.status === "planned" && l.endMs >= now ? httpUrl(l.callUrl) : null;
   const board = links && l.status === "planned" && l.endMs >= now ? httpUrl(view.boardUrl) : null;
+  const mats = links && l.status === "planned" && l.endMs >= now ? Materials.clean(view.materials) : [];
   return `
       <div class="lesson${rank === 0 ? " next" : ""}" data-lesson="${esc(l.id || "")}">
         ${rank === 0 ? `<div class="next-label">${live ? "Идёт сейчас" : "Ближайшее занятие"}</div>` : ""}
@@ -64,9 +65,10 @@ function lessonCard(l, now, rank) {
           <div class="lesson-when">${esc(fmtWhen(l.startMs, l.endMs))}${l.pkg ? ` · ${esc(l.pkg)}` : ""}${l.group ? " · групповое" : ""}</div>
           ${lessonPills(l, now)}
         </div>
-        ${call || board ? `<div class="lesson-links">
+        ${call || board || mats.length ? `<div class="lesson-links">
           ${call ? `<a class="call-link" href="${esc(call)}" target="_blank" rel="noopener noreferrer">Подключиться к занятию →</a>` : ""}
           ${board ? `<a class="call-link board-link" href="${esc(board)}" target="_blank" rel="noopener noreferrer">Доска →</a>` : ""}
+          ${mats.length ? `<div class="call-link">${Materials.dropdownHtml(mats, "Материалы")}</div>` : ""}
         </div>` : ""}
         ${canPay(l) ? `<div class="pay-row">${paidButton(l)}${thanksFor === l.id ? '<span class="thanks">Благодарю за оплату!</span>' : ""}</div>` : ""}
         ${note && note.text ? `<div class="note-line"><span class="who">Пояснение:</span> ${esc(note.text.length > 140 ? note.text.slice(0, 140) + "…" : note.text)}</div>` : ""}
@@ -166,7 +168,7 @@ function renderLessonsPane(now) {
 
 function wireLessonCards(container) {
   container.querySelectorAll("[data-lesson]").forEach((el) => el.addEventListener("click", (e) => {
-    if (e.target.closest("a, label, input, select, button")) return;
+    if (e.target.closest("a, label, input, select, button, details")) return;
     if (el.dataset.lesson) openLessonModal(el.dataset.lesson);
   }));
 }

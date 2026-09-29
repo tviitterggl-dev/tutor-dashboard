@@ -67,9 +67,12 @@ async function buildViews(keys) {
       busyFrom,
       busyTo,
       channel: ch.shared || null,
-      // Ссылка на доску/материалы из профиля ученика (поле «Ссылка на
-      // занятие / доступ») — видна родителю и ученику у ближайших занятий.
+      // «Доска» (одна постоянная ссылка) и «Материалы» (список ссылок с
+      // названиями) из профиля ученика — видны родителю и ученику у ближайших
+      // занятий и в окне занятия. Материалы — через Materials.clean: то же
+      // проверяют правила (validView), лишнее туда не попадёт.
       boardUrl: (() => { const u = profileOf(k.studentId).accessUrl; return u && safeHref(u) ? u : null; })(),
+      materials: materialsOf(k.studentId),
       lessons: own.map(l => {
         const out = {
           id: l.id,
@@ -80,8 +83,8 @@ async function buildViews(keys) {
           report: l.report || "",
           homework: (Array.isArray(l.homework) ? l.homework : []).map(h => ({ url: h.url, name: h.name || "файл", by: h.by || "teacher" })),
           // Ссылка на созвон (разовая у занятия или из профиля ученика).
-          // Из профиля в кабинет уходят только две ссылки — эта и boardUrl
-          // (доска/материалы, выше); заметки и ставка остаются у учителя.
+          // Из профиля в кабинет уходят только ссылки — эта, boardUrl и
+          // materials (выше); заметки и ставка остаются у учителя.
           callUrl: isActiveStatus(l.status) && callLinkFor(l) ? callLinkFor(l).url : null,
         };
         if (isGroupCopy(l)) out.group = true; // только отметка — кто ещё в группе, семья не видит

@@ -70,11 +70,13 @@ function refreshModal(force) {
 
   const call = (l.status === "planned" || l.status === "done") ? httpUrl(l.callUrl) : null;
   const board = l.status !== "cancelled" && l.status !== "rescheduled" ? httpUrl(view.boardUrl) : null;
-  const callHtml = call || board ? `<div class="section"><div class="section-title">Созвон и доска</div>
+  const mats = l.status !== "cancelled" && l.status !== "rescheduled" ? Materials.clean(view.materials) : [];
+  const callHtml = call || board || mats.length ? `<div class="section"><div class="section-title">${mats.length ? "Созвон, доска и материалы" : "Созвон и доска"}</div>
         <div class="btn-row" style="margin-top:0">
           ${call ? `<a class="btn" id="mCall" href="${esc(call)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none; display:inline-block">Подключиться к занятию</a>` : ""}
           ${board ? `<a class="btn secondary" id="mBoard" href="${esc(board)}" target="_blank" rel="noopener noreferrer" style="text-decoration:none; display:inline-block">Открыть доску</a>` : ""}
-        </div></div>` : "";
+        </div>
+        ${mats.length ? `<div class="hint" style="margin:10px 0 0">Материалы (${mats.length}):</div>${Materials.linksHtml(mats)}` : ""}</div>` : "";
   const note = noteOf(l);
   const noteHtml = canNote(l) ? `<div class="section"><div class="section-title">Пояснение к занятию</div>
         <div class="field" style="margin-bottom:0"><textarea id="mNote" maxlength="1000" placeholder="Пожелания, вопросы, что разобрать, ссылки на материалы…">${esc(note ? note.text : "")}</textarea></div>

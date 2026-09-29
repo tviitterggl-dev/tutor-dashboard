@@ -38,10 +38,15 @@ function renderLessons() {
       ? escHtml(studentLabel(makeStudentId(parsed.name, parsed.cls, parsed.surname))) + (baseRate == null && !mark.marked ? ' <span class="unmatched">(ставка не найдена)</span>' : "")
       : `${escHtml(ev.summary || "Без названия")} <span class="unmatched">(не распознано)</span>`) + groupTag;
 
+    // доска и материалы — из профиля ученика (у личного времени и занятий без ученика нет)
+    const prof = ev._lesson && ev._lesson.studentId ? profileOf(ev._lesson.studentId) : {};
+    const boardHtml = prof.accessUrl && safeHref(prof.accessUrl) ? ` <a class="edit-link" href="${escHtml(prof.accessUrl)}" target="_blank" rel="noopener">доска</a>` : "";
+    const mats = ev._lesson ? materialsOf(ev._lesson.studentId) : [];
+    const matsHtml = mats.length ? " " + Materials.dropdownHtml(mats, "материалы") : "";
     row.innerHTML = `
         <div class="lesson-top">
           <div class="lesson-name">${nameHtml}</div>
-          <div class="lesson-when">${dayStr}, ${timeStr}${ev._lesson && ev._lesson.paid && ev._lesson.paid.value ? '<span class="paid-tag">оплачено</span>' : ""}${ev._lesson && ev._lesson.familyNote && ev._lesson.familyNote.text ? '<span class="paid-tag note-tag" title="Есть пояснение от родителя/ученика">пояснение</span>' : ""}${ev._lesson && callLinkFor(ev._lesson) ? ` <a class="edit-link" href="${escHtml(callLinkFor(ev._lesson).url)}" target="_blank" rel="noopener">созвон</a>` : ""}${ev._lesson ? ' <button class="edit-link" type="button">изменить</button>' : ""}</div>
+          <div class="lesson-when">${dayStr}, ${timeStr}${ev._lesson && ev._lesson.paid && ev._lesson.paid.value ? '<span class="paid-tag">оплачено</span>' : ""}${ev._lesson && ev._lesson.familyNote && ev._lesson.familyNote.text ? '<span class="paid-tag note-tag" title="Есть пояснение от родителя/ученика">пояснение</span>' : ""}${ev._lesson && callLinkFor(ev._lesson) ? ` <a class="edit-link" href="${escHtml(callLinkFor(ev._lesson).url)}" target="_blank" rel="noopener">созвон</a>` : ""}${boardHtml}${matsHtml}</div>
         </div>
         <div class="lesson-bottom">
           <div class="rate-field">
@@ -54,13 +59,11 @@ function renderLessons() {
       `;
 
     row.querySelector("input").addEventListener("change", (e) => setOverride(ev, e.target.value));
-    const editBtn = row.querySelector("button.edit-link");
-    if (editBtn) editBtn.addEventListener("click", () => openLessonModal(ev.id));
     // вся карточка открывает занятие (кроме полей, кнопок и ссылок в ней)
     if (ev._lesson) {
       row.classList.add("clickable");
       row.addEventListener("click", (e) => {
-        if (e.target.closest("input, button, a, select, textarea, label")) return;
+        if (e.target.closest("input, button, a, select, textarea, label, details")) return;
         openLessonModal(ev.id);
       });
     }

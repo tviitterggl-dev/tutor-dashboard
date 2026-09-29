@@ -26,6 +26,7 @@
 <script src="theme.js"></script>
 <script src="notify-core.js"></script>
 <script src="tab-order.js"></script>
+<script src="materials.js"></script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
   import {
@@ -735,6 +736,18 @@
     background: var(--card-bg);
   }
   .student-card.open .student-body { display: block; animation: ds-in var(--dur) var(--ease); }
+  /* материалы в карточке ученика: «название + ссылка + ×»; на телефоне — в две строки */
+  .pf-mats { display: flex; flex-direction: column; gap: 8px; }
+  .pf-mats:not(:empty) { margin-bottom: 8px; }
+  .pf-mat-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto; gap: 6px; align-items: center; }
+  .pf-mat-del { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--border); background: var(--card-bg); color: var(--muted); font-size: 22px; line-height: 1; padding: 0; cursor: pointer; text-decoration: none; }
+  .pf-mat-del:hover { color: var(--danger); border-color: var(--danger-border); }
+  /* на телефоне — название и ссылка друг под другом, каждый материал отдельной плашкой */
+  @media (max-width: 560px) {
+    .pf-mat-row { grid-template-columns: minmax(0, 1fr) auto; padding: 8px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface-2); }
+    .pf-mat-row .pf-mat-url { grid-column: 1; grid-row: 2; }
+    .pf-mat-row .pf-mat-del { grid-row: 1 / span 2; grid-column: 2; align-self: center; }
+  }
   .session-row {
     display: flex;
     justify-content: space-between;
@@ -956,6 +969,7 @@
   .ak-item .key-link { margin: 12px 0 0; user-select: all; -webkit-user-select: all; }
   .key-link[hidden] { display: none; }
   .png-preview { max-width: 100%; border: 1px solid var(--border); border-radius: var(--r-md); display: block; margin: 10px 0; -webkit-touch-callout: default; }
+  .lesson .mats > summary { font-size: 12px; padding: 0 4px; }
   .lesson .edit-link { background: none; border: none; color: var(--accent-2); cursor: pointer; font-size: 12px; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; padding: 0 4px; }
 
   .count-badge { display: inline-block; min-width: 18px; height: 18px; line-height: 18px; padding: 0 5px; margin-left: 6px; border-radius: var(--r-pill); background: var(--danger); color: var(--card-bg); font-size: 11px; font-weight: 700; font-family: var(--font-body); vertical-align: 1px; text-align: center; }
@@ -1287,7 +1301,7 @@
       <div class="card">
         <div class="chart-title">Ученики</div>
         <div id="studentsRosterList"><div class="empty">Загрузка…</div></div>
-        <div class="hint">Нажми на ученика — там постоянная ссылка на созвон, ссылка на материалы/доступ и заметки. Ссылка на созвон сама подставляется в каждое занятие ученика (для одного занятия её можно заменить в карточке занятия) и видна родителю и ученику в их кабинетах. Ссылка на доску/материалы тоже видна им — кнопкой «Доска» у ближайших занятий. Заметки видишь только ты.</div>
+        <div class="hint">Нажми на ученика — там постоянная ссылка на созвон, доска, материалы и заметки. Ссылка на созвон сама подставляется в каждое занятие ученика (для одного занятия её можно заменить в карточке занятия) и видна родителю и ученику в их кабинетах. Ссылка на доску/материалы тоже видна им — кнопкой «Доска» у ближайших занятий. Заметки видишь только ты.</div>
       </div>
       <div class="card">
         <div class="chart-title">Пакеты (предоплата)</div>
