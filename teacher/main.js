@@ -42,7 +42,6 @@ async function afterAuth() {
   if (!(await bootstrapRemoteState())) return;
   showTab(applyTabOrder()[0]); // первая вкладка в своём порядке — «главная»
   await startChannelWatch();
-  await ensureContactsMigrated();
   publishViewsSoon(); // раз в заход освежаем «занято» в кабинетах родителей
   refreshPackageAlertsSoon();
   lessonLinkReady(); // занятие из пуш-уведомления (?lesson=) — теперь можно открыть

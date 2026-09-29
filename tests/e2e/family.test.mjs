@@ -83,11 +83,9 @@ test("витрина: прошлая неделя доступна, id заня�
   await cab.click("#cal .fc-prev-button");
   await cab.waitForFunction(() => /14/.test(document.querySelector("#cal .fc-toolbar-title").textContent));
   assert.ok(await cab.$$eval("#cal .fc-event.own", (e) => e.length) >= 3, "уроки прошлой недели видны");
-  // Контакты: в базе их ещё не было — перенеслись прежние (из старого cabinet.html)
-  const contacts = await cab.$$eval("#contactsList a", (as) => as.map((a) => [a.textContent, a.getAttribute("href")]));
-  assert.deepEqual(contacts.map((c) => c[0]), ["Telegram", "Яндекс Телемост"]);
-  assert.match(contacts[0][1], /^https:\/\/t\.me\//);
-  assert.equal(await cab.getAttribute("#contactsCard", "hidden"), null, "карточка контактов есть (во вкладке «Ещё»)");
+  // Контакты: учитель их не задал — карточки «Если что — пишите» нет, сами не подставляются
+  assert.equal(await cab.getAttribute("#contactsCard", "hidden"), "");
+  assert.equal(await cab.locator("#contactsList a").count(), 0);
   assert.deepEqual(cab.errors, []);
   await app.close();
 });
@@ -472,7 +470,7 @@ test("вкладки кабинета: Занятия по умолчанию, �
   // Настройки
   await cab.click('.ctab[data-ctab="settings"]');
   assert.deepEqual(await visible(), ["pane-settings"]);
-  assert.equal(await cab.isVisible("#contactsList a >> nth=0"), true);
+  assert.equal(await cab.isVisible("#contactsCard"), false, "контактов нет — и карточки нет");
   assert.equal(await cab.isVisible("#forgetBtn"), true);
   assert.deepEqual(cab.errors, []);
   await app.close();

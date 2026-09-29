@@ -49,23 +49,6 @@ $("contactSave").addEventListener("click", async (e) => {
   }
   btn.disabled = false;
 });
-// Разовый перенос: до этого контакты были прописаны прямо в cabinet.html.
-// Поля contacts ещё нет — кладём прежние, чтобы семьи не остались без них
-// (дальше учитель правит их здесь, пустой список — тоже выбор, не переносим
-// снова). TODO: убрать этот перенос вместе со ссылками, когда он прошёл
-// у учителя (DEVLOG, запись 52): в открытом репозитории им не место.
-const LEGACY_CONTACTS = [
-  { title: "Telegram", url: "https://t.me/mat_repet" },
-  { title: "Яндекс Телемост", url: "https://yandex.ru/chat/p/ad9c2706-f36a-940f-7a90-d15f170427e5?utm_source=invite" },
-];
-async function ensureContactsMigrated() {
-  if (remoteState.contacts !== undefined || !navigator.onLine) return;
-  try {
-    await window.TutorFB.patchState({ contacts: LEGACY_CONTACTS });
-    remoteState.contacts = LEGACY_CONTACTS;
-  } catch (e) { /* в следующий раз */ }
-}
-
 function renderSettingsTab() {
   renderContacts();
   const labels = TAB_LABELS();
