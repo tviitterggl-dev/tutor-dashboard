@@ -17,7 +17,7 @@ const SHELL = ["./", "./index.html", "./cabinet.html", "./design.css", "./theme.
   // кабинет учителя: файлы teacher/*.js — в том же порядке, что и в index.html
   "./teacher/core.js", "./teacher/auth.js", "./teacher/helpers.js", "./teacher/data.js", "./teacher/lessons.js", "./teacher/summary.js", "./teacher/analytics.js", "./teacher/packages.js", "./teacher/students.js", "./teacher/schedule.js", "./teacher/access.js", "./teacher/requests.js", "./teacher/calendar.js", "./teacher/lesson-ops.js", "./teacher/groups.js", "./teacher/lesson-modal.js", "./teacher/files.js", "./teacher/notify.js", "./teacher/settings.js", "./teacher/backup.js", "./teacher/main.js",
   // кабинет семьи: файлы cabinet/*.js — в том же порядке, что и в cabinet.html
-  "./cabinet/core.js", "./cabinet/view.js", "./cabinet/panes.js", "./cabinet/deeplink.js", "./cabinet/calendar.js", "./cabinet/requests.js", "./cabinet/main.js",
+  "./cabinet/core.js", "./cabinet/view.js", "./cabinet/panes.js", "./cabinet/deeplink.js", "./cabinet/calendar.js", "./cabinet/requests.js", "./cabinet/files.js", "./cabinet/main.js",
   "./icons/icon-192.png", "./icons/icon-512.png", "./icons/apple-touch-icon.png", "./icons/favicon-32.png"];
 const CDN = [
   "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js",
