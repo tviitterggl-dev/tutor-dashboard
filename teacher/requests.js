@@ -20,6 +20,11 @@ const channelBusy = {};
 // заявке — только метка кабинета (как id документа НЕ используется: иначе
 // подменой id можно было бы задеть чужое занятие).
 const REQUEST_TYPES = ["reschedule", "cancel", "book"];
+// Последнее «оплачено»/«пояснение» по занятию остаётся в канале, пока витрина
+// семьи его не догнала (кабинет показывает, что новее). Дольше держать
+// незачем: иначе канал копит по сообщению на КАЖДОЕ занятие навсегда, и
+// кабинеты и фоновая рассылка (каждые 15 минут) перечитывают их все.
+const CHANNEL_KEEP_MS = DAY_MS;
 
 const activeKeysOf = (studentId) => (accessKeysCache || []).filter(k => k.active && k.studentId === studentId);
 
@@ -34,11 +39,45 @@ async function ensureChannels(keys) {
   remoteState.studentChannels = map;
 }
 
+// Каналы должны соответствовать доступам (сверка при каждом запуске):
+//  • у ученика не осталось действующих доступов — каналы удаляются целиком:
+//    писать туда больше некому, а рассылка и кабинет не читают их зря;
+//  • доступ отозван позже, чем заведены каналы, — значит, при отзыве смена
+//    каналов не дошла (сбой сети посреди отзыва: ключ уже неактивен, кнопки
+//    «Отозвать» больше нет), и отозванный всё ещё знает ключ канала —
+//    меняем каналы сейчас.
+async function reconcileChannels(keys) {
+  for (const [sid, ch] of Object.entries(studentChannels())) {
+    if (!ch) continue;
+    const mine = keys.filter(k => k.studentId === sid);
+    if (!mine.some(k => k.active)) { await dropChannels(sid); continue; }
+    const lastRevoked = Math.max(0, ...mine.filter(k => !k.active).map(k => k.revokedAt || 0));
+    if (lastRevoked > (ch.createdAt || 0)) {
+      await rotateChannels(sid);
+      await publishViews(activeKeysOf(sid));
+    }
+  }
+}
+// Удалить каналы ученика вместе с сообщениями (нет доступов / ученик удалён).
+async function dropChannels(sid) {
+  const ch = studentChannels()[sid];
+  if (!ch) return;
+  for (const ck of [ch.shared, ch.parent].filter(Boolean)) {
+    const items = await window.TutorFB.listChannel(ck).catch(() => []);
+    if (items.length) await window.TutorFB.deleteChannelItems(ck, items.map(i => i.id));
+  }
+  await window.TutorFB.setStudentChannels(sid, null);
+  const map = Object.assign({}, studentChannels());
+  delete map[sid];
+  remoteState.studentChannels = map;
+}
+
 async function startChannelWatch() {
   let keys;
   try {
     keys = await getAccessKeys(true);
     await ensureChannels(keys);
+    await reconcileChannels(keys);
   } catch (e) {
     console.error("Каналы учеников недоступны", e);
     return;
@@ -135,6 +174,9 @@ async function processChannel(ck) {
         continue;
       }
       const patch = {};
+      // уже в занятии (или перекрыто более новым) и старше суток — витрина
+      // семьи давно это показывает, сообщение в канале больше не нужно
+      const settled = (i, saved) => !!saved && (saved.at || 0) >= i.createdAt && Date.now() - i.createdAt >= CHANNEL_KEEP_MS;
       // by в сообщении пишет сам отправитель, а правила не отличают учителя от
       // семьи (входа у семьи нет) — «от учителя» может подставить кто угодно
       // с ключом канала. ДЗ и пояснения из каналов принимаем только от
@@ -164,6 +206,7 @@ async function processChannel(ck) {
             patch.familyNote = { text: String(latest.comment || "").slice(0, 1000), by: latest.by, at: latest.createdAt };
           }
           toDelete.push(...notes.slice(0, -1).map(i => i.id));
+          if (settled(latest, patch.familyNote || l.familyNote)) toDelete.push(latest.id);
         }
       }
       const paids = its.filter(i => i.type === "paid").sort((a, b) => a.createdAt - b.createdAt);
@@ -175,6 +218,8 @@ async function processChannel(ck) {
           const latest = fromParent[fromParent.length - 1];
           if (latest && (!l.paid || (l.paid.at || 0) < latest.createdAt)) patch.paid = { value: latest.paid, by: "parent", at: latest.createdAt };
           toDelete.push(...paids.slice(0, -1).map(i => i.id)); // последняя остаётся — её видит родитель
+          const last = paids[paids.length - 1];
+          if (settled(last, patch.paid || l.paid)) toDelete.push(last.id);
         }
       }
       if (Object.keys(patch).length) {

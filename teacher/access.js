@@ -286,7 +286,9 @@ $("accessBody").addEventListener("click", async (e) => {
       await window.TutorFB.deleteView(k.role, k.id);
       await window.TutorFB.saveAccessKey(k.id, { active: false, revokedAt: Date.now() });
       await getAccessKeys(true);
-      await rotateChannels(k.studentId);
+      // остались доступы — новые каналы (отозванный старые знает); не осталось — каналы не нужны
+      if (activeKeysOf(k.studentId).length) await rotateChannels(k.studentId);
+      else await dropChannels(k.studentId);
       await publishViews(activeKeysOf(k.studentId));
       startChannelWatch();
       await loadAccessCard();

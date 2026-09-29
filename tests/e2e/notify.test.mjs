@@ -357,7 +357,9 @@ test("старые подписки с самим ключом в общем к�
   seed[`teacherSpaces/${T}/accessKeys/${PK}`] = k("parent", "мама", 1);
   seed[`teacherSpaces/${T}/accessKeys/${SK}`] = k("student", "", 2);
   seed[`teacherSpaces/${T}/accessKeys/${REVOKED}`] = k("parent", "папа", 3, false);
-  seed[`teacherSpaces/${T}/state/main`].studentChannels = { "Тест, 7 класс": { shared: CHS, parent: CHP, createdAt: 1 } };
+  // каналы заведены ПОСЛЕ отзыва (как после обычного отзыва со сменой каналов);
+  // раньше отзыва — это недоделанный отзыв, и сверка сменила бы каналы (review-fixes)
+  seed[`teacherSpaces/${T}/state/main`].studentChannels = { "Тест, 7 класс": { shared: CHS, parent: CHP, createdAt: 10 } };
   const tok = "tok-legacy-mom-" + "x".repeat(30);
   seed[`channels/${CHS}/items/old1`] = { type: "push", lessonId: "-", by: "parent", createdAt: 1, token: tok, key: PK };
   seed[`channels/${CHS}/items/old2`] = { type: "push", lessonId: "-", by: "parent", createdAt: 1, token: "tok-legacy-dad-" + "x".repeat(30), key: REVOKED };
