@@ -74,3 +74,18 @@ test("вкладки кабинета семьи: список в firestore.rule
   const inCab = JSON.parse(/const CAB_TABS = (\[[^\]]*\]);/.exec(read("cabinet/core.js"))[1]);
   assert.deepEqual(inRules.slice().sort(), inCab.slice().sort());
 });
+
+test("все библиотеки с CDN, которые грузят кабинеты, — в офлайн-списке CDN sw.js (та же версия)", () => {
+  // Иначе без сети не работает то, что ни разу не открывали с сетью (так
+  // было с html2canvas — картинка «Свободные окна»), а смена версии в одном
+  // месте молча ломала офлайн.
+  const sw = read("sw.js");
+  const cdn = [...sw.slice(sw.indexOf("const CDN"), sw.indexOf("];", sw.indexOf("const CDN"))).matchAll(/"(https:[^"]+)"/g)].map((m) => m[1]);
+  const files = ["index.html", "cabinet.html", ...dirFiles("teacher"), ...dirFiles("cabinet")];
+  const used = new Set();
+  for (const f of files) {
+    for (const m of read(f).matchAll(/https:\/\/(?:www\.gstatic\.com\/firebasejs|cdn\.jsdelivr\.net\/npm|cdnjs\.cloudflare\.com\/ajax\/libs)\/[^"'`\s]+\.js/g)) used.add(m[0]);
+  }
+  assert.ok(used.size >= 7, "нашлись адреса библиотек");
+  for (const u of used) assert.ok(cdn.includes(u), `${u} нет в CDN sw.js`);
+});
