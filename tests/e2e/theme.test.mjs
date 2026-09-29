@@ -152,7 +152,10 @@ test("«Ещё» → резервная копия: JSON со всеми дан�
   const { page } = app;
   await page.waitForSelector("#lessonsList .lesson");
   await page.click('.tab[data-tab="settings"]');
-  // данные готовятся заранее, при открытии «Ещё»; кнопка отдаёт файл сразу
+  // при открытии вкладки ничего не читается (копия — вся база); первое нажатие
+  // собирает копию, второе отдаёт файл сразу
+  assert.match(await page.textContent("#backupMsg"), /Нажми кнопку — соберу копию/);
+  await page.click("#backupJsonBtn");
   await page.waitForFunction(() => /Копия готова/.test(document.querySelector("#backupMsg").textContent));
   const [dl] = await Promise.all([page.waitForEvent("download"), page.click("#backupJsonBtn")]);
   assert.match(dl.suggestedFilename(), /^zanyatiya-backup_\d{4}-\d{2}-\d{2}_\d{2}-\d{2}\.json$/);
@@ -196,7 +199,9 @@ test("резервная копия на iPhone: «Поделиться» пря
     };
   });
   await page.click('.tab[data-tab="settings"]');
+  await page.click("#backupJsonBtn"); // собрать
   await page.waitForFunction(() => /Копия готова/.test(document.querySelector("#backupMsg").textContent));
+  assert.equal(await page.evaluate(() => window.__shares.length), 0, "первое нажатие только собирает");
   await page.click("#backupJsonBtn");
   await page.waitForFunction(() => /Сохранено/.test(document.querySelector("#backupMsg").textContent));
   await page.click("#backupCsvBtn");

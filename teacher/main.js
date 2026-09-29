@@ -75,7 +75,7 @@ function showTab(tab) {
   else if (tab === "stats") { stopPoll(); showStats(statsMode); }
   else if (tab === "students") { stopPoll(); renderStudentsRoster(); loadPackages(); loadAccessCard(); }
   else if (tab === "schedule") { stopPoll(); loadSchedule(); }
-  else if (tab === "settings") { stopPoll(); prepareBackup(); renderSettingsTab(); }
+  else if (tab === "settings") { stopPoll(); showBackupState(); renderSettingsTab(); }
 }
 
 document.querySelectorAll(".tab").forEach(tab => {

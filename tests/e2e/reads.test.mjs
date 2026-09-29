@@ -144,3 +144,25 @@ test("диапазон шире живой подписки (аналитика 
   assert.deepEqual(app.errors, []);
   await app.close();
 });
+
+test("вкладка «Настройки» при большой истории не читает всю базу (резервная копия — только по нажатию)", async () => {
+  // Раньше открытие «Настроек» сразу собирало резервную копию: все занятия
+  // за всё время, все ключи, заявки и уведомления — сотни чтений на открытие.
+  const { seed, n } = bigSeed();
+  const app = await openApp({ seed });
+  const { page } = app;
+  await page.waitForSelector("#lessonsList .lesson");
+  await settle(page);
+  await page.evaluate(() => { window.__fakeReads = 0; });
+  await page.click('.tab[data-tab="settings"]');
+  await settle(page, 2500);
+  const reads = await page.evaluate(() => window.__fakeReads);
+  assert.ok(reads < 40, `открыть «Настройки» — ${reads} чтений (история: ${n} занятий)`);
+  // по нажатию — собирается и отдаётся вся история
+  await page.click("#backupJsonBtn");
+  await page.waitForFunction(() => /Копия готова/.test(document.querySelector("#backupMsg").textContent));
+  const got = Number(/занятий (\d+)/.exec(await page.textContent("#backupMsg"))[1]);
+  assert.ok(got >= n, `в копии ${got} занятий — вся история (${n}+)`);
+  assert.deepEqual(app.errors, []);
+  await app.close();
+});
