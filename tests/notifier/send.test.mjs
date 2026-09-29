@@ -4,7 +4,7 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { runOnce } from "../../notifier/send.mjs";
+import { runOnce, publicError } from "../../notifier/send.mjs";
 
 const req = createRequire(new URL("../../notifier/package.json", import.meta.url));
 const core = createRequire(import.meta.url)("../../notify-core.js");
@@ -163,6 +163,17 @@ test("чистка «сейчас» и общие сроки: sentKeepMs — 3 �
   assert.equal(core.NOW_TTL_MS, 3 * 24 * H);
   assert.equal(core.sentKeepMs({ mode: "now" }), 7 * 24 * H);
   assert.equal(core.SENT_KEEP_MS, 7 * 24 * H);
+});
+
+test("ошибки в публичном логе Actions — без uid учителя и ключей (путь документа обрезан)", () => {
+  const e = new Error(`5 NOT_FOUND: No document to update: projects/demo/databases/(default)/documents/teacherSpaces/${T}/notifications/n1`);
+  e.stack = e.message + "\n    at x (send.mjs:1:1)";
+  const out = publicError(e);
+  assert.ok(!out.includes(T), out);
+  assert.match(out, /teacherSpaces\/teache…\/notifications\/n1/);
+  const k = publicError(`permission denied: channels/${CH}/items/abc and parentAccess/parent_key_masha_0000000000000001`);
+  assert.ok(!k.includes(CH) && !k.includes("parent_key_masha_0000000000000001"), k);
+  assert.equal(publicError("просто текст"), "просто текст");
 });
 
 test("пуши учителю: оплата/пояснение/ДЗ от родителя и ученика — один раз, со своим текстом; события учителя и до подписки — нет", async () => {

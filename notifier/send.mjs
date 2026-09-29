@@ -150,7 +150,7 @@ async function teacherPushes({ db, tRef, stateRef, state, readChannel, send, now
     }));
     let results;
     try { results = await send(messages); } catch (e) {
-      logger.error("FCM:", e.message);
+      logger.error("FCM:", publicError(e.message));
       results = messages.map(() => ({ success: false, error: { code: "send-failed" } }));
     }
     let delivered = 0, failed = 0;
@@ -237,7 +237,7 @@ export async function runOnce({ db, send, now = Date.now(), siteUrl, logger = co
           try {
             results = await send(messages);
           } catch (e) {
-            logger.error("FCM:", e.message);
+            logger.error("FCM:", publicError(e.message));
             results = messages.map(() => ({ success: false, error: { code: "send-failed", message: e.message } }));
           }
         }
@@ -283,6 +283,15 @@ export async function runOnce({ db, send, now = Date.now(), siteUrl, logger = co
   return summary;
 }
 
+// Логи GitHub Actions публичные (репозиторий открыт). В тексте ошибок
+// Firestore — полный путь документа: uid учителя, ключи доступа и каналов.
+// Прячем их, оставляя начало (чтобы было понятно, о чём речь).
+const SECRET_PATH_RE = /\b(teacherSpaces|channels|parentAccess|studentAccess|accessPrefs|accessKeys|items)\/([A-Za-z0-9_-]{6})[A-Za-z0-9_-]*/g;
+export function publicError(e) {
+  const text = String((e && (e.stack || e.message)) || e);
+  return text.replace(SECRET_PATH_RE, "$1/$2…");
+}
+
 // Запуск из GitHub Actions: node send.mjs
 async function main() {
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
@@ -310,5 +319,5 @@ async function main() {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  main().catch((e) => { console.error(e); process.exit(1); });
+  main().catch((e) => { console.error(publicError(e)); process.exit(1); });
 }
