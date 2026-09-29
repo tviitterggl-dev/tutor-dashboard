@@ -218,12 +218,7 @@ function wireGroupModal(copies, main) {
   const live = copies.filter(c => c.status !== "rescheduled");
   const byId = Object.fromEntries(copies.map(c => [c.id, c]));
   const scope = () => (mq("#mScope") ? mq("#mScope").value : "one");
-  const busy = async (btn, fn) => {
-    if (btn) btn.disabled = true;
-    if (!navigator.onLine) { modalMsg(OFFLINE_TEXT, "err"); if (btn) btn.disabled = false; return; }
-    try { await fn(); } catch (e) { console.error(e); modalMsg(isOfflineError(e) ? OFFLINE_TEXT : "Не удалось сохранить (нет интернета?). Попробуй ещё раз.", "err"); }
-    finally { if (btn && document.body.contains(btn)) btn.disabled = false; }
-  };
+  const busy = modalBusy;
   const reopen = async (note, from) => {
     const fresh = await window.TutorFB.getLesson((from || main).id);
     if (fresh) await openGroupModal(fresh, note); else closeModal();
@@ -299,37 +294,13 @@ function wireGroupModal(copies, main) {
   }));
   mq("#gCallSave").addEventListener("click", (e) => busy(e.currentTarget, async () => {
     const value = mq("#gCallUrl").value.trim();
-    if (value && !safeHref(value)) { modalMsg("Ссылка должна начинаться с https:// (или http://)", "err"); return; }
-    await window.TutorFB.saveLessons(live.map(c => ({ id: c.id, merge: true, data: { callUrl: value || null, updatedAt: Date.now() } })));
-    publishViewsSoon();
+    if (!(await saveCallLink(live, value))) return;
     await reopen(value ? "Разовая ссылка сохранена для всей группы" : "Вернули обычную ссылку");
   }));
   // Отчёт — всем участникам: в каждую копию и уведомлением каждому ученику.
   mq("#gSaveReport").addEventListener("click", (e) => busy(e.currentTarget, async () => {
-    const report = mq("#gReport").value.trim();
-    const changed = report !== (main.report || "").trim();
-    const now = Date.now();
-    await window.TutorFB.saveLessons(live.map(c => ({ id: c.id, merge: true, data: { report, reportUpdatedAt: now, updatedAt: now } })));
-    live.forEach(c => { c.report = report; });
-    if (!report) { publishViewsSoon(); modalMsg("Отчёт убран", "ok"); return; }
-    if (!changed) { modalMsg("Отчёт уже опубликован — изменений нет", "ok"); return; }
-    const head = `Отчёт по занятию ${fmtWhen(main.startMs, main.endMs)}:\n`;
-    const text = (head + report).length > 1000 ? (head + report).slice(0, 999) + "…" : head + report;
-    let sent = 0;
-    const keys = [];
-    for (const c of live.filter(x => x.status !== "cancelled")) {
-      const k = activeKeysOf(c.studentId);
-      if (!k.length) continue;
-      await window.TutorFB.saveNotification(newId("n"), {
-        title: "Отчёт о занятии", text, mode: "now", times: 1, target: { scope: "student", role: "any", studentId: c.studentId },
-        push: true, active: true, lessonIds: [c.id], source: "report", createdAt: now, updatedAt: now,
-      });
-      keys.push(...k);
-      sent++;
-    }
-    notifCache = null;
-    if (keys.length) await publishViews(keys); else publishViewsSoon();
-    modalMsg(sent ? `Отчёт опубликован и отправлен: учеников — ${sent} (пуш — с ближайшей рассылкой).` : "Отчёт сохранён. У участников нет доступа к кабинету — отправлять некому.", "ok");
+    const r = await publishReport(live, main, mq("#gReport").value.trim());
+    modalMsg(r.text, r.kind);
   }));
   $("modal").querySelectorAll("[data-g-hw-remove]").forEach(b => b.addEventListener("click", () => busy(b, async () => {
     const url = b.dataset.gHwRemove;
@@ -340,13 +311,8 @@ function wireGroupModal(copies, main) {
   })));
   const zone = $("modal").querySelector('[data-drop="gHwFile"]');
   const upload = (files) => busy(zone, async () => {
-    const tooBig = files.filter(f => f.size > CLOUDINARY_MAX_BYTES);
-    if (tooBig.length) { modalMsg(`Слишком большой файл: ${tooBig.map(f => f.name).join(", ")} (максимум 10 МБ).`, "err"); return; }
-    const uploaded = [];
-    for (let i = 0; i < files.length; i++) {
-      modalMsg(`Загружаю ${i + 1} из ${files.length}: ${files[i].name}…`);
-      uploaded.push(await uploadToCloudinary(files[i]));
-    }
+    const uploaded = await uploadFilesChecked(files);
+    if (!uploaded) return;
     // одна загрузка — ссылка во всех копиях занятия
     const fresh = await groupCopies(main);
     await window.TutorFB.saveLessons(fresh.filter(c => c.status !== "rescheduled")
@@ -356,10 +322,7 @@ function wireGroupModal(copies, main) {
   }).catch(() => {});
   wireDropZone(zone, upload);
   pasteTarget = upload;
-  mq("#gExport").addEventListener("click", () => {
-    downloadIcs(Object.assign({}, main, { title: groupLabel(main.groupId) }));
-    modalMsg("Файл события скачан — открой его, чтобы добавить в календарь.", "ok");
-  });
+  mq("#gExport").addEventListener("click", () => exportIcs(Object.assign({}, main, { title: groupLabel(main.groupId) })));
 }
 
 // ---------- состав группы (из окна занятия и из карточки ученика) ----------

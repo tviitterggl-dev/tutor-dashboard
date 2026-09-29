@@ -448,12 +448,7 @@ function renderLessonModal(l, note) {
 function wireLessonModal(l) {
   modalLessonId = l.id;
   const scope = () => (mq("#mScope") ? mq("#mScope").value : "one");
-  const busy = async (btn, fn) => {
-    if (btn) btn.disabled = true;
-    if (!navigator.onLine) { modalMsg(OFFLINE_TEXT, "err"); return; }
-    try { await fn(); } catch (e) { console.error(e); if (!e.shown) modalMsg(isOfflineError(e) ? OFFLINE_TEXT : "Не удалось сохранить (нет интернета?). Попробуй ещё раз.", "err"); }
-    finally { if (btn && document.body.contains(btn)) btn.disabled = false; }
-  };
+  const busy = modalBusy;
   const reopen = async (note) => {
     const fresh = await window.TutorFB.getLesson(l.id);
     if (fresh) renderLessonModal(fresh, note); else closeModal();
@@ -479,10 +474,7 @@ function wireLessonModal(l) {
     });
   }
   const saveCall = (value) => busy(null, async () => {
-    if (value && !safeHref(value)) { modalMsg("Ссылка должна начинаться с https:// (или http://)", "err"); return; }
-    await window.TutorFB.updateLesson(l.id, { callUrl: value || null, updatedAt: Date.now() });
-    publishViewsSoon();
-    await reopen(value ? "Разовая ссылка сохранена" : "Вернули обычную ссылку ученика");
+    if (await saveCallLink([l], value)) await reopen(value ? "Разовая ссылка сохранена" : "Вернули обычную ссылку ученика");
   });
   mq("#mCallSave").addEventListener("click", () => saveCall(mq("#mCallUrl").value.trim()));
   if (mq("#mCallReset")) mq("#mCallReset").addEventListener("click", () => saveCall(""));
@@ -546,34 +538,9 @@ function wireLessonModal(l) {
       afterLessonsChanged();
     }));
   }
-  // «Отчёт» — не просто сохранить: отчёт публикуется в кабинетах и уходит
-  // уведомлением родителю и ученику (как «Отправить сейчас» — в кабинете
-  // сразу, пушем — с ближайшей фоновой рассылкой).
   mq("#mSaveReport").addEventListener("click", (e) => busy(e.currentTarget, async () => {
-    const report = mq("#mReport").value.trim();
-    const changed = report !== (l.report || "").trim();
-    await window.TutorFB.updateLesson(l.id, { report, reportUpdatedAt: Date.now(), updatedAt: Date.now() });
-    l.report = report;
-    if (!report) { publishViewsSoon(); modalMsg("Отчёт убран", "ok"); return; }
-    if (!changed) { modalMsg("Отчёт уже опубликован — изменений нет", "ok"); return; }
-    const keys = activeKeysOf(l.studentId);
-    if (!keys.length) { publishViewsSoon(); modalMsg("Отчёт сохранён. У ученика нет доступа к кабинету — отправлять некому.", "ok"); return; }
-    const head = `Отчёт по занятию ${fmtWhen(l.startMs, l.endMs)}:\n`;
-    const text = (head + report).length > 1000 ? (head + report).slice(0, 999) + "…" : head + report;
-    const now = Date.now();
-    try {
-      await window.TutorFB.saveNotification(newId("n"), {
-        title: "Отчёт о занятии", text, mode: "now", times: 1, target: { scope: "student", role: "any", studentId: l.studentId },
-        push: true, active: true, lessonIds: [l.id], source: "report", createdAt: now, updatedAt: now,
-      });
-      notifCache = null;
-      await publishViews(keys);
-      modalMsg(`Отчёт опубликован и отправлен: ${keys.length} ${NotifyCore.plural(keys.length, ["кабинет", "кабинета", "кабинетов"])} (пуш — с ближайшей рассылкой).`, "ok");
-    } catch (err) {
-      console.error(err);
-      publishViewsSoon();
-      modalMsg("Отчёт сохранён, но уведомление не ушло (нет интернета?)", "err");
-    }
+    const r = await publishReport([l], l, mq("#mReport").value.trim());
+    modalMsg(r.text, r.kind);
   }));
   $("modal").querySelectorAll("[data-hw-remove]").forEach(b => b.addEventListener("click", () => busy(b, async () => {
     const i = parseInt(b.dataset.hwRemove, 10);
@@ -591,8 +558,5 @@ function wireLessonModal(l) {
   pasteTarget = uploadHere; // Ctrl+V со скриншотом — в это занятие (или в выбранную зону)
   hwZone.addEventListener("focusin", () => { pasteTarget = uploadHere; });
   if (mq("#mNextHw")) renderNextHw(l, busy);
-  mq("#mExport").addEventListener("click", () => {
-    downloadIcs(l);
-    modalMsg("Файл события скачан — открой его, чтобы добавить в календарь.", "ok");
-  });
+  mq("#mExport").addEventListener("click", () => exportIcs(l));
 }

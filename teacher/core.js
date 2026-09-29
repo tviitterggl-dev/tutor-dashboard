@@ -68,6 +68,21 @@ const modalOpen = () => $("modalBack").style.display !== "none";
 $("modalBack").addEventListener("click", (e) => { if (e.target === $("modalBack")) closeModal(); });
 $("modal").addEventListener("click", (e) => { if (e.target.closest("[data-modal-x]")) closeModal(); });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && modalOpen()) closeModal(); });
+// Действие по кнопке в окне (обычном и групповом — один код): кнопка
+// выключена на время действия и включается обратно в любом случае; без сети —
+// сразу понятное сообщение; ошибка — понятный текст (e.shown — уже показан).
+async function modalBusy(btn, fn) {
+  if (btn) btn.disabled = true;
+  try {
+    if (!navigator.onLine) { modalMsg(OFFLINE_TEXT, "err"); return; }
+    await fn();
+  } catch (e) {
+    console.error(e);
+    if (!e.shown) modalMsg(isOfflineError(e) ? OFFLINE_TEXT : "Не удалось сохранить (нет интернета?). Попробуй ещё раз.", "err");
+  } finally {
+    if (btn && document.body.contains(btn)) btn.disabled = false;
+  }
+}
 const mq = (sel) => $("modal").querySelector(sel);
 function modalMsg(text, kind) {
   const el = mq("#mMsg");

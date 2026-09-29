@@ -424,3 +424,22 @@ test("ревью: кнопка «Сохранить состав» снова а
   assert.deepEqual(app.errors, []);
   await app.close();
 });
+
+test("окно группы и обычное окно ведут себя одинаково: отчёт сохранён, а уведомление не ушло — понятное сообщение", async () => {
+  // Раньше код окон был продублирован и разъехался: в обычном окне для этого
+  // случая было «Отчёт сохранён, но уведомление не ушло», в групповом —
+  // общее «Не удалось сохранить», хотя отчёт уже лежал во всех копиях.
+  const app = await openApp({ seed: groupSeed(), onDialog: () => true });
+  app.expectErrors = /уведомление не записалось/;
+  const { page } = app;
+  await page.waitForSelector("#lessonsList .lesson");
+  await openGroupEvent(page);
+  await page.evaluate(() => { window.TutorFB.saveNotification = async () => { throw new Error("уведомление не записалось"); }; });
+  await page.fill("#gReport", "Проценты");
+  await page.click("#gSaveReport");
+  await page.waitForFunction(() => /Отчёт сохранён, но уведомление не ушло/.test(document.querySelector("#mMsg").textContent));
+  const db = await app.db();
+  assert.equal(db[L("gA1")].report, "Проценты");
+  assert.equal(db[L("gB1")].report, "Проценты");
+  await app.close();
+});

@@ -273,3 +273,20 @@ test("ошибка Cloudinary показывается понятным текс
   await page.waitForFunction(() => /Upload preset not found/.test(document.querySelector("#mMsg").textContent));
   await app.close();
 });
+
+test("окно занятия без сети: кнопка не остаётся выключенной навсегда", async () => {
+  // busy() обычного окна при «нет сети» выходил раньше, чем снова включал
+  // кнопку (в окне группы — включал): после появления сети «Сохранить» так и
+  // оставалась серой до повторного открытия окна.
+  const app = await openApp();
+  const { page, context } = app;
+  await page.waitForSelector("#lessonsList .lesson");
+  await page.locator("#lessonsList .lesson").first().click();
+  await page.waitForSelector("#mSave");
+  await context.setOffline(true);
+  await page.click("#mSave");
+  await page.waitForFunction(() => /Нет подключения к интернету/.test(document.querySelector("#mMsg").textContent));
+  assert.equal(await page.isDisabled("#mSave"), false, "«Сохранить» снова доступна");
+  await context.setOffline(false);
+  await app.close();
+});

@@ -39,14 +39,26 @@ document.addEventListener("paste", (e) => {
   e.preventDefault();
   pasteTarget(files);
 });
-async function uploadHwTo(lessonId, files) {
+// Загрузить файлы в Cloudinary с проверкой размера и «Загружаю 1 из N» —
+// общее для обычного и группового окна. null — слишком большой (сообщение
+// показано), иначе список { url, name, … }.
+async function uploadFilesChecked(files) {
   const tooBig = files.filter(f => f.size > CLOUDINARY_MAX_BYTES);
-  if (tooBig.length) { modalMsg(`Слишком большой файл: ${tooBig.map(f => f.name).join(", ")} (максимум 10 МБ).`, "err"); return 0; }
+  if (tooBig.length) { modalMsg(`Слишком большой файл: ${tooBig.map(f => f.name).join(", ")} (максимум 10 МБ).`, "err"); return null; }
   const uploaded = [];
   for (let i = 0; i < files.length; i++) {
     modalMsg(`Загружаю ${i + 1} из ${files.length}: ${files[i].name}…`);
     uploaded.push(await uploadToCloudinary(files[i]));
   }
+  return uploaded;
+}
+function exportIcs(l) {
+  downloadIcs(l);
+  modalMsg("Файл события скачан — открой его, чтобы добавить в календарь.", "ok");
+}
+async function uploadHwTo(lessonId, files) {
+  const uploaded = await uploadFilesChecked(files);
+  if (!uploaded) return 0;
   const fresh = await window.TutorFB.getLesson(lessonId);
   const hw = [...((fresh && fresh.homework) || []), ...uploaded];
   await window.TutorFB.updateLesson(lessonId, { homework: hw, updatedAt: Date.now() });

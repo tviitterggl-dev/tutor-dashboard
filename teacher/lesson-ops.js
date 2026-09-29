@@ -161,3 +161,54 @@ async function findConflicts(items, ignoreIds) {
   });
   return out;
 }
+
+// ---- общее для обычного и группового окна занятия ----
+// lessons — копии одного занятия (у обычного — одна), main — по нему время.
+
+// Разовая ссылка на созвон (пусто — вернуть обычную). false — ссылка неверная
+// (сообщение уже показано).
+async function saveCallLink(lessons, value) {
+  if (value && !safeHref(value)) { modalMsg("Ссылка должна начинаться с https:// (или http://)", "err"); return false; }
+  await window.TutorFB.saveLessons(lessons.map(c => ({ id: c.id, merge: true, data: { callUrl: value || null, updatedAt: Date.now() } })));
+  publishViewsSoon();
+  return true;
+}
+
+// «Отчёт» — не просто сохранить: отчёт публикуется в кабинетах и уходит
+// уведомлением родителю и ученику (как «Отправить сейчас» — в кабинете сразу,
+// пушем — с ближайшей фоновой рассылкой). В группе — каждому участнику, кроме
+// тех, у кого эта копия отменена. Возвращает { text, kind } для modalMsg.
+async function publishReport(lessons, main, report) {
+  const changed = report !== (main.report || "").trim();
+  const now = Date.now();
+  await window.TutorFB.saveLessons(lessons.map(c => ({ id: c.id, merge: true, data: { report, reportUpdatedAt: now, updatedAt: now } })));
+  lessons.forEach(c => { c.report = report; });
+  if (!report) { publishViewsSoon(); return { text: "Отчёт убран", kind: "ok" }; }
+  if (!changed) return { text: "Отчёт уже опубликован — изменений нет", kind: "ok" };
+  const group = lessons.length > 1;
+  const to = (group ? lessons.filter(c => c.status !== "cancelled") : lessons)
+    .map(c => ({ c, keys: activeKeysOf(c.studentId) })).filter(x => x.keys.length);
+  if (!to.length) {
+    publishViewsSoon();
+    return { text: `Отчёт сохранён. У ${group ? "участников" : "ученика"} нет доступа к кабинету — отправлять некому.`, kind: "ok" };
+  }
+  const head = `Отчёт по занятию ${fmtWhen(main.startMs, main.endMs)}:\n`;
+  const text = (head + report).length > 1000 ? (head + report).slice(0, 999) + "…" : head + report;
+  try {
+    for (const { c } of to) {
+      await window.TutorFB.saveNotification(newId("n"), {
+        title: "Отчёт о занятии", text, mode: "now", times: 1, target: { scope: "student", role: "any", studentId: c.studentId },
+        push: true, active: true, lessonIds: [c.id], source: "report", createdAt: now, updatedAt: now,
+      });
+    }
+    notifCache = null;
+    const keys = to.flatMap(x => x.keys);
+    await publishViews(keys);
+    return { text: `Отчёт опубликован и отправлен: ${keys.length} ${NotifyCore.plural(keys.length, ["кабинет", "кабинета", "кабинетов"])} (пуш — с ближайшей рассылкой).`, kind: "ok" };
+  } catch (err) {
+    console.error(err);
+    notifCache = null;
+    publishViewsSoon();
+    return { text: "Отчёт сохранён, но уведомление не ушло (нет интернета?)", kind: "err" };
+  }
+}
