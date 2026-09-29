@@ -107,6 +107,32 @@
   color-scheme: dark;
 }
 
+/* ---- палитры (выбор в «Оформлении», <html data-palette="…">, ставит theme.js) ----
+   Без атрибута — обычная кремово-золотая. У каждой — светлый и тёмный вариант
+   (палитра × тема). Меняются только «брендовые» цвета; статусы (--done-*,
+   --pending-*, --danger-*), --busy, графики (--viz-*) и тени — общие для всех
+   палитр: это смысл (оплачено/ждёт/ошибка), а не оформление. Недостающие в
+   заданных цветах переменные выведены по тем же пропорциям, что у обычной
+   палитры (hover — на 11 % темнее/светлее, мягкие подложки — 88–90 % к белому
+   и т. п.); контраст текста проверен (DEVLOG, запись 52). Селекторы с
+   [data-palette] на ступень сильнее, чем у темы, — поэтому стоят после неё. */
+/* Розовый */
+:root[data-palette="pink"] { --bg: #F8F1F3; --card-bg: #FFFFFF; --surface-2: #FCF9FA; --text: #241A1E; --muted: #645A5E; --border: #E9D9DD; --accent: #B97D8E; --accent-hover: #A56F7E; --on-accent: #241A1E; --accent-2: #5C3A44; --accent-soft: #F0E5E8; --indigo-soft: #EBE7E9; --today: rgba(92, 58, 68, 0.05); --maroon: #5C3A44; --event: #5C3A44; --on-event: #FFFFFF; --focus: 0 0 0 3px rgba(185, 125, 142, 0.28); }
+@media (prefers-color-scheme: dark) { :root[data-palette="pink"]:not([data-theme="light"]) { --bg: #1D1518; --card-bg: #241A1E; --surface-2: #2C2226; --text: #F0E8EA; --muted: #CBAEB4; --border: #4B3039; --accent: #C98FA0; --accent-hover: #D4A5B3; --on-accent: #1D1518; --accent-2: #C0A0A0; --accent-soft: #352429; --indigo-soft: #432C33; --today: rgba(192, 160, 160, 0.06); --maroon: #8C5252; --event: #8C5252; --on-event: #FFFFFF; --focus: 0 0 0 3px rgba(201, 143, 160, 0.35); } }
+:root[data-palette="pink"][data-theme="dark"] { --bg: #1D1518; --card-bg: #241A1E; --surface-2: #2C2226; --text: #F0E8EA; --muted: #CBAEB4; --border: #4B3039; --accent: #C98FA0; --accent-hover: #D4A5B3; --on-accent: #1D1518; --accent-2: #C0A0A0; --accent-soft: #352429; --indigo-soft: #432C33; --today: rgba(192, 160, 160, 0.06); --maroon: #8C5252; --event: #8C5252; --on-event: #FFFFFF; --focus: 0 0 0 3px rgba(201, 143, 160, 0.35); }
+/* Бордовый */
+:root[data-palette="wine"] { --bg: #F8F1EF; --card-bg: #FFFFFF; --surface-2: #FCF9F9; --text: #231717; --muted: #635858; --border: #E8D9D6; --accent: #8C3A35; --accent-hover: #7D342F; --on-accent: #FFFFFF; --accent-2: #5C2A2A; --accent-soft: #F0E5E2; --indigo-soft: #EBE5E5; --today: rgba(92, 42, 42, 0.05); --maroon: #5C2A2A; --event: #5C2A2A; --on-event: #FFFFFF; --focus: 0 0 0 3px rgba(140, 58, 53, 0.28); }
+@media (prefers-color-scheme: dark) { :root[data-palette="wine"]:not([data-theme="light"]) { --bg: #1C1212; --card-bg: #231717; --surface-2: #2B1F1F; --text: #F0E9E7; --muted: #CBAFA8; --border: #4B2424; --accent: #B5544F; --accent-hover: #C47672; --on-accent: #FFFFFF; --accent-2: #B69393; --accent-soft: #341D1D; --indigo-soft: #422121; --today: rgba(182, 147, 147, 0.06); --maroon: #7A3B3B; --event: #7A3B3B; --on-event: #FFFFFF; --focus: 0 0 0 3px rgba(181, 84, 79, 0.35); } }
+:root[data-palette="wine"][data-theme="dark"] { --bg: #1C1212; --card-bg: #231717; --surface-2: #2B1F1F; --text: #F0E9E7; --muted: #CBAFA8; --border: #4B2424; --accent: #B5544F; --accent-hover: #C47672; --on-accent: #FFFFFF; --accent-2: #B69393; --accent-soft: #341D1D; --indigo-soft: #422121; --today: rgba(182, 147, 147, 0.06); --maroon: #7A3B3B; --event: #7A3B3B; --on-event: #FFFFFF; --focus: 0 0 0 3px rgba(181, 84, 79, 0.35); }
+/* Зелёный */
+:root[data-palette="green"] { --bg: #F5F7F0; --card-bg: #FFFFFF; --surface-2: #FBFCF9; --text: #1B211C; --muted: #5C615C; --border: #DEE6D8; --accent: #5C7A5E; --accent-hover: #526D54; --on-accent: #FFFFFF; --accent-2: #3F5E4E; --accent-soft: #EAEEE4; --indigo-soft: #E8ECEA; --today: rgba(63, 94, 78, 0.05); --maroon: #3F5E4E; --event: #3F5E4E; --on-event: #FFFFFF; --focus: 0 0 0 3px rgba(92, 122, 94, 0.28); }
+@media (prefers-color-scheme: dark) { :root[data-palette="green"]:not([data-theme="light"]) { --bg: #161A16; --card-bg: #1B211C; --surface-2: #232924; --text: #EDF0EB; --muted: #BFCBB8; --border: #344C3F; --accent: #8FAE85; --accent-hover: #A5BE9D; --on-accent: #161A16; --accent-2: #A5B6A6; --accent-soft: #26332B; --indigo-soft: #2F4338; --today: rgba(165, 182, 166, 0.06); --maroon: #5C7A5E; --event: #5C7A5E; --on-event: #FFFFFF; --focus: 0 0 0 3px rgba(143, 174, 133, 0.35); } }
+:root[data-palette="green"][data-theme="dark"] { --bg: #161A16; --card-bg: #1B211C; --surface-2: #232924; --text: #EDF0EB; --muted: #BFCBB8; --border: #344C3F; --accent: #8FAE85; --accent-hover: #A5BE9D; --on-accent: #161A16; --accent-2: #A5B6A6; --accent-soft: #26332B; --indigo-soft: #2F4338; --today: rgba(165, 182, 166, 0.06); --maroon: #5C7A5E; --event: #5C7A5E; --on-event: #FFFFFF; --focus: 0 0 0 3px rgba(143, 174, 133, 0.35); }
+/* Оранжевый */
+:root[data-palette="orange"] { --bg: #F5E6D3; --card-bg: #FFF9F1; --surface-2: #FBF1E5; --text: #231A15; --muted: #62574E; --border: #EAD5B8; --accent: #A66B45; --accent-hover: #945F3D; --on-accent: #FFFFFF; --accent-2: #6B4530; --accent-soft: #F0DEC6; --indigo-soft: #EDE3DA; --today: rgba(107, 69, 48, 0.05); --maroon: #6B4530; --event: #6B4530; --on-event: #FFFFFF; --focus: 0 0 0 3px rgba(166, 107, 69, 0.28); }
+@media (prefers-color-scheme: dark) { :root[data-palette="orange"]:not([data-theme="light"]) { --bg: #1C1511; --card-bg: #231A15; --surface-2: #2B221D; --text: #F3ECE6; --muted: #D4BCA6; --border: #553828; --accent: #D9A578; --accent-hover: #E1B793; --on-accent: #1C1511; --accent-2: #CEAE99; --accent-soft: #39271D; --indigo-soft: #4B3224; --today: rgba(206, 174, 153, 0.06); --maroon: #A66B45; --event: #9F6742; --on-event: #FFFFFF; --focus: 0 0 0 3px rgba(217, 165, 120, 0.35); } }
+:root[data-palette="orange"][data-theme="dark"] { --bg: #1C1511; --card-bg: #231A15; --surface-2: #2B221D; --text: #F3ECE6; --muted: #D4BCA6; --border: #553828; --accent: #D9A578; --accent-hover: #E1B793; --on-accent: #1C1511; --accent-2: #CEAE99; --accent-soft: #39271D; --indigo-soft: #4B3224; --today: rgba(206, 174, 153, 0.06); --maroon: #A66B45; --event: #9F6742; --on-event: #FFFFFF; --focus: 0 0 0 3px rgba(217, 165, 120, 0.35); }
+
 /* ---- база ---- */
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
@@ -178,6 +204,21 @@ button:not(:disabled):active, .btn:not(:disabled):active, .tab:active, .subtab:a
   color: var(--muted); font-size: 12.5px; text-decoration: underline; text-underline-offset: 3px;
 }
 .theme-system[hidden] { display: none; }
+/* выбор палитры: «кружок + название», выбранная — обводкой акцентом */
+.palette-title { margin: 18px 0 8px; font-weight: 700; font-size: 14px; }
+.palette-pick { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+.palette-opt {
+  display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 6px 14px 6px 8px;
+  border-radius: var(--r-pill); border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--text); font-size: 13.5px; font-weight: 600; cursor: pointer;
+}
+.palette-opt[aria-checked="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: var(--card-bg); }
+.palette-sw { width: 26px; height: 26px; border-radius: 50%; flex: none; border: 1px solid rgba(0, 0, 0, 0.12); }
+
+/* «Подсказки» выключены (<html data-hints="off">, theme.js): прячем только
+   справочные пояснения .hint-help. Голый .hint — статусы, ошибки, ход
+   загрузки — виден всегда. */
+:root[data-hints="off"] .hint-help { display: none !important; }
 
 /* Офлайн: плашка «показаны последние загруженные данные» (оба кабинета) */
 .offline-bar { background: var(--pending-bg); color: var(--pending-text); border: 1px solid var(--pending-border); border-radius: var(--r-md, 12px); padding: 10px 14px; font-size: 13px; font-weight: 600; line-height: 1.45; margin-bottom: 14px; }

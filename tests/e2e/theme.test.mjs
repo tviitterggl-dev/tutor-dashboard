@@ -118,6 +118,66 @@ test("родитель и ученик: ползунок темы во вкла�
   await app.close();
 });
 
+test("палитры: 4 новые × светлая/тёмная; выбор на устройстве, без чтений базы; статусы общие", async () => {
+  const app = await openApp({ seed: seed(), colorScheme: "light" });
+  const { page } = app;
+  await page.waitForSelector("#lessonsList .lesson");
+  await page.click('.tab[data-tab="settings"]');
+  await page.waitForSelector("#view-settings [data-palette-opt]");
+  assert.deepEqual(await page.$$eval("#view-settings [data-palette-opt]", (bs) => bs.map((b) => b.textContent)), ["Обычная", "Розовая", "Бордовая", "Зелёная", "Оранжевая"]);
+  assert.equal(await page.getAttribute('[data-palette-opt=""]', "aria-checked"), "true", "по умолчанию — обычная");
+  const tokens = () => page.evaluate(() => { const cs = getComputedStyle(document.documentElement); return Object.fromEntries(["--bg", "--card-bg", "--accent", "--done-bg", "--pending-bg", "--danger", "--busy", "--viz-1"].map((k) => [k, cs.getPropertyValue(k).trim()])); });
+  const base = await tokens();
+  await page.evaluate(() => { window.__fakeReads = 0; });
+  const want = { pink: ["rgb(248, 241, 243)", "#1D1518"], wine: ["rgb(248, 241, 239)", "#1C1212"], green: ["rgb(245, 247, 240)", "#161A16"], orange: ["rgb(245, 230, 211)", "#1C1511"] };
+  for (const [id, [lightBg]] of Object.entries(want)) {
+    await page.click(`[data-palette-opt="${id}"]`);
+    await waitBg(page, lightBg);
+    assert.equal(await page.evaluate(() => document.documentElement.getAttribute("data-palette")), id);
+    assert.equal(await page.getAttribute(`[data-palette-opt="${id}"]`, "aria-checked"), "true");
+    const t = await tokens();
+    for (const k of ["--done-bg", "--pending-bg", "--danger", "--busy", "--viz-1"]) assert.equal(t[k], base[k], `${id}: ${k} не меняется`);
+    assert.notEqual(t["--accent"], base["--accent"]);
+  }
+  assert.equal(await page.evaluate(() => window.__fakeReads), 0, "переключение палитры не читает базу");
+  // палитра × тема: зелёная + тёмная; после перезагрузки — то же; полоса браузера — фон палитры
+  await page.click('[data-palette-opt="green"]');
+  await page.click("#view-settings .theme-switch");
+  await waitBg(page, "rgb(22, 26, 22)");
+  await page.reload();
+  await page.waitForSelector("#lessonsList .lesson");
+  await waitBg(page, "rgb(22, 26, 22)");
+  assert.deepEqual(await page.evaluate(() => [localStorage.getItem("palette"), localStorage.getItem("theme")]), ["green", "dark"]);
+  assert.ok((await themeState(page)).bar.every(([c]) => c === "#161A16"));
+  // система тёмная, тема «как в системе» + палитра — тёмный вариант палитры
+  await page.evaluate(() => localStorage.removeItem("theme"));
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.reload();
+  await page.waitForSelector("#lessonsList .lesson");
+  await waitBg(page, "rgb(22, 26, 22)");
+  await page.emulateMedia({ colorScheme: "light" });
+  await waitBg(page, "rgb(245, 247, 240)");
+  // «Обычная» — атрибут снимается, прежние цвета
+  await page.click('.tab[data-tab="settings"]');
+  await page.click('[data-palette-opt=""]');
+  await waitBg(page, LIGHT_BG);
+  assert.equal(await page.evaluate(() => [document.documentElement.getAttribute("data-palette"), localStorage.getItem("palette")].join("|")), "|");
+  // кабинет семьи: тот же выбор в «Ещё»
+  await waitViews(app);
+  const cab = await app.context.newPage();
+  await cab.clock.setFixedTime(new Date(NOW));
+  await cab.goto(page.url().replace(/\/index\.html.*$/, "") + "/cabinet.html#p=" + PK);
+  await cab.waitForSelector("#pane-lessons .lesson");
+  await cab.click('.ctab[data-ctab="settings"]');
+  await cab.evaluate(() => { window.__fakeReads = 0; });
+  await cab.click('#pane-settings [data-palette-opt="orange"]');
+  await waitBg(cab, "rgb(245, 230, 211)");
+  assert.equal(await cab.evaluate(() => window.__fakeReads || 0), 0);
+  await cab.close();
+  assert.deepEqual(app.errors, []);
+  await app.close();
+});
+
 test("шрифты и скругления по стиль-гайду", async () => {
   const app = await openApp();
   const { page } = app;
