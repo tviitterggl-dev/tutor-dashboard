@@ -104,7 +104,7 @@ test("черновик материалов не пропадает, когда 
   await app.close();
 });
 
-test("у занятия: «доска» и «материалы N» в карточке (без «изменить»), в окне — доска и все материалы; витрина и кабинет семьи", async () => {
+test("у занятия: в карточке списка — «созвон» и «доска» (материалов нет), в окне — доска и все материалы; витрина и кабинет семьи", async () => {
   const seed = seedWithKey();
   seed[S].studentProfiles = Object.assign({}, seed[S].studentProfiles, {
     [SID]: Object.assign({}, (seed[S].studentProfiles || {})[SID], { callUrl: "https://telemost.yandex.ru/j/1", accessUrl: "https://miro.com/app/board/abc",
@@ -118,13 +118,11 @@ test("у занятия: «доска» и «материалы N» в карт�
   await row.waitFor();
   assert.equal(await page.locator("#lessonsList button.edit-link").count(), 0, "кнопки «изменить» больше нет");
   assert.equal(await row.locator("a.edit-link", { hasText: "доска" }).getAttribute("href"), "https://miro.com/app/board/abc");
-  assert.equal((await row.locator(".mats > summary").textContent()).trim(), "материалы 3");
-  // раскрыть список — окно занятия НЕ открывается
-  await row.locator(".mats > summary").click();
-  assert.deepEqual(await row.locator(".mats .mat-link").allTextContents(), ["Учебник", "docs.google.com", "Задачи"]);
-  await page.waitForTimeout(400);
-  assert.equal(await page.isVisible("#modalBack"), false, "клик по «материалы» не открывает окно");
-  // клик по самой карточке — открывает
+  assert.equal(await row.locator("a.edit-link", { hasText: "созвон" }).count(), 1);
+  // «материалы N» в карточке списка больше нет — вылезал за край; материалы — в окне занятия
+  assert.equal(await row.locator(".mats").count(), 0);
+  assert.doesNotMatch(await row.textContent(), /материалы/);
+  // клик по карточке — окно занятия
   await row.locator(".lesson-name").click();
   await page.waitForSelector("#modalBack", { state: "visible" });
   assert.equal(await page.getAttribute("#mBoardOpen", "href"), "https://miro.com/app/board/abc");
@@ -156,6 +154,44 @@ test("у занятия: «доска» и «материалы N» в карт�
   assert.equal(await cab.locator("#modal .mat-pill").count(), 3);
   assert.equal(await cab.getAttribute("#mBoard", "href"), "https://miro.com/app/board/abc");
   await cab.close();
+  await app.close();
+});
+
+test("телефон 360 px, 10 материалов (длинные названия и адрес): список занятий, окно занятия и кабинет семьи не вылезают за край", async () => {
+  const seed = seedWithKey();
+  const mats = Array.from({ length: 10 }, (_, i) => i === 3 ? { url: "https://very-long-subdomain-name.example-cloud-storage-provider.com/d/" + "x".repeat(60) }
+    : i === 5 ? { url: `https://disk.yandex.ru/d/m${i}`, title: "Очень длинное название материала для подготовки к контрольной работе по алгебре" }
+    : { url: `https://disk.yandex.ru/d/m${i}`, title: `Материал ${i + 1}` });
+  seed[S].studentProfiles = Object.assign({}, seed[S].studentProfiles, { [SID]: Object.assign({}, (seed[S].studentProfiles || {})[SID], { callUrl: "https://telemost.yandex.ru/j/1", accessUrl: "https://miro.com/app/board/abc", materials: mats }) });
+  const app = await openApp({ seed, viewport: { width: 360, height: 780 }, isMobile: true, hasTouch: true });
+  const { page } = app;
+  // всё внутри root помещается в его рамку и в ширину экрана; страница не листается вбок
+  const fits = (pg, sel) => pg.evaluate((sel) => {
+    const vw = document.documentElement.clientWidth, bad = [];
+    document.querySelectorAll(sel).forEach((root) => { const box = root.getBoundingClientRect(); root.querySelectorAll("*").forEach((e) => { const r = e.getBoundingClientRect(); if (r.width && (r.right > box.right + 0.5 || r.right > vw + 0.5)) bad.push(`${e.tagName}.${e.className}`); }); });
+    return { sideScroll: document.documentElement.scrollWidth > vw, bad: [...new Set(bad)] };
+  }, sel);
+  await page.waitForSelector("#lessonsList .lesson");
+  await page.click('.subtab[data-lessonmode="week"]');
+  await page.locator("#lessonsList .lesson", { hasText: SID }).first().waitFor();
+  assert.deepEqual(await fits(page, "#lessonsList .lesson"), { sideScroll: false, bad: [] }, "список занятий");
+  await page.locator("#lessonsList .lesson", { hasText: SID }).first().locator(".lesson-name").click();
+  await page.waitForSelector("#modal .mat-pill");
+  assert.equal(await page.locator("#modal .mat-pill").count(), 10);
+  assert.deepEqual(await fits(page, "#modal"), { sideScroll: false, bad: [] }, "окно занятия");
+  await page.click("#modal .modal-x");
+  await waitFor(async () => ((await app.db())[`parentAccess/${PK}`]?.materials || []).length === 10, "витрина");
+  const base = page.url().replace(/\/index\.html.*$/, "");
+  const cab = await app.context.newPage();
+  await cab.setViewportSize({ width: 360, height: 780 });
+  await cab.clock.setFixedTime(new Date(NOW));
+  await cab.goto(base + "/cabinet.html#p=" + PK);
+  await cab.waitForSelector("#pane-lessons .lesson.next");
+  await cab.locator("#pane-lessons .lesson.next .mats > summary").click();
+  assert.equal(await cab.locator("#pane-lessons .lesson.next .mat-link").count(), 10);
+  assert.deepEqual(await fits(cab, "#pane-lessons .lesson.next"), { sideScroll: false, bad: [] }, "кабинет семьи, список раскрыт");
+  await cab.close();
+  assert.deepEqual(app.errors, []);
   await app.close();
 });
 

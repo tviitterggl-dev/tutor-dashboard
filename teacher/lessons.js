@@ -38,15 +38,15 @@ function renderLessons() {
       ? escHtml(studentLabel(makeStudentId(parsed.name, parsed.cls, parsed.surname))) + (baseRate == null && !mark.marked ? ' <span class="unmatched">(ставка не найдена)</span>' : "")
       : `${escHtml(ev.summary || "Без названия")} <span class="unmatched">(не распознано)</span>`) + groupTag;
 
-    // доска и материалы — из профиля ученика (у личного времени и занятий без ученика нет)
+    // доска — из профиля ученика (у личного времени и занятий без ученика нет).
+    // Материалов в карточке списка нет: раскрывающийся «материалы N» вылезал за
+    // край карточки; они — в окне занятия и в карточке ученика.
     const prof = ev._lesson && ev._lesson.studentId ? profileOf(ev._lesson.studentId) : {};
     const boardHtml = prof.accessUrl && safeHref(prof.accessUrl) ? ` <a class="edit-link" href="${escHtml(prof.accessUrl)}" target="_blank" rel="noopener">доска</a>` : "";
-    const mats = ev._lesson ? materialsOf(ev._lesson.studentId) : [];
-    const matsHtml = mats.length ? " " + Materials.dropdownHtml(mats, "материалы") : "";
     row.innerHTML = `
         <div class="lesson-top">
           <div class="lesson-name">${nameHtml}</div>
-          <div class="lesson-when">${dayStr}, ${timeStr}${ev._lesson && ev._lesson.paid && ev._lesson.paid.value ? '<span class="paid-tag">оплачено</span>' : ""}${ev._lesson && ev._lesson.familyNote && ev._lesson.familyNote.text ? '<span class="paid-tag note-tag" title="Есть пояснение от родителя/ученика">пояснение</span>' : ""}${ev._lesson && callLinkFor(ev._lesson) ? ` <a class="edit-link" href="${escHtml(callLinkFor(ev._lesson).url)}" target="_blank" rel="noopener">созвон</a>` : ""}${boardHtml}${matsHtml}</div>
+          <div class="lesson-when">${dayStr}, ${timeStr}${ev._lesson && ev._lesson.paid && ev._lesson.paid.value ? '<span class="paid-tag">оплачено</span>' : ""}${ev._lesson && ev._lesson.familyNote && ev._lesson.familyNote.text ? '<span class="paid-tag note-tag" title="Есть пояснение от родителя/ученика">пояснение</span>' : ""}${ev._lesson && callLinkFor(ev._lesson) ? ` <a class="edit-link" href="${escHtml(callLinkFor(ev._lesson).url)}" target="_blank" rel="noopener">созвон</a>` : ""}${boardHtml}</div>
         </div>
         <div class="lesson-bottom">
           <div class="rate-field">
