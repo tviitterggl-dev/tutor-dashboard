@@ -139,7 +139,7 @@ test("пакет заканчивается: плашка, подсветка п
   const { page } = app;
   await page.waitForSelector("#pkgAlert", { state: "visible" });
   assert.match(await page.textContent("#pkgAlert"), /Тест, 7 класс \(пакет: осталось 1\)/);
-  await page.click("#pkgAlert");
+  await page.click("#pkgAlertText");
   await page.waitForSelector(".pkg-card.pkg-warn");
   assert.match(await page.textContent(".pkg-card.pkg-warn"), /Осталось 1 занятие — пора предложить продление/);
   await page.waitForSelector('.student-card[data-student="Тест, 7 класс"] .pkg-tag');
@@ -270,6 +270,77 @@ test("карточка ученика: набранное не стираетс�
   assert.equal(await page.isVisible("#stAddForm"), false);
   await page.click("#stAddToggle");
   assert.equal(await page.inputValue("#stAddName"), "");
+  assert.deepEqual(app.errors, []);
+  await app.close();
+});
+
+test("плашка «Пакет заканчивается»: «×» скрывает на устройстве; после перезагрузки скрыта; меньше осталось — снова видна", async () => {
+  const seed = defaultSeed();
+  seed[statePath].pkgOverrides = { "Тест, 7 класс": { manual: true, totalOverride: 8, doneBase: 5, countFrom: 0 } }; // 5 + 2 отметки → осталось 1
+  const app = await openImported({ seed });
+  const { page } = app;
+  await page.waitForSelector("#pkgAlert", { state: "visible" });
+  // × — отдельная кнопка, не внутри кнопки; область нажатия не меньше 44×44
+  const x = await page.evaluate(() => { const b = document.getElementById("pkgAlertClose"); const r = b.getBoundingClientRect(); return { w: r.width, h: r.height, label: b.getAttribute("aria-label"), nested: !!b.parentElement.closest("button") }; });
+  assert.ok(x.w >= 44 && x.h >= 44, JSON.stringify(x));
+  assert.equal(x.label, "Скрыть");
+  assert.equal(x.nested, false);
+  await page.evaluate(() => { window.__fakeReads = 0; });
+  await page.click("#pkgAlertClose");
+  await page.waitForSelector("#pkgAlert", { state: "hidden" });
+  assert.equal(await page.evaluate(() => window.__fakeReads), 0, "без чтений базы");
+  assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem("pkgAlertHidden"))), { "Тест, 7 класс": 1 });
+  // вкладка «Ученики» по-прежнему показывает, что пакет на исходе
+  await page.click('.tab[data-tab="students"]');
+  await page.waitForSelector(".pkg-card.pkg-warn");
+  assert.equal(await page.isVisible("#pkgAlert"), false, "перерисовка не возвращает плашку");
+  // после перезагрузки — скрыта
+  await page.reload();
+  await page.waitForSelector("#lessonsList .lesson");
+  await page.waitForTimeout(1500); // пакеты пересчитываются с задержкой
+  assert.equal(await page.isVisible("#pkgAlert"), false, "после перезагрузки скрыта");
+  // осталось меньше (1 → 0) — снова видна
+  await page.click('.tab[data-tab="students"]');
+  await page.locator('.pkg-card[data-key="Тест, 7 класс"] .pkg-edit-btn').click();
+  await page.fill('.pkg-card[data-key="Тест, 7 класс"] .pkg-edit-done', "8");
+  await page.click('.pkg-card[data-key="Тест, 7 класс"] .pkg-save-btn');
+  await page.waitForSelector("#pkgAlert", { state: "visible" });
+  assert.match(await page.textContent("#pkgAlertText"), /пакет закончился/);
+  // текст ведёт на «Ученики»
+  await page.click('.tab[data-tab="lessons"]');
+  await page.click("#pkgAlertText");
+  await page.waitForSelector("#view-students", { state: "visible" });
+  // продлили — пакетов на исходе нет: запомненное стирается
+  await page.locator('.pkg-card[data-key="Тест, 7 класс"] .pkg-edit-btn').click();
+  await page.fill('.pkg-card[data-key="Тест, 7 класс"] .pkg-edit-done', "2");
+  await page.click('.pkg-card[data-key="Тест, 7 класс"] .pkg-save-btn');
+  await page.waitForSelector("#pkgAlert", { state: "hidden" });
+  await page.waitForFunction(() => localStorage.getItem("pkgAlertHidden") === null);
+  assert.deepEqual(app.errors, []);
+  await app.close();
+});
+
+test("плашка «Пакет заканчивается»: localStorage недоступен — «×» всё равно скрывает, без ошибок", async () => {
+  const seed = defaultSeed();
+  seed[statePath].pkgOverrides = { "Тест, 7 класс": { manual: true, totalOverride: 8, doneBase: 5, countFrom: 0 } };
+  const app = await openImported({ seed });
+  const { page } = app;
+  // как в приватном режиме Safari: чтение и запись этого ключа бросают ошибку
+  // (остальное хранилище — тестовая база стенда — работает)
+  await page.addInitScript(() => {
+    const get = Storage.prototype.getItem, set = Storage.prototype.setItem, del = Storage.prototype.removeItem;
+    Storage.prototype.getItem = function (k) { if (k === "pkgAlertHidden") throw new Error("SecurityError"); return get.call(this, k); };
+    Storage.prototype.setItem = function (k, v) { if (k === "pkgAlertHidden") throw new Error("QuotaExceededError"); return set.call(this, k, v); };
+    Storage.prototype.removeItem = function (k) { if (k === "pkgAlertHidden") throw new Error("SecurityError"); return del.call(this, k); };
+  });
+  await page.reload();
+  await page.waitForSelector("#pkgAlert", { state: "visible" });
+  await page.click("#pkgAlertClose");
+  await page.waitForSelector("#pkgAlert", { state: "hidden" });
+  await page.click('.tab[data-tab="students"]');
+  await page.waitForSelector(".pkg-card.pkg-warn");
+  await page.waitForTimeout(1200);
+  assert.equal(await page.isVisible("#pkgAlert"), false, "до перезагрузки скрыта и без хранилища");
   assert.deepEqual(app.errors, []);
   await app.close();
 });

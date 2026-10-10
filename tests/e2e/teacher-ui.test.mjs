@@ -39,7 +39,7 @@ test("вкладки учителя — «облачко»: прилипают �
   assert.notEqual(st.shadow, "none");
   assert.equal(st.bg, cardBg, "фон — как у карточки");
   // плашка «пакет заканчивается» сверху: над вкладками, не наезжает
-  await page.evaluate(() => { const a = document.querySelector("#pkgAlert"); a.style.display = "block"; a.textContent = "Пакет заканчивается: Тест, 7 класс (осталось 1)"; });
+  await page.evaluate(() => { const a = document.querySelector("#pkgAlert"); a.style.display = "flex"; a.querySelector("#pkgAlertText").textContent = "Пакет заканчивается: Тест, 7 класс (осталось 1)"; });
   const r = await page.evaluate(() => ({ a: document.querySelector("#pkgAlert").getBoundingClientRect().bottom, t: document.querySelector(".tabs").getBoundingClientRect().top }));
   assert.ok(r.a <= r.t + 0.5, `плашка выше вкладок (${r.a} ≤ ${r.t})`);
   // прокрутили вниз — вкладки остаются у верхнего края, плашка уехала вверх

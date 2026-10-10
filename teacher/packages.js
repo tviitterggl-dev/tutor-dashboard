@@ -264,11 +264,30 @@ function pkgEnding(p) {
 let lastPackagesByKey = {};
 
 // Плашка наверху (видна с любой вкладки) — у кого пакет на исходе.
+// «×» скрывает её на этом устройстве: запоминаем, что было скрыто
+// ({ ученик: сколько осталось }, localStorage, без базы). Снова видна, только
+// если появилось новое: у кого-то осталось меньше или в списке новый ученик.
+// Кто-то продлил пакет и ушёл из списка — новостей нет, остаётся скрытой.
+// Пакетов на исходе нет — запомненное стирается.
+const PKG_ALERT_HIDDEN = "pkgAlertHidden";
+let lastPkgEnding = {};
+let pkgAlertHiddenMem = null; // на случай, когда localStorage недоступен
+function pkgAlertHidden() {
+  try { return JSON.parse(localStorage.getItem(PKG_ALERT_HIDDEN) || "null"); } catch (e) { return null; }
+}
+function setPkgAlertHidden(v) {
+  try { if (v) localStorage.setItem(PKG_ALERT_HIDDEN, JSON.stringify(v)); else localStorage.removeItem(PKG_ALERT_HIDDEN); } catch (e) { /* приватный режим — скрыто до перезагрузки */ }
+  pkgAlertHiddenMem = v;
+}
 function renderPkgAlert(packages) {
   const ending = packages.filter(p => pkgEnding(p));
   const el = $("pkgAlert");
-  el.style.display = ending.length ? "block" : "none";
-  el.textContent = ending.length ? "Пакет заканчивается: " + ending.map(p => `${studentLabel(p.key)} (${pkgEnding(p).short})`).join(", ") : "";
+  lastPkgEnding = Object.fromEntries(ending.map(p => [p.key, p.remaining]));
+  if (!ending.length) setPkgAlertHidden(null);
+  const hidden = pkgAlertHidden() || pkgAlertHiddenMem;
+  const news = !hidden || ending.some(p => !(p.key in hidden) || p.remaining < hidden[p.key]);
+  el.style.display = ending.length && news ? "flex" : "none";
+  $("pkgAlertText").textContent = ending.length ? "Пакет заканчивается: " + ending.map(p => `${studentLabel(p.key)} (${pkgEnding(p).short})`).join(", ") : "";
 }
 let pkgAlertTimer = null;
 // Пакет считается по занятиям за полгода назад (раньше — 3 недели: при
@@ -303,7 +322,11 @@ function refreshPackageAlertsSoon() {
     } catch (e) { /* не критично */ }
   }, 800);
 }
-$("pkgAlert").addEventListener("click", () => showTab("students"));
+$("pkgAlertText").addEventListener("click", () => showTab("students"));
+$("pkgAlertClose").addEventListener("click", () => {
+  setPkgAlertHidden(lastPkgEnding);
+  $("pkgAlert").style.display = "none";
+});
 
 // Поля «Предоплата пакета» (добавить / исправить / новый пакет)
 function priceFieldsHtml(price) {

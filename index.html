@@ -976,6 +976,11 @@
   .count-badge { display: inline-block; min-width: 18px; height: 18px; line-height: 18px; padding: 0 5px; margin-left: 6px; border-radius: var(--r-pill); background: var(--danger); color: var(--card-bg); font-size: 11px; font-weight: 700; font-family: var(--font-body); vertical-align: 1px; text-align: center; }
   .req-alert { display: block; width: 100%; text-align: left; margin: 0 0 12px; padding: 12px 16px; border-radius: var(--r-md); border: 1px solid var(--danger-border); background: var(--danger-bg); color: var(--danger); font-weight: 700; font-size: 13px; cursor: pointer; }
   .pkg-alert { border-color: var(--pending-border); background: var(--pending-bg); color: var(--pending-text); }
+  /* «Пакет заканчивается»: текст ведёт на «Ученики», × справа скрывает (кнопка не внутри кнопки) */
+  .pkg-alert { padding: 0; cursor: default; align-items: stretch; }
+  .pkg-alert-text { flex: 1 1 auto; min-width: 0; text-align: left; padding: 12px 4px 12px 16px; border: none; background: none; color: inherit; font: inherit; cursor: pointer; }
+  .pkg-alert-x { flex: none; width: 44px; min-height: 44px; border: none; background: none; color: inherit; font-size: 22px; line-height: 1; cursor: pointer; border-radius: var(--r-md); }
+  .pkg-alert-x:hover { background: rgba(0, 0, 0, 0.05); }
   .pkg-card.pkg-warn { border: 2px solid var(--pending-border); background: var(--pending-bg); }
   .pkg-card.pkg-over { border: 2px solid var(--danger-border); background: var(--danger-bg); }
   .pkg-ending { font-size: 12.5px; font-weight: 700; color: var(--pending-text); margin: 2px 0 8px; }
@@ -1086,7 +1091,10 @@
     <button class="req-alert" id="syncAlert" type="button" style="display:none"></button>
     <div class="offline-bar" id="offlineBar" role="status" hidden>Офлайн — показаны последние загруженные данные, они могут быть неактуальными. Изменения сейчас не сохранятся — нужен интернет.</div>
     <button class="req-alert" id="reqAlert" type="button" style="display:none"></button>
-    <button class="req-alert pkg-alert" id="pkgAlert" type="button" style="display:none"></button>
+    <div class="req-alert pkg-alert" id="pkgAlert" style="display:none">
+      <button class="pkg-alert-text" id="pkgAlertText" type="button"></button>
+      <button class="pkg-alert-x" id="pkgAlertClose" type="button" aria-label="Скрыть" title="Скрыть">×</button>
+    </div>
 
     <div class="tabs">
       <div class="tab" data-tab="lessons">Занятия</div>
